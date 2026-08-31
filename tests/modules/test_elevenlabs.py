@@ -1,4 +1,5 @@
 """Unit tests for ElevenLabsModule."""
+
 import array as _array
 import asyncio
 from unittest.mock import MagicMock, patch
@@ -47,7 +48,12 @@ def test_api_key_from_env(mock_elevenlabs_cls, monkeypatch):
 @patch("tts_engine.modules.elevenlabs.ElevenLabs")
 def test_literal_api_key_takes_precedence_over_env(mock_elevenlabs_cls, monkeypatch):
     monkeypatch.setenv("MY_TTS_KEY", "env-secret")
-    config = {"type": "elevenlabs", "api_key": "literal-key", "api_key_env": "MY_TTS_KEY", "voice_id": "v"}
+    config = {
+        "type": "elevenlabs",
+        "api_key": "literal-key",
+        "api_key_env": "MY_TTS_KEY",
+        "voice_id": "v",
+    }
     ElevenLabsModule(config)
     mock_elevenlabs_cls.assert_called_once_with(api_key="literal-key")
 
@@ -69,7 +75,12 @@ def test_defaults(mock_elevenlabs_cls):
 
 @patch("tts_engine.modules.elevenlabs.ElevenLabs")
 def test_custom_values(mock_elevenlabs_cls):
-    config = {**VALID_CONFIG, "model": "eleven_multilingual_v2", "stability": 0.8, "similarity_boost": 0.9}
+    config = {
+        **VALID_CONFIG,
+        "model": "eleven_multilingual_v2",
+        "stability": 0.8,
+        "similarity_boost": 0.9,
+    }
     module = ElevenLabsModule(config)
     assert module._model == "eleven_multilingual_v2"
     assert module._stability == 0.8
@@ -78,8 +89,10 @@ def test_custom_values(mock_elevenlabs_cls):
 
 @patch("tts_engine.modules.elevenlabs.miniaudio.stream_any")
 @patch("tts_engine.modules.elevenlabs.ElevenLabs")
-def test_stream_calls_callback_with_decoded_pcm_bytes(mock_elevenlabs_cls, mock_stream_any):
-    pcm_chunks = [_array.array('h', [10, 20]), _array.array('h', [30, 40])]
+def test_stream_calls_callback_with_decoded_pcm_bytes(
+    mock_elevenlabs_cls, mock_stream_any
+):
+    pcm_chunks = [_array.array("h", [10, 20]), _array.array("h", [30, 40])]
     mock_client = MagicMock()
     mock_client.text_to_speech.stream.return_value = iter([b"mp3data"])
     mock_elevenlabs_cls.return_value = mock_client
@@ -118,9 +131,11 @@ def test_stream_skips_empty_elevenlabs_chunks(mock_elevenlabs_cls, mock_stream_a
 
 @patch("tts_engine.modules.elevenlabs.miniaudio.stream_any")
 @patch("tts_engine.modules.elevenlabs.ElevenLabs")
-def test_stream_wraps_elevenlabs_exception_in_tts_error(mock_elevenlabs_cls, mock_stream_any):
+def test_stream_wraps_elevenlabs_exception_in_tts_error(
+    mock_elevenlabs_cls, mock_stream_any
+):
     # Trigger source consumption so the SDK exception propagates through _ChunkSource.read()
-    mock_stream_any.side_effect = lambda source, **kwargs: (source.read(1) and iter([]))
+    mock_stream_any.side_effect = lambda source, **kwargs: source.read(1) and iter([])
 
     mock_client = MagicMock()
     mock_client.text_to_speech.stream.side_effect = RuntimeError("network failure")

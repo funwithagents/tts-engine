@@ -4,6 +4,7 @@ Holds the subprocess/config helpers the live tests share, plus `require_env` —
 the skip-not-fail guard so a test with no credentials skips cleanly instead of
 failing (you only exercise the services you hold keys for).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -47,7 +48,9 @@ def require_e2e_config() -> dict:
         return config
     env_name = module.get("api_key_env")
     if not env_name:
-        pytest.skip(f"{CONFIG_PATH.name} has no 'api_key' or 'api_key_env'; skipping live test")
+        pytest.skip(
+            f"{CONFIG_PATH.name} has no 'api_key' or 'api_key_env'; skipping live test"
+        )
     require_env(env_name)
     return config
 
@@ -72,7 +75,9 @@ async def _wait_for_port(host: str, port: int, timeout: float = 15.0) -> None:
     raise TimeoutError(f"Server on {host}:{port} did not start within {timeout}s")
 
 
-async def start_mcp_server(config: dict, port: int) -> tuple[asyncio.subprocess.Process, str]:
+async def start_mcp_server(
+    config: dict, port: int
+) -> tuple[asyncio.subprocess.Process, str]:
     """Start a tts-engine-mcp subprocess.  Returns (process, tmp_config_path)."""
     cfg = {**config, "server": {"host": "127.0.0.1", "port": port}}
 
@@ -80,10 +85,15 @@ async def start_mcp_server(config: dict, port: int) -> tuple[asyncio.subprocess.
     with os.fdopen(fd, "w") as f:
         json.dump(cfg, f)
 
-    log.info("Starting MCP server subprocess on port %d (config: %s)", port, config_path)
+    log.info(
+        "Starting MCP server subprocess on port %d (config: %s)", port, config_path
+    )
     proc = await asyncio.create_subprocess_exec(
-        "uv", "run", "tts-engine-mcp",
-        "--config", config_path,
+        "uv",
+        "run",
+        "tts-engine-mcp",
+        "--config",
+        config_path,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
     )

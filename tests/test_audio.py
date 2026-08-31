@@ -1,4 +1,5 @@
 """Tests for AudioPlayer."""
+
 import numpy as np
 
 from tts_engine.audio import AudioPlayer

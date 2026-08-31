@@ -1,5 +1,6 @@
 ---
 code:
+  - config.example.json
   - src/tts_engine/config.py
 tests:
   - tests/test_config.py
@@ -11,7 +12,7 @@ tests:
 
 ## Config file
 
-The MCP server is started with `--config <path>` pointing to a JSON file. There is no default path — the argument is required. Library callers can load the same file with `load_config(path)` or construct the dataclasses directly.
+The MCP server is started with `--config <path>` pointing to a JSON object. There is no default path — the argument is required. Library callers can load the same file with `load_config(path)` or construct the dataclasses directly.
 
 `config.example.json` in the repo root documents all fields with placeholder values and must be kept in sync with this spec.
 
@@ -53,7 +54,7 @@ Everything needed to build a `TTSEngine`: the TTS module config and the audio pl
 ```python
 @dataclass
 class TTSEngineConfig:
-    module: dict[str, Any]   # raw module block, including "type"; parsed by the module
+    module: dict[str, Any]  # raw module block, including "type"; parsed by the module
     player: PlayerConfig
 ```
 
@@ -90,7 +91,7 @@ Consumed only by the MCP entry point.
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `host` | string | no | `"127.0.0.1"` | Bind address for the StreamableHTTP server. |
+| `host` | non-empty string | no | `"127.0.0.1"` | Bind address for the StreamableHTTP server. |
 | `port` | int | no | `8000` | TCP port. |
 
 ---
@@ -140,8 +141,10 @@ The level is applied by `setup_logging(level)` to the package logger `logging.ge
 
 ## Validation rules
 
-- The config file must be valid JSON; parse errors are reported with the file path.
+- File-read failures and invalid JSON raise `ConfigError` with the file path.
+- The top-level value and the `engine`, `engine.module`, `engine.player`, `server`, and `logging` blocks must be JSON objects. Shape failures raise `ConfigError`, never raw `AttributeError`/`TypeError`.
 - The `engine` block is required and must contain a `module` block. Missing required blocks/fields raise `ConfigError` with a message identifying the missing key.
-- `engine.module.type` must be a non-empty string matching a registered module key. Unknown values raise a `ConfigError`.
-- `server.port` must be an integer in range 1–65535.
+- `load_config` validates `engine.module.type` as a non-empty string. Registry membership is validated later by `load_module` during `TTSEngine.from_config`, avoiding a config↔module import cycle and allowing callers to register custom modules before constructing the engine. Unknown values still raise `ConfigError` before an engine is created.
+- `engine.player.device` must be a string, an integer other than `bool`, or `null`.
+- `server.host` must be a non-empty string; `server.port` must be an integer other than `bool` in range 1–65535.
 - `logging.level` must be a recognized level name; an unknown level raises `ConfigError`.

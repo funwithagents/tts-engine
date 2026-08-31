@@ -3,6 +3,7 @@
 A thin transport layer: each tool wrapper delegates to the transport-agnostic
 `tools` layer; the synthesis/validation logic lives there, not here.
 """
+
 from mcp.server.fastmcp import FastMCP
 
 from tts_engine import tools

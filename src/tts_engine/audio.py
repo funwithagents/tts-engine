@@ -1,4 +1,5 @@
 """AudioPlayer: sounddevice-based streaming playback."""
+
 import logging
 
 import numpy as np

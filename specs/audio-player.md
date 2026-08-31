@@ -54,7 +54,8 @@ Matches the module contract (see `tts-module-interface.md`):
 ### Stream lifecycle
 
 - Open a `sounddevice.OutputStream` on the first `feed()` call (lazy open), not in `__init__`. This avoids opening the device if synthesis fails before the first chunk.
-- `drain()` calls `stream.stop()` then `stream.close()`.
+- If opening succeeds but `stream.start()` fails, close the new stream before propagating the error.
+- `drain()` detaches the active stream, calls `stream.stop()`, and always calls `stream.close()` in a `finally` block. A failed stop therefore cannot leak the device or leave a stale stream attached to the player.
 
 ### Buffering
 

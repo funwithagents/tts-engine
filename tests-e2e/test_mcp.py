@@ -4,6 +4,7 @@ Drives the engine through the full MCP transport — a `tts-engine-mcp`
 subprocess reached with a real MCP client. The in-process library path is
 covered separately in `test_engine.py`.
 """
+
 from __future__ import annotations
 
 from mcp import ClientSession
@@ -17,7 +18,9 @@ async def test_speak_returns_ok(server_url):
         ClientSession(read, write) as session,
     ):
         await session.initialize()
-        result = await session.call_tool("speak", {"text": "Hello from the TTS MCP test"})
+        result = await session.call_tool(
+            "speak", {"text": "Hello from the TTS MCP test"}
+        )
     block = result.content[0]
     assert isinstance(block, TextContent)
     assert block.text == "OK"

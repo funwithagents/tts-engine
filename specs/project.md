@@ -22,7 +22,7 @@ Structure and tooling for the `tts-engine` project itself: Python version, depen
 - **Package layout:** `src/` layout — `src/tts_engine/...` — not flat, to avoid accidentally importing an uninstalled package from the repo root.
 - **Dependency/venv management:** `uv`. Dev tooling lives in the `dev` dependency group (`uv sync --dev`), not in runtime `dependencies`.
 - **Runtime dependencies:** see the table below.
-- **Linting/formatting:** `ruff`.
+- **Linting/formatting:** `ruff`; both `ruff check .` and `ruff format --check .` are verification gates.
 - **Type checking:** `pyright` (`standard` mode), a dev dependency run via `uv run pyright`. Config lives in `[tool.pyright]` in `pyproject.toml`, targeting `src`, `tests`, and `tests-e2e`, pinned to the `.venv`.
 - **Testing:** `pytest`, in two physically-separated tiers — a fast, deterministic, no-network default run (`tests/`, the only tier `testpaths` collects) and an opt-in live tier (`tests-e2e/`) that hits the real ElevenLabs API and audio hardware. Full strategy is specced in [testing.md](testing.md).
 - **Distribution name:** `tts-engine` (`[project].name`).
@@ -42,8 +42,9 @@ Structure and tooling for the `tts-engine` project itself: Python version, depen
 
 ## Logging
 
-- Every module uses `log = logging.getLogger(__name__)`. Under the `tts_engine` package these are children of the `tts_engine` logger, so they inherit its configured handler and level.
+- Every module that emits logs uses a module-level `log = logging.getLogger(__name__)`. Under the `tts_engine` package these are children of the `tts_engine` logger, so they inherit its configured handler and level.
 - The level is **not** hardcoded and the root logger is **not** touched: `setup_logging(level)` reads the level from the `logging` config block ([configuration.md](configuration.md)) and applies it to `logging.getLogger("tts_engine")`.
+- The configured package logger does not propagate to root, avoiding duplicate output when an embedding application has root handlers.
 
 ## Key dependencies
 

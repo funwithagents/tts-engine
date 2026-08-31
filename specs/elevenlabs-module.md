@@ -13,7 +13,7 @@ tests:
 
 ## Overview
 
-`elevenlabs` implements `TTSModule` using the ElevenLabs streaming TTS API. It requests MP3 output and decodes each chunk to raw signed 16-bit PCM mono in-process before the callback, so `AudioPlayer` always receives PCM.
+`elevenlabs` implements `TTSModule` using the ElevenLabs streaming TTS API. It requests MP3 output and incrementally decodes the encoded stream to raw signed 16-bit PCM mono in-process before the callback, so `AudioPlayer` always receives PCM.
 
 ## Config fields
 
@@ -21,16 +21,18 @@ All fields go under the `engine.module` block in `config.json` alongside `"type"
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `api_key` | string | one of `api_key`/`api_key_env` | — | ElevenLabs API key, given literally. |
-| `api_key_env` | string | one of `api_key`/`api_key_env` | — | Name of an environment variable holding the API key. Lets a config file be committed with no secret. |
-| `voice_id` | string | yes | — | The voice ID used for synthesis. |
-| `model` | string | no | `"eleven_flash_v2_5"` | ElevenLabs model ID. `eleven_flash_v2_5` is recommended for low latency; `eleven_multilingual_v2` for quality. |
-| `stability` | float | no | `0.5` | Voice stability (0.0–1.0). |
-| `similarity_boost` | float | no | `0.75` | Similarity boost (0.0–1.0). |
+| `api_key` | non-empty string | one of `api_key`/`api_key_env` | — | ElevenLabs API key, given literally. |
+| `api_key_env` | non-empty string | one of `api_key`/`api_key_env` | — | Name of an environment variable holding the API key. Lets a config file be committed with no secret. |
+| `voice_id` | non-empty string | yes | — | The voice ID used for synthesis. |
+| `model` | non-empty string | no | `"eleven_flash_v2_5"` | ElevenLabs model ID. `eleven_flash_v2_5` is recommended for low latency; `eleven_multilingual_v2` for quality. |
+| `stability` | number | no | `0.5` | Voice stability (0.0–1.0). |
+| `similarity_boost` | number | no | `0.75` | Similarity boost (0.0–1.0). |
 
 ### API key resolution
 
-The key is resolved in this order: a non-empty literal `api_key` wins; otherwise, if `api_key_env` is set, the key is read from that environment variable. If `api_key_env` names a variable that is unset or empty, construction raises `ConfigError` identifying the variable. If neither `api_key` nor `api_key_env` yields a key, construction raises `ConfigError`. Prefer `api_key_env` so `config.json` can be committed without a secret.
+The key is resolved in this order: a non-empty literal `api_key` wins; otherwise, if `api_key_env` is set, the key is read from that environment variable. Non-string values raise `ConfigError`. If `api_key_env` names a variable that is unset or empty, construction raises `ConfigError` identifying the variable. If neither `api_key` nor `api_key_env` yields a key, construction raises `ConfigError`. Prefer `api_key_env` so `config.json` can be committed without a secret.
+
+`voice_id` and `model` are validated as non-empty strings. `stability` and `similarity_boost` are validated at construction as numeric values in the inclusive range 0–1; booleans are rejected rather than treated as integers. Invalid module configuration therefore fails as `ConfigError` before the SDK client is used.
 
 ## Implementation notes
 
@@ -64,37 +66,13 @@ class _ChunkSource(miniaudio.StreamableSource):
 
 
 async def stream(self, text, options, callback):
-    def _blocking_stream():
-        try:
-            raw_chunks = (
-                chunk
-                for chunk in self._client.text_to_speech.stream(
-                    text=text,
-                    voice_id=self._voice_id,
-                    model_id=self._model,
-                    output_format="mp3_44100_128",
-                    voice_settings=VoiceSettings(
-                        stability=self._stability,
-                        similarity_boost=self._similarity_boost,
-                    ),
-                )
-                if chunk
-            )
-            source = _ChunkSource(raw_chunks)
-            for pcm_chunk in miniaudio.stream_any(
-                source,
-                output_format=miniaudio.SampleFormat.SIGNED16,
-                nchannels=1,
-                sample_rate=44100,
-            ):
-                callback(pcm_chunk.tobytes())
-        except Exception as exc:
-            raise TTSError(f"ElevenLabs request failed: {exc}") from exc
-
-    await asyncio.to_thread(_blocking_stream)
+    # Build and advance the provider/decoder iterator inside a worker thread.
+    # Provider and decoder exceptions become TTSError. Invoke callback outside
+    # that catch boundary so playback failures retain their real identity.
+    ...
 ```
 
-Note: the ElevenLabs SDK streaming method is synchronous (returns an iterator). The entire decode-and-feed loop is wrapped in `asyncio.to_thread` to avoid blocking the event loop.
+The ElevenLabs SDK streaming method is synchronous (returns an iterator). The entire decode-and-feed loop is wrapped in `asyncio.to_thread` to avoid blocking the event loop. On coroutine cancellation, a thread-safe stop flag requests termination between decoded chunks and the coroutine waits for the worker to finish before propagating `CancelledError`; no callback can occur after `stream()` exits.
 
 ### Dependencies
 
@@ -102,7 +80,9 @@ Requires `miniaudio` (`pip install miniaudio`) for MP3 → PCM streaming decodin
 
 ### Error handling
 
-- Any exception raised during streaming or decoding (SDK/API errors, auth failures, network errors, decode errors) is caught and re-raised as `TTSError(f"ElevenLabs request failed: {exc}")`, chained from the original via `raise ... from exc`. The original exception's message is preserved in the text, so auth (`401`) and network failures surface with their upstream detail without needing to be special-cased.
+- Any exception raised by the SDK or decoder (API errors, auth failures, network errors, invalid audio) is caught and re-raised as `TTSError(f"ElevenLabs request failed: {exc}")`, chained from the original via `raise ... from exc`.
+- Exceptions raised by `callback` are downstream playback failures. They propagate unchanged and are not mislabeled as ElevenLabs request failures.
+- Cancellation requests cooperative worker shutdown and waits until callback activity has stopped before propagating.
 
 ## Module ID
 

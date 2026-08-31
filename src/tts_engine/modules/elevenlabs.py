@@ -1,4 +1,5 @@
 """ElevenLabs streaming TTS module."""
+
 import asyncio
 import os
 from collections.abc import Iterator
@@ -30,7 +31,6 @@ class _ChunkSource(miniaudio.StreamableSource):
 
 
 class ElevenLabsModule(TTSModule):
-
     def __init__(self, config: dict) -> None:
         api_key = self._resolve_api_key(config)
 

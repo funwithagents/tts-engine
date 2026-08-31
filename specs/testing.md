@@ -1,6 +1,8 @@
 ---
 code:
+  - pyproject.toml
   - tests/conftest.py
+  - tests-e2e/config.json
   - tests-e2e/conftest.py
   - tests-e2e/support.py
 tests:
@@ -35,14 +37,14 @@ The `tests/` tier mirrors the `src/tts_engine/` module layout (`test_<module>.py
 
 ## What a good test asserts
 
-- **Functional, not tautological.** Exercise what a feature actually does — inputs → outputs, state changes, side effects — not that it runs or matches its own signature. A test that would pass against a broken implementation (asserting a constant, that an object isn't `None`, that a mock was called) isn't worth writing.
+- **Functional, not tautological.** Exercise what a feature actually does — inputs → outputs, state changes, side effects — not that it runs or matches its own signature. A bare call-count assertion is insufficient; collaborator assertions should verify meaningful arguments, ordering, or externally observable effects and would fail against a broken implementation.
 - **Observable behavior only.** Assert return values, raised exceptions, calls to collaborators, and changes to public state. Never assert on private attributes (`_foo`). Drive the public API the way a real caller would.
 - **One test per distinct code path.** Keep variants only when they trigger genuinely different logic; merge lifecycle sequences (start/stop, connect/disconnect) into one test. Error paths (`missing_key`, `empty_key`, `unknown_type`) are distinct scenarios and each deserve a test.
 - **In the e2e tier, assert on behavior, not exact output.** Real service responses and audio vary run to run, so a live test asserts a robust property ("the `speak` call returned success", "audio bytes were produced"), never a specific string or audio content.
 
 ### Smell checklist
 
-Delete or merge a test if it: asserts a private attribute; is fully subsumed by another test in the same file; checks something that cannot break independently; or is one of N near-identical tests differing only in which field they check.
+Delete or merge a test if it: asserts a private implementation attribute; is fully subsumed by another test in the same file; checks something that cannot break independently; or is one of N near-identical tests differing only in which field they check. Tests should drive public methods such as `FastMCP.call_tool`; provider configuration is observed through the arguments sent to the provider client.
 
 ### Speed budget
 
@@ -53,14 +55,14 @@ The full unit tier (`uv run pytest tests/`) must complete in under 5 seconds. If
 A live test needs real credentials, and it must **skip — never fail** — when they're absent, so you exercise only the services you hold keys for and a contributor (or CI) with none is never broken.
 
 - **The e2e config is committed and secret-free.** `tests-e2e/config.json` is checked in (un-ignored past the repo-wide `config.json` rule) and carries `api_key_env: "ELEVENLABS_API_KEY"` — the *name* of the env var holding the key, never the key itself (see [elevenlabs-module.md](elevenlabs-module.md), "API key resolution"). So the live tier is turned on by exporting `ELEVENLABS_API_KEY`, not by dropping an untracked file in place — which is what makes it CI-ready.
-- **`support.require_e2e_config()` is the skip gate.** It loads that config and skips the calling test unless credentials are available: a literal `api_key` counts, otherwise the env var named by `api_key_env` must be set. Both the `server_url` and `app_config` fixtures go through it. The MCP subprocess inherits the parent environment, so the same `ELEVENLABS_API_KEY` reaches the server it spawns.
+- **`support.require_e2e_config()` is the skip gate.** It loads the committed config and skips the calling test unless credentials are available: a literal `api_key` counts, otherwise the env var named by `api_key_env` must be set. Both the `server_url` and `app_config` fixtures go through it. The MCP subprocess inherits the parent environment, so the same `ELEVENLABS_API_KEY` reaches the server it spawns. A missing committed config is repository corruption and fails rather than skipping; missing credentials skip cleanly.
 - **`support.require_env(NAME)`** is the underlying one-variable guard: it returns the variable or calls `pytest.skip(...)` when it's unset. Secrets live only in the environment, never in the tree.
 
 ## Tooling
 
-- **`pytest`** is the runner (`asyncio_mode = "auto"` for the async server/engine tests); **`ruff`** lints/formats; **`pyright`** (`standard` mode) type-checks. All three are the gate after any change — lint, type check, and tests must pass before work is considered done (see [AGENTS.md](../AGENTS.md), "Verification").
+- **`pytest`** is the runner (`asyncio_mode = "auto"` for the async server/engine tests); **`ruff`** lints and checks formatting; **`pyright`** (`standard` mode) type-checks. Formatting, lint, type check, and tests must all pass before work is considered done (see [AGENTS.md](../AGENTS.md), "Verification").
 - **`pyright` covers test code too:** its `include` is `src`, `tests`, and `tests-e2e`, so tests are type-checked alongside the library rather than being a blind spot.
 
 ## Open questions
 
-1. **CI wiring.** Nothing here sets up continuous integration. The default `tests/` tier is CI-ready (deterministic, no credentials), and the e2e tier skips cleanly when `config.json` is absent — but actually running either on a hosted runner is unbuilt. Today all testing is a local, manual command.
+1. **CI wiring.** Nothing here sets up continuous integration. The default `tests/` tier is CI-ready (deterministic, no credentials), and the e2e tier skips cleanly when credentials are absent — but actually running either on a hosted runner is unbuilt. Today all testing is a local, manual command.

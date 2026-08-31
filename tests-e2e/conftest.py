@@ -1,4 +1,5 @@
 """Shared fixtures for e2e tests."""
+
 from __future__ import annotations
 
 import sys

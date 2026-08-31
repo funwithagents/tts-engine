@@ -1,4 +1,5 @@
 """MCP entry point: parses args and wires everything together."""
+
 import argparse
 import logging
 
@@ -17,7 +18,9 @@ def main() -> None:
         prog="tts-engine-mcp",
         description="TTS Engine MCP server — exposes the engine's speak tool over StreamableHTTP",
     )
-    parser.add_argument("--config", required=True, metavar="PATH", help="Path to config JSON file")
+    parser.add_argument(
+        "--config", required=True, metavar="PATH", help="Path to config JSON file"
+    )
     args = parser.parse_args()
 
     cfg = load_config(args.config)

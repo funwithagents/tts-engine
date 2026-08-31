@@ -111,7 +111,7 @@ Steps 3–7 above, entered directly: application code calls `tools.speak(engine,
 | `engine.py` | Wires module + player; `speak()`; `from_config`; no protocol knowledge |
 | `modules/base.py` | Defines `TTSModule` ABC and shared dataclasses (`TTSOptions`) |
 | `modules/elevenlabs.py` | ElevenLabs API interaction, MP3→PCM decoding via miniaudio, config parsing |
-| `audio.py` | `sounddevice` output stream management; format-agnostic PCM consumer |
+| `audio.py` | `sounddevice` output stream management; provider-agnostic consumer of the fixed PCM format contract |
 | `config.py` | Load, parse, and validate `config.json`; produce typed config dataclasses (`AppConfig`, `TTSEngineConfig`, …) |
 | `cli.py` | Argument parsing; `load_config` → `TTSEngine.from_config` → MCP server; `setup_logging(level)`; starts uvicorn |
 | `__init__.py` | Public API surface: re-exports `TTSEngine`, `TTSEngineConfig`, `load_config` |
@@ -131,4 +131,5 @@ Everything else (modules, audio, tools, mcp, cli) is reachable by submodule impo
 - The MCP server runs under `uvicorn` (async).
 - `engine.speak` is an `async` method; it `await`s the module's streaming coroutine.
 - `AudioPlayer` uses a `sounddevice` output stream in blocking-write mode: `feed()` writes each PCM chunk directly to the stream. The module drives the callback from a single `asyncio.to_thread` worker, so `feed()` is only ever called from one thread at a time.
-- Only one `speak` call is processed at a time (no concurrent synthesis).
+- `TTSEngine` owns an `asyncio.Lock` around the complete module-stream + player-drain lifecycle. Concurrent library or MCP calls wait for exclusive access, so only one `speak` call is processed at a time and PCM streams cannot interleave.
+- A module must stop invoking its callback before `stream()` returns or raises, including cancellation. The ElevenLabs implementation requests cooperative worker shutdown and waits for its thread before propagating cancellation, so the engine can safely drain and release the lock.

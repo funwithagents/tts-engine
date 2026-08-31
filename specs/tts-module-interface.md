@@ -34,8 +34,8 @@ Module-specific configuration is not modeled as a dataclass: each module's const
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 
-class TTSModule(ABC):
 
+class TTSModule(ABC):
     def __init__(self, config: dict) -> None:
         """Construct from the module config block (the `engine.module` dict,
         including `type`). Subclasses validate and extract the fields they
@@ -52,11 +52,13 @@ class TTSModule(ABC):
         Synthesize `text` and call `callback` with each PCM chunk as it arrives.
 
         - `text`: the string to synthesize. Must not be empty.
-        - `options`: per-call overrides (voice, etc.). Module uses config defaults for None fields.
-        - `callback`: called once per audio chunk with raw bytes. May be called from any thread.
+        - `options`: per-call overrides; currently empty and reserved for future use.
+        - `callback`: called sequentially with each raw audio chunk. Calls may run
+          off the event-loop thread but must never overlap.
 
         Raises `TTSError` on synthesis failure.
-        Returns only after all chunks have been passed to `callback`.
+        Returns or raises only after it has stopped invoking `callback`, including
+        when the coroutine is cancelled.
         """
 ```
 
@@ -70,7 +72,7 @@ REGISTRY: dict[str, type[TTSModule]] = {
 }
 ```
 
-`load_module(tts_config: dict) -> TTSModule` reads `tts_config["type"]`, looks it up in `REGISTRY`, and constructs the module with the remaining config fields. Raises `ConfigError` for unknown types.
+`load_module(tts_config: dict) -> TTSModule` reads `tts_config["type"]`, looks it up in `REGISTRY`, and constructs the module with the complete config dictionary, including `type`. Raises `ConfigError` for unknown types.
 
 ## Audio format contract
 
@@ -86,6 +88,7 @@ The AudioPlayer is configured to match this format. Modules must not emit MP3 or
 
 ## Error handling
 
-- Modules raise `TTSError` (defined in `modules/base.py`) for synthesis failures (API errors, network errors, invalid responses).
+- Modules raise `TTSError` (defined in `modules/base.py`) for provider and decoding failures (API errors, network errors, invalid responses).
 - `ConfigError` is raised in the constructor for invalid or missing config fields.
+- Callback failures belong to the downstream consumer and must propagate unchanged rather than being mislabeled as provider failures.
 - Modules must not swallow exceptions silently.

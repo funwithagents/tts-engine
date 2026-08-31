@@ -6,6 +6,7 @@ output; the property asserted is that a full synthesis-and-playback pass
 completes without raising (no audio-content verification). The MCP transport is
 covered separately in `test_mcp.py`.
 """
+
 from __future__ import annotations
 
 from tts_engine import TTSEngine

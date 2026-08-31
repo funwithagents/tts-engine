@@ -50,7 +50,9 @@ tts-engine/
 │   ├── 202603261508_mcp-server.md
 │   ├── 202603261509_e2e-testing.md
 │   ├── 202608311000_rename-and-library-structure.md
-│   └── 202608311001_nested-config-and-from-config.md
+│   ├── 202608311001_nested-config-and-from-config.md
+│   ├── 202608311500_api-key-env-and-e2e-split.md
+│   └── 202608311558_consistency-hardening.md
 ├── src/
 │   └── tts_engine/
 │       ├── __init__.py          # Public API: TTSEngine, TTSEngineConfig, load_config
@@ -203,9 +205,10 @@ sudo apt-get install libportaudio2
 
 ## Verification
 
-After any code change, run all three and fix any failures before considering the work done:
+After any code change, run all four and fix any failures before considering the work done:
 
 ```bash
+uv run ruff format --check .
 uv run ruff check .
 uv run pyright
 uv run pytest
@@ -215,7 +218,7 @@ Only mark a plan `Done` (and promote its spec to `Implemented`) once these pass.
 
 ## Logging conventions
 
-- Every module uses `log = logging.getLogger(__name__)` (variable name: `log`, not `logger`).
+- Every module that emits logs uses `log = logging.getLogger(__name__)` (variable name: `log`, not `logger`).
 - **Library modules** (`src/tts_engine/`) never call `basicConfig` or configure handlers, and never touch the root logger.
 - **Entry points** (`cli.py`) call `setup_logging(level)` from `tts_engine._logging` at startup — it configures the package logger (`tts_engine`), not root. The level comes from the `logging` config block.
 

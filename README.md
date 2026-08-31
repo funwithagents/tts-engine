@@ -17,10 +17,12 @@ import asyncio
 
 from tts_engine import TTSEngine, load_config
 
+
 async def main():
     cfg = load_config("config.json")
     engine = TTSEngine.from_config(cfg.engine)
     await engine.speak("Hello from the TTS engine")
+
 
 asyncio.run(main())
 ```
@@ -63,10 +65,11 @@ uv sync
 
 ## Configuration
 
-Copy the example config and fill in your credentials:
+Copy the example config and provide your ElevenLabs key through the environment:
 
 ```bash
 cp config.example.json config.json
+export ELEVENLABS_API_KEY="sk_..."
 ```
 
 ```json
@@ -74,7 +77,7 @@ cp config.example.json config.json
   "engine": {
     "module": {
       "type": "elevenlabs",
-      "api_key": "sk_...",
+      "api_key_env": "ELEVENLABS_API_KEY",
       "voice_id": "voice_id",
       "model": "eleven_flash_v2_5",
       "stability": 0.5,
@@ -96,7 +99,8 @@ cp config.example.json config.json
 
 | Field | Description |
 |---|---|
-| `engine.module.api_key` | Your ElevenLabs API key |
+| `engine.module.api_key_env` | Name of the environment variable containing your ElevenLabs API key (recommended) |
+| `engine.module.api_key` | Optional literal API key; supported, but avoid committing it |
 | `engine.module.voice_id` | Voice to use — find IDs in the [ElevenLabs voice library](https://elevenlabs.io/voice-library) |
 | `engine.module.model` | ElevenLabs model ID (e.g. `eleven_flash_v2_5` for low latency) |
 | `engine.module.stability` / `engine.module.similarity_boost` | Voice tuning parameters (0.0–1.0) |
@@ -150,7 +154,7 @@ The engine uses a pluggable module system. The `engine.module.type` field in you
 2. Register it by name in the `REGISTRY` dict in [src/tts_engine/modules/\_\_init\_\_.py](src/tts_engine/modules/__init__.py).
 3. Set `"engine": { "module": { "type": "<your-name>", ... } }` in your config.
 
-The server, playback layer, and MCP tool need no changes. This makes it easy to plug in any TTS backend such as a local open-source model a different cloud API, or anything that can produce a stream of PCM audio.
+The server, playback layer, and MCP tool need no changes. This makes it easy to plug in any TTS backend such as a local open-source model, a different cloud API, or anything that can produce a stream of PCM audio.
 
 
 
@@ -158,8 +162,8 @@ The server, playback layer, and MCP tool need no changes. This makes it easy to 
 
 **No audio plays**
 - Confirm PortAudio is installed: `sudo apt-get install libportaudio2`
-- Check `audio.device` — set it to `null` to use the system default, or run `python -c "import sounddevice; print(sounddevice.query_devices())"` to list available devices
+- Check `engine.player.device` — set it to `null` to use the system default, or run `python -c "import sounddevice; print(sounddevice.query_devices())"` to list available devices
 
 **ElevenLabs API errors**
-- Verify your `api_key` is correct and active
+- Verify `ELEVENLABS_API_KEY` (or your configured `api_key_env`) is set and active
 - Verify your `voice_id` exists in your ElevenLabs account

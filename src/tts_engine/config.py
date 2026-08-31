@@ -1,4 +1,5 @@
 """Config dataclasses + load_config() + ConfigError."""
+
 import json
 from dataclasses import dataclass, field
 from typing import Any
@@ -67,7 +68,9 @@ def load_config(path: str) -> AppConfig:
     server_raw = data.get("server", {})
     port = server_raw.get("port", 8000)
     if not isinstance(port, int) or not (1 <= port <= 65535):
-        raise ConfigError(f"'server.port' must be an integer in range 1–65535, got {port!r}")
+        raise ConfigError(
+            f"'server.port' must be an integer in range 1–65535, got {port!r}"
+        )
     server_cfg = ServerConfig(host=server_raw.get("host", "127.0.0.1"), port=port)
 
     logging_raw = data.get("logging", {})

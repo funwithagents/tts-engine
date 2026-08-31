@@ -1,4 +1,6 @@
 """Tests for TTSEngine."""
+
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -27,7 +29,9 @@ def engine(mock_module, mock_player):
 
 
 @pytest.mark.asyncio
-async def test_speak_calls_stream_with_text_and_options(engine, mock_module, mock_player):
+async def test_speak_calls_stream_with_text_and_options(
+    engine, mock_module, mock_player
+):
     await engine.speak("hello world")
 
     mock_module.stream.assert_awaited_once()
@@ -66,14 +70,40 @@ async def test_speak_propagates_tts_error_after_drain(engine, mock_module, mock_
 
 
 @pytest.mark.asyncio
+async def test_concurrent_speak_calls_are_serialized(engine, mock_module, mock_player):
+    active = 0
+    maximum_active = 0
+
+    async def stream(*args, **kwargs):
+        nonlocal active, maximum_active
+        active += 1
+        maximum_active = max(maximum_active, active)
+        await asyncio.sleep(0)
+        active -= 1
+
+    mock_module.stream.side_effect = stream
+
+    await asyncio.gather(engine.speak("first"), engine.speak("second"))
+
+    assert maximum_active == 1
+    assert mock_player.drain.call_count == 2
+
+
+@pytest.mark.asyncio
 async def test_from_config_wires_module_and_player(mocker):
     fake_module = MagicMock()
     fake_module.stream = AsyncMock()
     fake_player = MagicMock()
-    load_module = mocker.patch("tts_engine.engine.load_module", return_value=fake_module)
-    audio_player = mocker.patch("tts_engine.engine.AudioPlayer", return_value=fake_player)
+    load_module = mocker.patch(
+        "tts_engine.engine.load_module", return_value=fake_module
+    )
+    audio_player = mocker.patch(
+        "tts_engine.engine.AudioPlayer", return_value=fake_player
+    )
 
-    cfg = TTSEngineConfig(module={"type": "fake", "k": "v"}, player=PlayerConfig(device=3))
+    cfg = TTSEngineConfig(
+        module={"type": "fake", "k": "v"}, player=PlayerConfig(device=3)
+    )
     engine = TTSEngine.from_config(cfg)
 
     load_module.assert_called_once_with({"type": "fake", "k": "v"})

@@ -47,11 +47,13 @@ The empty-text guard, the call to `engine.speak`, and the `TTSError` → message
 
 ### Return value (error)
 
-Tool errors are returned as MCP text content (not raised as exceptions), so the client receives a structured error rather than a transport-level failure:
+Expected synthesis errors (`TTSError`) are returned as MCP text content rather than raised as exceptions, so the client receives a structured error rather than a transport-level failure:
 
 ```json
 [{"type": "text", "text": "TTS error: <message>"}]
 ```
+
+Unexpected exceptions, including downstream playback/device failures, are deliberately not caught by the tools or MCP layers and surface as MCP tool-execution failures. This preserves their real identity instead of mislabeling them as provider errors.
 
 ## Lifecycle
 
@@ -69,6 +71,7 @@ Application-level logging uses `log = logging.getLogger(__name__)` (a child of t
 from mcp.server.fastmcp import FastMCP
 
 from tts_engine import tools
+
 
 def create_server(engine: TTSEngine) -> FastMCP:
     mcp = FastMCP("tts-engine")
