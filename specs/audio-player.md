@@ -25,9 +25,9 @@ class AudioPlayer:
 
     def feed(self, chunk: bytes) -> None:
         """
-        Write a PCM chunk to the output stream.
+        Write a PCM chunk to the output stream (blocking write).
         Opens the stream on the first call; subsequent calls write directly.
-        Thread-safe: may be called from any thread (e.g. a PortAudio callback thread).
+        Called from a single module worker thread at a time (not concurrently).
         """
 
     def drain(self) -> None:
@@ -56,13 +56,9 @@ Matches the module contract (see `tts-module-interface.md`):
 
 ### Buffering
 
-Use a `queue.Queue` to bridge between the `feed()` caller (async/main thread) and the PortAudio callback (audio thread):
+`feed(chunk)` converts the bytes to a `numpy.ndarray` of `int16` and calls `sounddevice.OutputStream.write()` in blocking mode — no queue. This is the simplest option and works here because the module already drives `feed()` from a single `asyncio.to_thread` worker, so the blocking write never runs on the event loop.
 
-1. `feed(chunk)` converts bytes to a `numpy.ndarray` of `int16` and puts it on the queue.
-2. The `sounddevice` callback reads from the queue and fills the output buffer.
-3. If the queue is empty, output silence (zeros) to avoid glitches.
-
-Alternatively, use `sounddevice.OutputStream.write()` in blocking mode (simpler, no queue needed) — acceptable if it does not cause issues with the async event loop. Use `asyncio.to_thread` for the blocking write if needed.
+(An alternative design would bridge `feed()` and a PortAudio callback thread through a `queue.Queue`, emitting silence when the queue is empty; that is not used.)
 
 ### System dependency
 

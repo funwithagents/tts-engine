@@ -26,9 +26,7 @@ class TTSOptions:
     pass
 ```
 
-### `TTSModuleConfig` (base)
-
-A base dataclass that module-specific configs extend. Holds only the fields common to all modules (currently none beyond `type`, which is used by the registry and not passed to the module).
+Module-specific configuration is not modeled as a dataclass: each module's constructor takes the raw `tts` config `dict` and validates it directly (see the ABC below).
 
 ## `TTSModule` ABC
 

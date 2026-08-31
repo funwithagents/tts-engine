@@ -31,7 +31,7 @@ MCP clients connect to `http://<host>:<port>/mcp`.
 
 1. Validate that `text` is non-empty. Return an error content block if not.
 2. Call `await engine.speak(text)`.
-4. Return a success content block when playback completes.
+3. Return a success content block when playback completes.
 
 ### Return value (success)
 
@@ -55,7 +55,7 @@ Tool errors are returned as MCP error content (not raised as exceptions), so the
 
 ## Logging
 
-The server passes a `log_config` dict to `uvicorn.Config` to control uvicorn's own loggers. Application-level logging uses `log = logging.getLogger(__name__)`.
+Application-level logging uses `log = logging.getLogger(__name__)`. uvicorn is started from `cli.py` via `uvicorn.run(...)` with its default log configuration; no custom `log_config` is passed.
 
 ## MCP SDK usage pattern
 
@@ -65,7 +65,7 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("tts-mcp")
 
 @mcp.tool()
-async def speak(text: str, voice_id: str | None = None) -> str:
+async def speak(text: str) -> str:
     ...
 ```
 
