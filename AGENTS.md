@@ -42,7 +42,7 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | [engine.py](src/tts_engine/engine.py) | `TTSEngine` — builds module + player from `TTSEngineConfig`, `speak()` | [architecture.md](specs/architecture.md) |
 | [tools.py](src/tts_engine/tools.py) | Provider/transport-agnostic tools over an engine (`speak`) | [tools.md](specs/tools.md) |
 | [mcp.py](src/tts_engine/mcp.py) | MCP server, `speak` tool (thin wrapper over tools), StreamableHTTP | [mcp-server.md](specs/mcp-server.md) |
-| [cli.py](src/tts_engine/cli.py) | Entry point: argparse → config → engine → MCP server | [project.md](specs/project.md) |
+| [mcp_server_cli.py](src/tts_engine/mcp_server_cli.py) | MCP server entry point: argparse → config → engine → MCP server | [mcp-server.md](specs/mcp-server.md) |
 | [_logging.py](src/tts_engine/_logging.py) | `setup_logging(level)` — configures the package logger for entry points | [project.md](specs/project.md) |
 | `modules/` | Provider subpackage: `base.py` (`TTSModule` ABC + `TTSOptions` + `TTSError`), `__init__.py` (`REGISTRY` + `load_module()`), `elevenlabs.py` (ElevenLabs streaming module, MP3 → PCM) | [tts-module-interface.md](specs/tts-module-interface.md), [elevenlabs-module.md](specs/elevenlabs-module.md) |
 | `__init__.py` | Public API surface — re-exports `TTSEngine`, `TTSEngineConfig`, `load_config`; package glue, exempt from the map check | — |
@@ -167,7 +167,7 @@ Only mark a plan `Done` (and promote its spec to `Implemented`) once these pass.
 
 - Every module that emits logs uses `log = logging.getLogger(__name__)` (variable name: `log`, not `logger`).
 - **Library modules** (`src/tts_engine/`) never call `basicConfig` or configure handlers, and never touch the root logger.
-- **Entry points** (`cli.py`) call `setup_logging(level)` from `tts_engine._logging` at startup — it configures the package logger (`tts_engine`), not root. The level comes from the `logging` config block.
+- **Entry points** (`mcp_server_cli.py`) call `setup_logging(level)` from `tts_engine._logging` at startup — it configures the package logger (`tts_engine`), not root. The level comes from the `logging` config block.
 
 ## Adding a new TTS module
 

@@ -1,8 +1,10 @@
 ---
 code:
   - src/tts_engine/mcp.py
+  - src/tts_engine/mcp_server_cli.py
 tests:
   - tests/test_mcp.py
+  - tests/test_mcp_server_cli.py
 ---
 
 # MCP Server
@@ -57,13 +59,13 @@ Unexpected exceptions, including downstream playback/device failures, are delibe
 
 ## Lifecycle
 
-- The server is created by `create_server(engine)` and started in `cli.py` via `uvicorn.run`.
+- The server is created by `create_server(engine)` and started in [`mcp_server_cli.py`](../src/tts_engine/mcp_server_cli.py) via `uvicorn.run`.
 - `TTSEngine` is constructed before the server starts (via `TTSEngine(cfg.engine)`) and injected into `create_server` (no lazy init).
 - The server does not restart the engine on failure — crash = process exit.
 
 ## Logging
 
-Application-level logging uses `log = logging.getLogger(__name__)` (a child of the `tts_engine` package logger configured by `setup_logging`). uvicorn is started from `cli.py` via `uvicorn.run(...)` with its default log configuration; no custom `log_config` is passed.
+Application-level logging uses `log = logging.getLogger(__name__)` (a child of the `tts_engine` package logger configured by `setup_logging`). uvicorn is started from `mcp_server_cli.py` via `uvicorn.run(...)` with its default log configuration; no custom `log_config` is passed.
 
 ## MCP SDK usage pattern
 

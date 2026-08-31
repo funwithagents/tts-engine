@@ -109,7 +109,7 @@ Steps 3–7 above, entered directly: application code calls `tools.speak(engine,
 | `modules/elevenlabs.py` | ElevenLabs API interaction, MP3→PCM decoding via miniaudio, config parsing |
 | `audio.py` | `sounddevice` output stream management; provider-agnostic consumer of the fixed PCM format contract |
 | `config.py` | Load, parse, and validate `config.json`; produce typed config dataclasses (`AppConfig`, `TTSEngineConfig`, …) |
-| `cli.py` | Argument parsing; `load_config` → `TTSEngine(cfg.engine)` → MCP server; `setup_logging(level)`; starts uvicorn |
+| `mcp_server_cli.py` | Argument parsing; `load_config` → `TTSEngine(cfg.engine)` → MCP server; `setup_logging(level)`; starts uvicorn |
 | `__init__.py` | Public API surface: re-exports `TTSEngine`, `TTSEngineConfig`, `load_config` |
 
 ## Public API
@@ -120,7 +120,7 @@ The package exposes the library entry points at the top level:
 from tts_engine import TTSEngine, TTSEngineConfig, load_config
 ```
 
-Everything else (modules, audio, tools, mcp, cli) is reachable by submodule import but is not part of the curated top-level surface.
+Everything else (modules, audio, tools, mcp, mcp_server_cli) is reachable by submodule import but is not part of the curated top-level surface.
 
 ## Threading / async model
 

@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.scripts]
-tts-engine-mcp = "tts_engine.cli:main"
+tts-engine-mcp = "tts_engine.mcp_server_cli:main"
 
 [dependency-groups]
 dev = [

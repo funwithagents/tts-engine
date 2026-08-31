@@ -1,7 +1,7 @@
 ---
 code:
   - pyproject.toml
-  - src/tts_engine/cli.py
+  - src/tts_engine/mcp_server_cli.py
   - src/tts_engine/_logging.py
 tests:
   - tests/test_project_map.py
@@ -26,10 +26,10 @@ Structure and tooling for the `tts-engine` project itself: Python version, depen
 - **Type checking:** `pyright` (`standard` mode), a dev dependency run via `uv run pyright`. Config lives in `[tool.pyright]` in `pyproject.toml`, targeting `src`, `tests`, and `tests-e2e`, pinned to the `.venv`.
 - **Testing:** `pytest`, in two physically-separated tiers — a fast, deterministic, no-network default run (`tests/`, the only tier `testpaths` collects) and an opt-in live tier (`tests-e2e/`) that hits the real ElevenLabs API and audio hardware. Full strategy is specced in [testing.md](testing.md).
 - **Distribution name:** `tts-engine` (`[project].name`).
-- **Entry point:** `tts-engine-mcp = "tts_engine.cli:main"` (declared in `[project.scripts]`) — starts the MCP server. Named for the interface it launches, since the library itself is used by import, not by a script.
+- **Entry point:** `tts-engine-mcp = "tts_engine.mcp_server_cli:main"` (declared in `[project.scripts]`) — starts the MCP server. Both the script and the module (`mcp_server_cli.py`) are named for the interface they launch, since the library itself is used by import, not by a script; the module name leaves room for other clients/entry points later. The MCP entry point is specced in [mcp-server.md](mcp-server.md).
 - **Public API:** `src/tts_engine/__init__.py` re-exports `TTSEngine`, `TTSEngineConfig`, and `load_config` (see [architecture.md](architecture.md), "Public API").
 - **Repo shape:**
-  - `src/tts_engine/` — the package, one module per core concept (`engine.py`, `tools.py`, `mcp.py`, `audio.py`, `config.py`, `cli.py`, `_logging.py`) plus the `modules/` subpackage of TTS backends.
+  - `src/tts_engine/` — the package, one module per core concept (`engine.py`, `tools.py`, `mcp.py`, `audio.py`, `config.py`, `mcp_server_cli.py`, `_logging.py`) plus the `modules/` subpackage of TTS backends.
   - `specs/` — pre-implementation design docs, one per concept (this folder), indexed by [_index.md](_index.md).
   - `plans/` — implementation plans turning settled specs into buildable steps, indexed by [_index.md](../plans/_index.md).
   - `tests/` at repo root, mirroring the `src/tts_engine/` module structure.
@@ -37,8 +37,8 @@ Structure and tooling for the `tts-engine` project itself: Python version, depen
 
 ## Entry point & plumbing
 
-- `src/tts_engine/cli.py` — the `tts-engine-mcp` console script (`main`): parses `--config`, calls `load_config`, calls `setup_logging(cfg.logging.level)`, builds the engine via `TTSEngine(cfg.engine)`, creates the MCP server, and starts uvicorn.
-- `src/tts_engine/_logging.py` — `setup_logging(level)` for entry points. It configures the **package** logger `logging.getLogger("tts_engine")` (attaches a handler and sets the level from config), never the root logger and never via `basicConfig`. Library modules never configure logging; only `cli.py` calls `setup_logging` (see [AGENTS.md](../AGENTS.md), "Logging conventions").
+- `src/tts_engine/mcp_server_cli.py` — the `tts-engine-mcp` console script (`main`): parses `--config`, calls `load_config`, calls `setup_logging(cfg.logging.level)`, builds the engine via `TTSEngine(cfg.engine)`, creates the MCP server, and starts uvicorn. Its runtime behaviour (transport, lifecycle) is specced in [mcp-server.md](mcp-server.md).
+- `src/tts_engine/_logging.py` — `setup_logging(level)` for entry points. It configures the **package** logger `logging.getLogger("tts_engine")` (attaches a handler and sets the level from config), never the root logger and never via `basicConfig`. Library modules never configure logging; only `mcp_server_cli.py` calls `setup_logging` (see [AGENTS.md](../AGENTS.md), "Logging conventions").
 
 ## Logging
 
