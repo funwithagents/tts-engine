@@ -76,10 +76,12 @@ tts-engine/
 │   └── modules/
 │       ├── test_tts_module_interface.py
 │       └── test_elevenlabs.py
-└── tests-e2e/                   # Opt-in e2e tests (hit real ElevenLabs API, require config.json + audio hw)
-    ├── support.py               # require_env skip guard + subprocess/free-port/readiness helpers
-    ├── conftest.py              # server_url fixture (starts subprocess, yields MCP URL)
-    └── test_speak.py            # speak tool → ElevenLabs → AudioPlayer (no audio verification)
+└── tests-e2e/                   # Opt-in e2e tests (hit real ElevenLabs API, require ELEVENLABS_API_KEY + audio hw)
+    ├── config.json              # Committed, secret-free e2e config (api_key_env → ELEVENLABS_API_KEY)
+    ├── support.py               # require_e2e_config/require_env skip guards + subprocess/free-port/readiness helpers
+    ├── conftest.py              # server_url fixture (subprocess → MCP URL) + app_config fixture (config.json → AppConfig)
+    ├── test_engine.py           # library path: TTSEngine.from_config → speak (no audio verification)
+    └── test_mcp.py              # MCP path: speak tool over StreamableHTTP (no audio verification)
 ```
 
 ## Project map
@@ -126,7 +128,7 @@ Specs and plans each carry a `**Status:**` line (near the top of the file, mirro
 uv sync --dev                                # Materialize the environment
 uv run tts-engine-mcp --config config.json   # Start the MCP server
 uv run pytest                                # Unit tests only (default tier — no API key needed)
-uv run pytest tests-e2e/                     # Opt-in e2e tests (require config.json with valid API key)
+ELEVENLABS_API_KEY=sk_... uv run pytest tests-e2e/   # Opt-in e2e tests (skip unless the key is set)
 uv run ruff check .                          # Lint
 uv run pyright                               # Type-check
 ```
@@ -140,7 +142,7 @@ uv run pyright                               # Type-check
   "engine": {
     "module": {
       "type": "elevenlabs",
-      "api_key": "...",
+      "api_key_env": "ELEVENLABS_API_KEY",
       "voice_id": "JBFqnCBsd6RMkjVDRZzb",
       "model": "eleven_flash_v2_5",
       "stability": 0.5,
@@ -181,7 +183,15 @@ MCP client                              Library caller
 Two physically-separated tiers — the full strategy (what a good test asserts, the speed budget, the smell checklist) is specced in [specs/testing.md](specs/testing.md):
 
 - **`tests/`** — fast, in-process, no network; the default `uv run pytest` collects only this tier.
-- **`tests-e2e/`** — opt-in; starts the server as a subprocess and drives the real ElevenLabs API + audio hardware. Skips cleanly when `config.json` is absent. It does **not** verify audio content — it asserts the `speak` call succeeds and audio bytes were produced.
+- **`tests-e2e/`** — opt-in; drives the real ElevenLabs API + audio hardware, from the committed secret-free `tests-e2e/config.json` (its `api_key_env` names `ELEVENLABS_API_KEY`). Skips cleanly when that env var is unset. It does **not** verify audio content — it asserts the `speak` call completes. Two scenarios, one file each: `test_engine.py` (in-process library path, `TTSEngine.from_config → speak`) and `test_mcp.py` (`speak` tool over StreamableHTTP against a subprocess server).
+
+**The keys live in `~/.zshrc`**, but the shell tool runs a non-interactive `bash`/`zsh` that doesn't source it — a plain `uv run pytest tests-e2e` in that shell sees no keys and every case skips. Source it explicitly in an interactive `zsh` invocation:
+
+```bash
+zsh -ic 'source ~/.zshrc >/dev/null 2>&1; uv run pytest tests-e2e'
+```
+
+Never `echo`/print a key itself; when checking whether one is set, redact the value (e.g. `env | grep ELEVENLABS_API_KEY | sed -E 's/=.*/=<set>/'`).
 
 ## System dependencies
 

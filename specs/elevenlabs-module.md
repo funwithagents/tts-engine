@@ -3,7 +3,8 @@ code:
   - src/tts_engine/modules/elevenlabs.py
 tests:
   - tests/modules/test_elevenlabs.py
-  - tests-e2e/test_speak.py
+  - tests-e2e/test_engine.py
+  - tests-e2e/test_mcp.py
 ---
 
 # ElevenLabs Module
@@ -20,11 +21,16 @@ All fields go under the `engine.module` block in `config.json` alongside `"type"
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `api_key` | string | yes | — | ElevenLabs API key. |
+| `api_key` | string | one of `api_key`/`api_key_env` | — | ElevenLabs API key, given literally. |
+| `api_key_env` | string | one of `api_key`/`api_key_env` | — | Name of an environment variable holding the API key. Lets a config file be committed with no secret. |
 | `voice_id` | string | yes | — | The voice ID used for synthesis. |
 | `model` | string | no | `"eleven_flash_v2_5"` | ElevenLabs model ID. `eleven_flash_v2_5` is recommended for low latency; `eleven_multilingual_v2` for quality. |
 | `stability` | float | no | `0.5` | Voice stability (0.0–1.0). |
 | `similarity_boost` | float | no | `0.75` | Similarity boost (0.0–1.0). |
+
+### API key resolution
+
+The key is resolved in this order: a non-empty literal `api_key` wins; otherwise, if `api_key_env` is set, the key is read from that environment variable. If `api_key_env` names a variable that is unset or empty, construction raises `ConfigError` identifying the variable. If neither `api_key` nor `api_key_env` yields a key, construction raises `ConfigError`. Prefer `api_key_env` so `config.json` can be committed without a secret.
 
 ## Implementation notes
 

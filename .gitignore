@@ -3,3 +3,5 @@
 *.pyo
 *.pyd
 config.json
+# ...except the committed, secret-free e2e config (keys come from an env var).
+!tests-e2e/config.json

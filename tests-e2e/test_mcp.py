@@ -1,4 +1,9 @@
-"""E2E tests for the speak MCP tool."""
+"""E2E test for the MCP interface: the `speak` tool over StreamableHTTP.
+
+Drives the engine through the full MCP transport — a `tts-engine-mcp`
+subprocess reached with a real MCP client. The in-process library path is
+covered separately in `test_engine.py`.
+"""
 from __future__ import annotations
 
 from mcp import ClientSession

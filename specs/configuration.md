@@ -118,7 +118,7 @@ The level is applied by `setup_logging(level)` to the package logger `logging.ge
   "engine": {
     "module": {
       "type": "elevenlabs",
-      "api_key": "sk_...",
+      "api_key_env": "ELEVENLABS_API_KEY",
       "voice_id": "JBFqnCBsd6RMkjVDRZzb",
       "model": "eleven_flash_v2_5",
       "stability": 0.5,

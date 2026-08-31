@@ -1,5 +1,6 @@
 """ElevenLabs streaming TTS module."""
 import asyncio
+import os
 from collections.abc import Iterator
 
 import miniaudio
@@ -31,9 +32,7 @@ class _ChunkSource(miniaudio.StreamableSource):
 class ElevenLabsModule(TTSModule):
 
     def __init__(self, config: dict) -> None:
-        api_key = config.get("api_key")
-        if not api_key:
-            raise ConfigError("ElevenLabs module requires a non-empty 'api_key'")
+        api_key = self._resolve_api_key(config)
 
         voice_id = config.get("voice_id")
         if not voice_id:
@@ -44,6 +43,29 @@ class ElevenLabsModule(TTSModule):
         self._stability: float = config.get("stability", 0.5)
         self._similarity_boost: float = config.get("similarity_boost", 0.75)
         self._client = ElevenLabs(api_key=api_key)
+
+    @staticmethod
+    def _resolve_api_key(config: dict) -> str:
+        """Resolve the API key from a literal ``api_key`` or, failing that, the
+        environment variable named by ``api_key_env`` — so a config file can be
+        committed with only the env-var name and no secret."""
+        api_key = config.get("api_key")
+        if api_key:
+            return api_key
+
+        env_name = config.get("api_key_env")
+        if env_name:
+            api_key = os.environ.get(env_name)
+            if not api_key:
+                raise ConfigError(
+                    f"ElevenLabs module: environment variable {env_name!r} "
+                    "(named by 'api_key_env') is unset or empty"
+                )
+            return api_key
+
+        raise ConfigError(
+            "ElevenLabs module requires a non-empty 'api_key' or 'api_key_env'"
+        )
 
     async def stream(self, text: str, options: TTSOptions, callback) -> None:
         def _blocking_stream():

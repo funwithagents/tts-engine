@@ -24,9 +24,14 @@ Tests split into two directories, and the split is structural — a directory bo
 | Live / e2e | `tests-e2e/` | real ElevenLabs API + audio hw | no | **no** |
 
 - **`tests/` is the normal dev loop.** Fast, deterministic, no real network, no credentials, no audio hardware. `pyproject.toml`'s `testpaths = ["tests"]` points the default `uv run pytest` here, so this is what runs on every change and what any contributor or CI can run with zero credentials.
-- **`tests-e2e/` is opt-in.** It starts the real server as a subprocess, calls the `speak` tool over StreamableHTTP, and drives the real ElevenLabs API and the machine's audio output — network, credentials, non-deterministic — so it is deliberately *not* collected by the default run. Because `testpaths` already excludes it, no pytest marker or `--run-e2e` flag is needed: the physical separation is the whole mechanism. Run it explicitly (`uv run pytest tests-e2e`).
+- **`tests-e2e/` is opt-in.** It drives the real ElevenLabs API and the machine's audio output — network, credentials, non-deterministic — so it is deliberately *not* collected by the default run. Because `testpaths` already excludes it, no pytest marker or `--run-e2e` flag is needed: the physical separation is the whole mechanism. Run it explicitly (`uv run pytest tests-e2e`).
 
-The `tests/` tier mirrors the `src/tts_engine/` module layout (`test_<module>.py` — e.g. `test_engine.py`, `test_tools.py`, `test_mcp.py`, `test_config.py` — `modules/test_*.py`, plus the `test_project_map.py` drift-guard); `tests-e2e/` is organized around live scenarios rather than modules.
+The live tier exercises both interfaces onto the engine, one file each:
+
+- **`test_engine.py`** — the **library** path. Builds the engine in-process (`TTSEngine.from_config(cfg.engine)`) and calls `speak()` directly, no MCP transport in the loop. Uses the `app_config` fixture (committed `tests-e2e/config.json` → `AppConfig`).
+- **`test_mcp.py`** — the **MCP** path. Starts a `tts-engine-mcp` subprocess and calls the `speak` tool over StreamableHTTP with a real MCP client. Uses the `server_url` fixture.
+
+The `tests/` tier mirrors the `src/tts_engine/` module layout (`test_<module>.py` — e.g. `test_engine.py`, `test_tools.py`, `test_mcp.py`, `test_config.py` — `modules/test_*.py`, plus the `test_project_map.py` drift-guard); `tests-e2e/` is organized around these live scenarios rather than modules.
 
 ## What a good test asserts
 
@@ -47,8 +52,9 @@ The full unit tier (`uv run pytest tests/`) must complete in under 5 seconds. If
 
 A live test needs real credentials, and it must **skip — never fail** — when they're absent, so you exercise only the services you hold keys for and a contributor (or CI) with none is never broken.
 
-- The `server_url` fixture in `tests-e2e/conftest.py` skips the whole live test when `config.json` (which holds the ElevenLabs API key and voice) is absent from the repo root.
-- `tests-e2e/support.require_env(NAME)` is the same guard for env-var secrets: it returns the variable or calls `pytest.skip(...)` when it's unset. Credentials come from `config.json`/the environment, never committed.
+- **The e2e config is committed and secret-free.** `tests-e2e/config.json` is checked in (un-ignored past the repo-wide `config.json` rule) and carries `api_key_env: "ELEVENLABS_API_KEY"` — the *name* of the env var holding the key, never the key itself (see [elevenlabs-module.md](elevenlabs-module.md), "API key resolution"). So the live tier is turned on by exporting `ELEVENLABS_API_KEY`, not by dropping an untracked file in place — which is what makes it CI-ready.
+- **`support.require_e2e_config()` is the skip gate.** It loads that config and skips the calling test unless credentials are available: a literal `api_key` counts, otherwise the env var named by `api_key_env` must be set. Both the `server_url` and `app_config` fixtures go through it. The MCP subprocess inherits the parent environment, so the same `ELEVENLABS_API_KEY` reaches the server it spawns.
+- **`support.require_env(NAME)`** is the underlying one-variable guard: it returns the variable or calls `pytest.skip(...)` when it's unset. Secrets live only in the environment, never in the tree.
 
 ## Tooling
 

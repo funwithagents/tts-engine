@@ -18,7 +18,10 @@ import pytest
 
 log = logging.getLogger(__name__)
 
-CONFIG_PATH = Path(__file__).parent.parent / "config.json"
+# Committed, secret-free e2e config: it carries `api_key_env` (the name of the
+# env var holding the ElevenLabs key), not the key itself — so the live tier is
+# driven by setting that variable, not by dropping an untracked file here.
+CONFIG_PATH = Path(__file__).parent / "config.json"
 
 
 def require_env(name: str) -> str:
@@ -32,6 +35,21 @@ def require_env(name: str) -> str:
 def load_config() -> dict:
     with open(CONFIG_PATH) as f:
         return json.load(f)
+
+
+def require_e2e_config() -> dict:
+    """Load the committed e2e config, skipping the calling test when its
+    credentials aren't available — a literal `api_key` counts, otherwise the
+    env var named by `api_key_env` must be set."""
+    config = load_config()
+    module = config.get("engine", {}).get("module", {})
+    if module.get("api_key"):
+        return config
+    env_name = module.get("api_key_env")
+    if not env_name:
+        pytest.skip(f"{CONFIG_PATH.name} has no 'api_key' or 'api_key_env'; skipping live test")
+    require_env(env_name)
+    return config
 
 
 def find_free_port() -> int:

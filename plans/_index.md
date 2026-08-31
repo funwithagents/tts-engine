@@ -18,6 +18,7 @@ Implementation plans for TTS Engine — each plan turns a settled part of a spec
 | [E2E Testing](202603261509_e2e-testing.md) | In-process server, `speak` tool call, no-error assertion | Done |
 | [Rename + library structure](202608311000_rename-and-library-structure.md) | `tts_mcp`→`tts_engine`, `tts-engine-mcp` entry point, tools/mcp split, package logger, public API | Done |
 | [Nested config + from_config](202608311001_nested-config-and-from-config.md) | `engine`/`server`/`logging` schema, config dataclasses, `TTSEngine.from_config`, config-driven logging level | Done |
+| [API key env + e2e split](202608311500_api-key-env-and-e2e-split.md) | `api_key_env` config field; split live tier into `test_engine.py` (library) + `test_mcp.py` (MCP) | Done |
 
 ## Status legend
 

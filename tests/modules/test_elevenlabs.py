@@ -37,6 +37,29 @@ def test_empty_voice_id_raises():
 
 
 @patch("tts_engine.modules.elevenlabs.ElevenLabs")
+def test_api_key_from_env(mock_elevenlabs_cls, monkeypatch):
+    monkeypatch.setenv("MY_TTS_KEY", "env-secret")
+    config = {"type": "elevenlabs", "api_key_env": "MY_TTS_KEY", "voice_id": "v"}
+    ElevenLabsModule(config)
+    mock_elevenlabs_cls.assert_called_once_with(api_key="env-secret")
+
+
+@patch("tts_engine.modules.elevenlabs.ElevenLabs")
+def test_literal_api_key_takes_precedence_over_env(mock_elevenlabs_cls, monkeypatch):
+    monkeypatch.setenv("MY_TTS_KEY", "env-secret")
+    config = {"type": "elevenlabs", "api_key": "literal-key", "api_key_env": "MY_TTS_KEY", "voice_id": "v"}
+    ElevenLabsModule(config)
+    mock_elevenlabs_cls.assert_called_once_with(api_key="literal-key")
+
+
+def test_api_key_env_pointing_to_unset_var_raises(monkeypatch):
+    monkeypatch.delenv("MY_TTS_KEY", raising=False)
+    config = {"type": "elevenlabs", "api_key_env": "MY_TTS_KEY", "voice_id": "v"}
+    with pytest.raises(ConfigError, match="MY_TTS_KEY"):
+        ElevenLabsModule(config)
+
+
+@patch("tts_engine.modules.elevenlabs.ElevenLabs")
 def test_defaults(mock_elevenlabs_cls):
     module = ElevenLabsModule(VALID_CONFIG)
     assert module._model == "eleven_flash_v2_5"
