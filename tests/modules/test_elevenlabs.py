@@ -9,7 +9,6 @@ from tts_mcp.config import ConfigError
 from tts_mcp.modules.base import TTSError, TTSOptions
 from tts_mcp.modules.elevenlabs import ElevenLabsModule
 
-
 VALID_CONFIG = {
     "type": "elevenlabs",
     "api_key": "test-api-key",

@@ -1,6 +1,6 @@
 """ElevenLabs streaming TTS module."""
 import asyncio
-from typing import Iterator
+from collections.abc import Iterator
 
 import miniaudio
 from elevenlabs import ElevenLabs

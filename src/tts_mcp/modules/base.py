@@ -15,6 +15,12 @@ class TTSOptions:
 
 class TTSModule(ABC):
 
+    def __init__(self, config: dict) -> None:
+        """Construct the module from its `tts` config block (the full dict,
+        including `type`). Subclasses validate and extract the fields they
+        need, raising `ConfigError` for missing/invalid ones.
+        """
+
     @abstractmethod
     async def stream(
         self,

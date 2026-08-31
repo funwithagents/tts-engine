@@ -1,4 +1,13 @@
+---
+code:
+  - src/tts_mcp/engine.py
+tests:
+  - tests/test_engine.py
+---
+
 # Architecture
+
+**Status:** Implemented
 
 ## Component overview
 

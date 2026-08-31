@@ -1,4 +1,13 @@
+---
+code:
+  - src/tts_mcp/audio.py
+tests:
+  - tests/test_audio.py
+---
+
 # AudioPlayer
+
+**Status:** Implemented
 
 ## Purpose
 

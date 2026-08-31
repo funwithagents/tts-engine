@@ -1,6 +1,7 @@
 """Tests for the MCP server speak tool."""
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from tts_mcp.engine import TTSEngine
 from tts_mcp.modules.base import TTSError
@@ -23,7 +24,7 @@ def speak_tool(mock_engine):
 
 
 async def call_speak(speak_tool_fixture, text: str) -> str:
-    tool, engine = speak_tool_fixture
+    tool, _engine = speak_tool_fixture
     result = await tool.fn(text=text)
     return result
 

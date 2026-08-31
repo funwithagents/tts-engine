@@ -1,4 +1,11 @@
+---
+# Project-wide overview — governs no single module, so `code:` is intentionally omitted.
+tests: []
+---
+
 # Overview
+
+**Status:** Stable
 
 ## Purpose
 

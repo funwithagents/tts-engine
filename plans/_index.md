@@ -1,0 +1,24 @@
+# Implementation plans
+
+Implementation plans for TTS MCP — each plan turns a settled part of a spec (see [specs/_index.md](../specs/_index.md)) into concrete, buildable steps. Plans are ordered by their date-time filename prefix (`YYYYMMDDHHmm_`); new plans start from [_plan-template.md](_plan-template.md).
+
+## Plans
+
+<!-- One row per plan, chronological by filename prefix. Keep the Status column in sync with each plan's `**Status:**` line. -->
+
+| Plan | Description | Status |
+|---|---|---|
+| [Project Setup](202603261502_project-setup.md) | `uv` init, dependencies, source tree, entry points | Done |
+| [Configuration](202603261503_config.md) | Config dataclasses, loading, validation, CLI arg parsing | Done |
+| [Audio Player](202603261504_audio-player.md) | `sounddevice` output stream, `AudioPlayer`, PCM feed + drain | Done |
+| [TTS Module Interface](202603261505_tts-module-interface.md) | ABC, `TTSOptions`, `TTSError`, registry | Done |
+| [ElevenLabs Module](202603261506_elevenlabs-module.md) | Streaming PCM via ElevenLabs SDK, config, error handling | Done |
+| [TTS Engine](202603261507_tts-engine.md) | Wires module + player, `speak()` entry point | Done |
+| [MCP Server](202603261508_mcp-server.md) | `speak` tool, StreamableHTTP, startup wiring | Done |
+| [E2E Testing](202603261509_e2e-testing.md) | In-process server, `speak` tool call, no-error assertion | Done |
+
+## Status legend
+
+- **Todo** — written, not yet started
+- **In progress** — actively being implemented
+- **Done** — implemented, verified (lint/type-check/tests pass), and merged

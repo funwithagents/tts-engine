@@ -1,4 +1,6 @@
-# Plan 04 — TTS Module Interface
+# TTS Module Interface
+
+**Status:** Done
 
 ## Goal
 

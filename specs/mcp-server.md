@@ -1,4 +1,13 @@
+---
+code:
+  - src/tts_mcp/server.py
+tests:
+  - tests/test_server.py
+---
+
 # MCP Server
+
+**Status:** Implemented
 
 ## Overview
 

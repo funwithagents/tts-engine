@@ -1,4 +1,14 @@
+---
+code:
+  - src/tts_mcp/modules/elevenlabs.py
+tests:
+  - tests/modules/test_elevenlabs.py
+  - tests-e2e/test_speak.py
+---
+
 # ElevenLabs Module
+
+**Status:** Implemented
 
 ## Overview
 

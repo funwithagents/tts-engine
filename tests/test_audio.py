@@ -1,6 +1,6 @@
 """Tests for AudioPlayer."""
 import numpy as np
-import pytest
+
 from tts_mcp.audio import AudioPlayer
 
 
@@ -10,14 +10,13 @@ def _pcm_bytes(n_samples: int = 16) -> bytes:
 
 def test_feed_opens_stream_once(mocker):
     mock_stream = mocker.MagicMock()
-    mocker.patch("sounddevice.OutputStream", return_value=mock_stream)
+    mock_ctor = mocker.patch("sounddevice.OutputStream", return_value=mock_stream)
 
     player = AudioPlayer()
     player.feed(_pcm_bytes())
     player.feed(_pcm_bytes())
 
-    import sounddevice as sd
-    sd.OutputStream.assert_called_once()
+    mock_ctor.assert_called_once()
     assert mock_stream.start.call_count == 1
     assert mock_stream.write.call_count == 2
 

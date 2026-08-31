@@ -1,6 +1,8 @@
 """Tests for config loading and validation."""
 import json
+
 import pytest
+
 from tts_mcp.config import ConfigError, load_config
 
 

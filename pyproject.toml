@@ -24,11 +24,27 @@ dev = [
     "pytest",
     "pytest-asyncio",
     "pytest-mock",
+    "ruff>=0.8.0",
+    "pyright>=1.1.411",
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "tests-e2e"]
+# Only the fast, deterministic tier is collected by default; tests-e2e/ is opt-in.
+testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py311"  # keep in sync with requires-python
+
+[tool.ruff.lint.per-file-ignores]
+"tests-e2e/__init__.py" = ["N999"]  # dir name intentionally hyphenated (opt-in tier)
+
+[tool.pyright]
+include = ["src", "tests", "tests-e2e"]  # type-check test code too, not just src
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.11"
+typeCheckingMode = "standard"
 
 [build-system]
 requires = ["uv_build>=0.9.28,<0.10.0"]

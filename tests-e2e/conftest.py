@@ -7,7 +7,13 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-from helpers import CONFIG_PATH, find_free_port, load_config, start_mcp_server, stop_mcp_server
+from support import (
+    CONFIG_PATH,
+    find_free_port,
+    load_config,
+    start_mcp_server,
+    stop_mcp_server,
+)
 
 
 @pytest.fixture

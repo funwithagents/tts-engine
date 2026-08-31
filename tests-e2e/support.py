@@ -1,4 +1,9 @@
-"""Shared helpers for e2e tests."""
+"""Shared support for the opt-in live/e2e tier.
+
+Holds the subprocess/config helpers the live tests share, plus `require_env` —
+the skip-not-fail guard so a test with no credentials skips cleanly instead of
+failing (you only exercise the services you hold keys for).
+"""
 from __future__ import annotations
 
 import asyncio
@@ -9,9 +14,19 @@ import socket
 import tempfile
 from pathlib import Path
 
+import pytest
+
 log = logging.getLogger(__name__)
 
 CONFIG_PATH = Path(__file__).parent.parent / "config.json"
+
+
+def require_env(name: str) -> str:
+    """Return env var `name`, or skip the calling test if it's unset/empty."""
+    value = os.environ.get(name)
+    if not value:
+        pytest.skip(f"{name} not set; skipping live test")
+    return value
 
 
 def load_config() -> dict:
@@ -74,7 +89,7 @@ async def stop_mcp_server(proc: asyncio.subprocess.Process, config_path: str) ->
     try:
         await asyncio.wait_for(proc.wait(), timeout=5.0)
         log.info("MCP server subprocess stopped cleanly")
-    except asyncio.TimeoutError:
+    except TimeoutError:
         log.warning("MCP server subprocess did not stop within timeout — killing")
         proc.kill()
         await proc.wait()

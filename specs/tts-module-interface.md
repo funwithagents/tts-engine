@@ -1,4 +1,14 @@
+---
+code:
+  - src/tts_mcp/modules/base.py
+  - src/tts_mcp/modules/__init__.py
+tests:
+  - tests/modules/test_tts_module_interface.py
+---
+
 # TTS Module Interface
+
+**Status:** Implemented
 
 ## Purpose
 
@@ -27,6 +37,11 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 
 class TTSModule(ABC):
+
+    def __init__(self, config: dict) -> None:
+        """Construct from the `tts` config block (the full dict, including
+        `type`). Subclasses validate and extract the fields they need,
+        raising `ConfigError` for missing/invalid ones."""
 
     @abstractmethod
     async def stream(

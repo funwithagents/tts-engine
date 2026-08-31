@@ -1,4 +1,6 @@
-# Plan 05 — ElevenLabs Module
+# ElevenLabs Module
+
+**Status:** Done
 
 ## Goal
 

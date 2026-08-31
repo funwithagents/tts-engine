@@ -1,4 +1,13 @@
+---
+code:
+  - src/tts_mcp/config.py
+tests:
+  - tests/test_config.py
+---
+
 # Configuration
+
+**Status:** Implemented
 
 ## Config file
 
