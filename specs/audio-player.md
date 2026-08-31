@@ -1,6 +1,6 @@
 ---
 code:
-  - src/tts_mcp/audio.py
+  - src/tts_engine/audio.py
 tests:
   - tests/test_audio.py
 ---
@@ -21,6 +21,8 @@ class AudioPlayer:
         """
         Prepare the player. Does not open the audio stream yet.
         `device`: sounddevice output device (None = system default).
+        Supplied from `PlayerConfig.device` (the `engine.player` block) by
+        `TTSEngine.from_config`; see configuration.md.
         """
 
     def feed(self, chunk: bytes) -> None:

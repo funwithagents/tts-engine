@@ -3,14 +3,14 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _AGENTS_MD = _REPO_ROOT / "AGENTS.md"
-_PKG = _REPO_ROOT / "src" / "tts_mcp"
+_PKG = _REPO_ROOT / "src" / "tts_engine"
 _SPECS_DIR = _REPO_ROOT / "specs"
 
-# Matches link targets like `src/tts_mcp/foo.py` anywhere in AGENTS.md.
-# Only top-level package modules match (the anchor is `src/tts_mcp/` immediately
-# followed by a filename), so `src/tts_mcp/modules/base.py` is intentionally not
+# Matches link targets like `src/tts_engine/foo.py` anywhere in AGENTS.md.
+# Only top-level package modules match (the anchor is `src/tts_engine/` immediately
+# followed by a filename), so `src/tts_engine/modules/base.py` is intentionally not
 # captured — the map covers the top-level concept modules.
-_MODULE_LINK = re.compile(r"src/tts_mcp/([A-Za-z_][A-Za-z0-9_]*\.py)")
+_MODULE_LINK = re.compile(r"src/tts_engine/([A-Za-z_][A-Za-z0-9_]*\.py)")
 
 # Package glue that isn't a spec'd concept, so it needs no owning spec and no map row.
 _NON_CONCEPT_MODULES = {"__init__.py"}
@@ -57,7 +57,7 @@ def test_agents_md_maps_exactly_the_package_modules():
 #
 #     ---
 #     code:
-#       - src/tts_mcp/example.py
+#       - src/tts_engine/example.py
 #     tests:
 #       - tests/test_example.py
 #     ---
@@ -131,7 +131,7 @@ def test_every_concept_module_is_governed_by_a_spec():
     governed: set[str] = set()
     for spec in _spec_files():
         for rel in _parse_frontmatter(spec).get("code", []):
-            if rel.startswith("src/tts_mcp/"):
+            if rel.startswith("src/tts_engine/"):
                 governed.add(Path(rel).name)
 
     ungoverned = _concept_modules() - governed

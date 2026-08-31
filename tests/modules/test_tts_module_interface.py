@@ -1,8 +1,8 @@
 import pytest
 
-from tts_mcp.config import ConfigError
-from tts_mcp.modules import REGISTRY, load_module
-from tts_mcp.modules.base import TTSModule, TTSOptions
+from tts_engine.config import ConfigError
+from tts_engine.modules import REGISTRY, load_module
+from tts_engine.modules.base import TTSModule, TTSOptions
 
 
 def test_load_module_unknown_type_raises():

@@ -1,7 +1,7 @@
 ---
 code:
-  - src/tts_mcp/modules/base.py
-  - src/tts_mcp/modules/__init__.py
+  - src/tts_engine/modules/base.py
+  - src/tts_engine/modules/__init__.py
 tests:
   - tests/modules/test_tts_module_interface.py
 ---
@@ -26,7 +26,7 @@ class TTSOptions:
     pass
 ```
 
-Module-specific configuration is not modeled as a dataclass: each module's constructor takes the raw `tts` config `dict` and validates it directly (see the ABC below).
+Module-specific configuration is not modeled as a dataclass: each module's constructor takes the raw module config `dict` (the `engine.module` block, see [configuration.md](configuration.md)) and validates it directly (see the ABC below).
 
 ## `TTSModule` ABC
 
@@ -37,9 +37,9 @@ from collections.abc import Callable
 class TTSModule(ABC):
 
     def __init__(self, config: dict) -> None:
-        """Construct from the `tts` config block (the full dict, including
-        `type`). Subclasses validate and extract the fields they need,
-        raising `ConfigError` for missing/invalid ones."""
+        """Construct from the module config block (the `engine.module` dict,
+        including `type`). Subclasses validate and extract the fields they
+        need, raising `ConfigError` for missing/invalid ones."""
 
     @abstractmethod
     async def stream(

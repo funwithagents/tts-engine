@@ -1,7 +1,7 @@
 """Tests for AudioPlayer."""
 import numpy as np
 
-from tts_mcp.audio import AudioPlayer
+from tts_engine.audio import AudioPlayer
 
 
 def _pcm_bytes(n_samples: int = 16) -> bytes:

@@ -1,7 +1,7 @@
 [project]
-name = "tts-mcp"
+name = "tts-engine"
 version = "0.1.0"
-description = "MCP server exposing text-to-speech via a speak tool"
+description = "Streaming text-to-speech engine, usable as a Python library or an MCP server"
 readme = "README.md"
 authors = [
     { name = "thervier", email = "thibault@fr2g.io" }
@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.scripts]
-tts-mcp-server = "tts_mcp.cli:main"
+tts-engine-mcp = "tts_engine.cli:main"
 
 [dependency-groups]
 dev = [

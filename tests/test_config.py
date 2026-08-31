@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from tts_mcp.config import ConfigError, load_config
+from tts_engine.config import AppConfig, ConfigError, load_config
 
 
 def _write_config(tmp_path, data):
@@ -13,61 +13,80 @@ def _write_config(tmp_path, data):
 
 
 VALID = {
-    "tts": {
-        "type": "elevenlabs",
-        "api_key": "sk_test",
-        "voice_id": "abc123",
-        "model": "eleven_flash_v2_5",
-        "stability": 0.5,
-        "similarity_boost": 0.75,
+    "engine": {
+        "module": {
+            "type": "elevenlabs",
+            "api_key": "sk_test",
+            "voice_id": "abc123",
+            "model": "eleven_flash_v2_5",
+            "stability": 0.5,
+            "similarity_boost": 0.75,
+        },
+        "player": {"device": None},
     },
-    "audio": {"device": None},
     "server": {"host": "127.0.0.1", "port": 8000},
+    "logging": {"level": "INFO"},
 }
 
 
 def test_valid_config(tmp_path):
-    tts, audio, server = load_config(_write_config(tmp_path, VALID))
-    assert tts.type == "elevenlabs"
-    assert tts.raw["api_key"] == "sk_test"
-    assert audio.device is None
-    assert server.host == "127.0.0.1"
-    assert server.port == 8000
+    cfg = load_config(_write_config(tmp_path, VALID))
+    assert isinstance(cfg, AppConfig)
+    assert cfg.engine.module["type"] == "elevenlabs"
+    assert cfg.engine.module["api_key"] == "sk_test"
+    assert cfg.engine.player.device is None
+    assert cfg.server.host == "127.0.0.1"
+    assert cfg.server.port == 8000
+    assert cfg.logging.level == "INFO"
 
 
-def test_extra_tts_fields_preserved(tmp_path):
-    data = {**VALID, "tts": {**VALID["tts"], "custom_field": "hello"}}
-    tts, _, _ = load_config(_write_config(tmp_path, data))
-    assert tts.raw["custom_field"] == "hello"
+def test_extra_module_fields_preserved(tmp_path):
+    data = {
+        **VALID,
+        "engine": {
+            **VALID["engine"],
+            "module": {**VALID["engine"]["module"], "custom_field": "hello"},
+        },
+    }
+    cfg = load_config(_write_config(tmp_path, data))
+    assert cfg.engine.module["custom_field"] == "hello"
 
 
-def test_missing_tts_block(tmp_path):
-    data = {k: v for k, v in VALID.items() if k != "tts"}
-    with pytest.raises(ConfigError, match="tts"):
+def test_server_and_logging_default_when_omitted(tmp_path):
+    data = {"engine": VALID["engine"]}
+    cfg = load_config(_write_config(tmp_path, data))
+    assert cfg.server.host == "127.0.0.1"
+    assert cfg.server.port == 8000
+    assert cfg.logging.level == "INFO"
+
+
+def test_player_defaults_when_omitted(tmp_path):
+    data = {**VALID, "engine": {"module": VALID["engine"]["module"]}}
+    cfg = load_config(_write_config(tmp_path, data))
+    assert cfg.engine.player.device is None
+
+
+def test_missing_engine_block(tmp_path):
+    data = {k: v for k, v in VALID.items() if k != "engine"}
+    with pytest.raises(ConfigError, match="engine"):
         load_config(_write_config(tmp_path, data))
 
 
-def test_missing_audio_block(tmp_path):
-    data = {k: v for k, v in VALID.items() if k != "audio"}
-    with pytest.raises(ConfigError, match="audio"):
+def test_missing_module_block(tmp_path):
+    data = {**VALID, "engine": {"player": {"device": None}}}
+    with pytest.raises(ConfigError, match="engine.module"):
         load_config(_write_config(tmp_path, data))
 
 
-def test_missing_server_block(tmp_path):
-    data = {k: v for k, v in VALID.items() if k != "server"}
-    with pytest.raises(ConfigError, match="server"):
+def test_module_type_missing(tmp_path):
+    data = {**VALID, "engine": {"module": {"api_key": "sk_test"}}}
+    with pytest.raises(ConfigError, match="engine.module.type"):
         load_config(_write_config(tmp_path, data))
 
 
-def test_tts_type_missing(tmp_path):
-    data = {**VALID, "tts": {"api_key": "sk_test"}}
-    with pytest.raises(ConfigError, match="tts.type"):
-        load_config(_write_config(tmp_path, data))
-
-
-def test_tts_type_empty(tmp_path):
-    data = {**VALID, "tts": {**VALID["tts"], "type": ""}}
-    with pytest.raises(ConfigError, match="tts.type"):
+def test_module_type_empty(tmp_path):
+    data = {**VALID, "engine": {"module": {**VALID["engine"]["module"], "type": ""}}}
+    with pytest.raises(ConfigError, match="engine.module.type"):
         load_config(_write_config(tmp_path, data))
 
 
@@ -88,3 +107,15 @@ def test_port_zero(tmp_path):
     data = {**VALID, "server": {"host": "127.0.0.1", "port": 0}}
     with pytest.raises(ConfigError, match="port"):
         load_config(_write_config(tmp_path, data))
+
+
+def test_unknown_logging_level(tmp_path):
+    data = {**VALID, "logging": {"level": "LOUD"}}
+    with pytest.raises(ConfigError, match="logging.level"):
+        load_config(_write_config(tmp_path, data))
+
+
+def test_logging_level_normalized_to_upper(tmp_path):
+    data = {**VALID, "logging": {"level": "debug"}}
+    cfg = load_config(_write_config(tmp_path, data))
+    assert cfg.logging.level == "DEBUG"

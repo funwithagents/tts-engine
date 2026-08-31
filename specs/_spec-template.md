@@ -1,6 +1,6 @@
 ---
 code:
-  - src/tts_mcp/example.py
+  - src/tts_engine/example.py
 tests:
   - tests/test_example.py
 ---

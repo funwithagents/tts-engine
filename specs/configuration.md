@@ -1,6 +1,6 @@
 ---
 code:
-  - src/tts_mcp/config.py
+  - src/tts_engine/config.py
 tests:
   - tests/test_config.py
 ---
@@ -11,7 +11,7 @@ tests:
 
 ## Config file
 
-The server is started with `--config <path>` pointing to a JSON file. There is no default path — the argument is required.
+The MCP server is started with `--config <path>` pointing to a JSON file. There is no default path — the argument is required. Library callers can load the same file with `load_config(path)` or construct the dataclasses directly.
 
 `config.example.json` in the repo root documents all fields with placeholder values and must be kept in sync with this spec.
 
@@ -19,17 +19,47 @@ The server is started with `--config <path>` pointing to a JSON file. There is n
 
 ```json
 {
-  "tts": { ... },
-  "audio": { ... },
-  "server": { ... }
+  "engine": { ... },
+  "server": { ... },
+  "logging": { ... }
 }
 ```
 
-All three top-level blocks are required.
+`engine` is required. `server` and `logging` are optional (they have defaults) — the MCP entry point uses `server`; a pure library caller may omit both.
+
+`load_config(path)` returns an `AppConfig`:
+
+```python
+@dataclass
+class AppConfig:
+    engine: TTSEngineConfig
+    server: ServerConfig
+    logging: LoggingConfig
+```
 
 ---
 
-## `tts` block
+## `engine` block → `TTSEngineConfig`
+
+Everything needed to build a `TTSEngine`: the TTS module config and the audio player config.
+
+```json
+"engine": {
+  "module": { "type": "elevenlabs", "api_key": "...", "voice_id": "...", ... },
+  "player": { "device": null }
+}
+```
+
+```python
+@dataclass
+class TTSEngineConfig:
+    module: dict[str, Any]   # raw module block, including "type"; parsed by the module
+    player: PlayerConfig
+```
+
+`TTSEngine.from_config(engine_config)` consumes this (see [architecture.md](architecture.md)).
+
+### `engine.module` block
 
 Selects and configures the active TTS module.
 
@@ -38,19 +68,25 @@ Selects and configures the active TTS module.
 | `type` | string | yes | Module identifier (e.g. `"elevenlabs"`). Must match a key in the module registry. |
 | *(other fields)* | any | depends | Module-specific configuration, parsed by the module itself. |
 
-Unknown fields beyond `type` are passed to the module constructor as-is; the module is responsible for validating them.
+Unknown fields beyond `type` are passed to the module constructor as-is; the module validates them. `TTSEngineConfig.module` carries this block through verbatim (a raw `dict`), matching the `TTSModule.__init__(config: dict)` contract in [tts-module-interface.md](tts-module-interface.md).
 
----
-
-## `audio` block
+### `engine.player` block → `PlayerConfig`
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `device` | string \| int \| null | no | `null` | `sounddevice` output device. `null` = system default. String = device name substring match. Integer = device index. |
 
+```python
+@dataclass
+class PlayerConfig:
+    device: str | int | None = None
+```
+
 ---
 
-## `server` block
+## `server` block → `ServerConfig`
+
+Consumed only by the MCP entry point.
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -59,31 +95,53 @@ Unknown fields beyond `type` are passed to the module constructor as-is; the mod
 
 ---
 
+## `logging` block → `LoggingConfig`
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `level` | string | no | `"INFO"` | Log level for the package logger (`tts_engine`). One of the standard names: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`. |
+
+```python
+@dataclass
+class LoggingConfig:
+    level: str = "INFO"
+```
+
+The level is applied by `setup_logging(level)` to the package logger `logging.getLogger("tts_engine")` — never the root logger (see [project.md](project.md), "Logging").
+
+---
+
 ## Example
 
 ```json
 {
-  "tts": {
-    "type": "elevenlabs",
-    "api_key": "sk_...",
-    "voice_id": "JBFqnCBsd6RMkjVDRZzb",
-    "model": "eleven_flash_v2_5",
-    "stability": 0.5,
-    "similarity_boost": 0.75
-  },
-  "audio": {
-    "device": null
+  "engine": {
+    "module": {
+      "type": "elevenlabs",
+      "api_key": "sk_...",
+      "voice_id": "JBFqnCBsd6RMkjVDRZzb",
+      "model": "eleven_flash_v2_5",
+      "stability": 0.5,
+      "similarity_boost": 0.75
+    },
+    "player": {
+      "device": null
+    }
   },
   "server": {
     "host": "127.0.0.1",
     "port": 8000
+  },
+  "logging": {
+    "level": "INFO"
   }
 }
 ```
 
 ## Validation rules
 
-- `tts.type` must be a non-empty string matching a registered module key. Unknown values raise a `ConfigError` at startup.
-- `server.port` must be in range 1–65535.
-- Missing required fields raise `ConfigError` with a message identifying the missing key.
 - The config file must be valid JSON; parse errors are reported with the file path.
+- The `engine` block is required and must contain a `module` block. Missing required blocks/fields raise `ConfigError` with a message identifying the missing key.
+- `engine.module.type` must be a non-empty string matching a registered module key. Unknown values raise a `ConfigError`.
+- `server.port` must be an integer in range 1–65535.
+- `logging.level` must be a recognized level name; an unknown level raises `ConfigError`.

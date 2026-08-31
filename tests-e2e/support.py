@@ -55,16 +55,16 @@ async def _wait_for_port(host: str, port: int, timeout: float = 15.0) -> None:
 
 
 async def start_mcp_server(config: dict, port: int) -> tuple[asyncio.subprocess.Process, str]:
-    """Start a tts-mcp-server subprocess.  Returns (process, tmp_config_path)."""
+    """Start a tts-engine-mcp subprocess.  Returns (process, tmp_config_path)."""
     cfg = {**config, "server": {"host": "127.0.0.1", "port": port}}
 
-    fd, config_path = tempfile.mkstemp(suffix=".json", prefix="tts_mcp_e2e_")
+    fd, config_path = tempfile.mkstemp(suffix=".json", prefix="tts_engine_e2e_")
     with os.fdopen(fd, "w") as f:
         json.dump(cfg, f)
 
     log.info("Starting MCP server subprocess on port %d (config: %s)", port, config_path)
     proc = await asyncio.create_subprocess_exec(
-        "uv", "run", "tts-mcp-server",
+        "uv", "run", "tts-engine-mcp",
         "--config", config_path,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,

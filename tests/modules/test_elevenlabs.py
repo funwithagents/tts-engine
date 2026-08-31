@@ -5,9 +5,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tts_mcp.config import ConfigError
-from tts_mcp.modules.base import TTSError, TTSOptions
-from tts_mcp.modules.elevenlabs import ElevenLabsModule
+from tts_engine.config import ConfigError
+from tts_engine.modules.base import TTSError, TTSOptions
+from tts_engine.modules.elevenlabs import ElevenLabsModule
 
 VALID_CONFIG = {
     "type": "elevenlabs",
@@ -36,7 +36,7 @@ def test_empty_voice_id_raises():
         ElevenLabsModule({"type": "elevenlabs", "api_key": "k", "voice_id": ""})
 
 
-@patch("tts_mcp.modules.elevenlabs.ElevenLabs")
+@patch("tts_engine.modules.elevenlabs.ElevenLabs")
 def test_defaults(mock_elevenlabs_cls):
     module = ElevenLabsModule(VALID_CONFIG)
     assert module._model == "eleven_flash_v2_5"
@@ -44,7 +44,7 @@ def test_defaults(mock_elevenlabs_cls):
     assert module._similarity_boost == 0.75
 
 
-@patch("tts_mcp.modules.elevenlabs.ElevenLabs")
+@patch("tts_engine.modules.elevenlabs.ElevenLabs")
 def test_custom_values(mock_elevenlabs_cls):
     config = {**VALID_CONFIG, "model": "eleven_multilingual_v2", "stability": 0.8, "similarity_boost": 0.9}
     module = ElevenLabsModule(config)
@@ -53,8 +53,8 @@ def test_custom_values(mock_elevenlabs_cls):
     assert module._similarity_boost == 0.9
 
 
-@patch("tts_mcp.modules.elevenlabs.miniaudio.stream_any")
-@patch("tts_mcp.modules.elevenlabs.ElevenLabs")
+@patch("tts_engine.modules.elevenlabs.miniaudio.stream_any")
+@patch("tts_engine.modules.elevenlabs.ElevenLabs")
 def test_stream_calls_callback_with_decoded_pcm_bytes(mock_elevenlabs_cls, mock_stream_any):
     pcm_chunks = [_array.array('h', [10, 20]), _array.array('h', [30, 40])]
     mock_client = MagicMock()
@@ -71,8 +71,8 @@ def test_stream_calls_callback_with_decoded_pcm_bytes(mock_elevenlabs_cls, mock_
     callback.assert_any_call(pcm_chunks[1].tobytes())
 
 
-@patch("tts_mcp.modules.elevenlabs.miniaudio.stream_any")
-@patch("tts_mcp.modules.elevenlabs.ElevenLabs")
+@patch("tts_engine.modules.elevenlabs.miniaudio.stream_any")
+@patch("tts_engine.modules.elevenlabs.ElevenLabs")
 def test_stream_skips_empty_elevenlabs_chunks(mock_elevenlabs_cls, mock_stream_any):
     # Drain the _ChunkSource via read() to inspect what bytes reached miniaudio
     all_data = bytearray()
@@ -93,8 +93,8 @@ def test_stream_skips_empty_elevenlabs_chunks(mock_elevenlabs_cls, mock_stream_a
     assert bytes(all_data) == b"datamore"
 
 
-@patch("tts_mcp.modules.elevenlabs.miniaudio.stream_any")
-@patch("tts_mcp.modules.elevenlabs.ElevenLabs")
+@patch("tts_engine.modules.elevenlabs.miniaudio.stream_any")
+@patch("tts_engine.modules.elevenlabs.ElevenLabs")
 def test_stream_wraps_elevenlabs_exception_in_tts_error(mock_elevenlabs_cls, mock_stream_any):
     # Trigger source consumption so the SDK exception propagates through _ChunkSource.read()
     mock_stream_any.side_effect = lambda source, **kwargs: (source.read(1) and iter([]))

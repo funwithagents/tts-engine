@@ -1,6 +1,6 @@
 ---
 code:
-  - src/tts_mcp/modules/elevenlabs.py
+  - src/tts_engine/modules/elevenlabs.py
 tests:
   - tests/modules/test_elevenlabs.py
   - tests-e2e/test_speak.py
@@ -16,7 +16,7 @@ tests:
 
 ## Config fields
 
-All fields go under the `tts` block in `config.json` alongside `"type": "elevenlabs"`.
+All fields go under the `engine.module` block in `config.json` alongside `"type": "elevenlabs"` (see [configuration.md](configuration.md)).
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|

@@ -1,7 +1,7 @@
 """TTS module registry and load_module()."""
-from tts_mcp.config import ConfigError
-from tts_mcp.modules.base import TTSModule
-from tts_mcp.modules.elevenlabs import ElevenLabsModule
+from tts_engine.config import ConfigError
+from tts_engine.modules.base import TTSModule
+from tts_engine.modules.elevenlabs import ElevenLabsModule
 
 REGISTRY: dict[str, type[TTSModule]] = {
     "elevenlabs": ElevenLabsModule,

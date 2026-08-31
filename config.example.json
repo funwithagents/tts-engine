@@ -1,17 +1,22 @@
 {
-  "tts": {
-    "type": "elevenlabs",
-    "api_key": "sk_...",
-    "voice_id": "JBFqnCBsd6RMkjVDRZzb",
-    "model": "eleven_flash_v2_5",
-    "stability": 0.5,
-    "similarity_boost": 0.75
-  },
-  "audio": {
-    "device": null
+  "engine": {
+    "module": {
+      "type": "elevenlabs",
+      "api_key": "sk_...",
+      "voice_id": "JBFqnCBsd6RMkjVDRZzb",
+      "model": "eleven_flash_v2_5",
+      "stability": 0.5,
+      "similarity_boost": 0.75
+    },
+    "player": {
+      "device": null
+    }
   },
   "server": {
     "host": "127.0.0.1",
     "port": 8000
+  },
+  "logging": {
+    "level": "INFO"
   }
 }

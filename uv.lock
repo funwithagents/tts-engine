@@ -1059,7 +1059,7 @@ wheels = [
 ]
 
 [[package]]
-name = "tts-mcp"
+name = "tts-engine"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

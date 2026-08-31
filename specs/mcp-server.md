@@ -1,8 +1,8 @@
 ---
 code:
-  - src/tts_mcp/server.py
+  - src/tts_engine/mcp.py
 tests:
-  - tests/test_server.py
+  - tests/test_mcp.py
 ---
 
 # MCP Server
@@ -11,7 +11,7 @@ tests:
 
 ## Overview
 
-The MCP server exposes a single tool (`speak`) over StreamableHTTP. It is built with the official MCP Python SDK and served by `uvicorn`.
+The MCP server (`mcp.py`) exposes the engine's tools over StreamableHTTP. It is built with the official MCP Python SDK and served by `uvicorn`. It is a **thin** layer: each registered tool is a small wrapper that delegates to the transport-agnostic tools layer (see [tools.md](tools.md)); the server contains no synthesis or validation logic of its own.
 
 ## Transport
 
@@ -29,9 +29,15 @@ MCP clients connect to `http://<host>:<port>/mcp`.
 
 ### Behaviour
 
-1. Validate that `text` is non-empty. Return an error content block if not.
-2. Call `await engine.speak(text)`.
-3. Return a success content block when playback completes.
+The registered `speak` tool is a thin wrapper:
+
+```python
+@mcp.tool()
+async def speak(text: str) -> str:
+    return await tools.speak(engine, text)
+```
+
+The empty-text guard, the call to `engine.speak`, and the `TTSError` → message mapping all live in `tools.speak` (see [tools.md](tools.md)). The wrapper only adapts the MCP call to that function.
 
 ### Return value (success)
 
@@ -41,7 +47,7 @@ MCP clients connect to `http://<host>:<port>/mcp`.
 
 ### Return value (error)
 
-Tool errors are returned as MCP error content (not raised as exceptions), so the client receives a structured error rather than a transport-level failure:
+Tool errors are returned as MCP text content (not raised as exceptions), so the client receives a structured error rather than a transport-level failure:
 
 ```json
 [{"type": "text", "text": "TTS error: <message>"}]
@@ -49,24 +55,29 @@ Tool errors are returned as MCP error content (not raised as exceptions), so the
 
 ## Lifecycle
 
-- The server is created and started in `cli.py` via `uvicorn.run`.
-- `TTSEngine` is constructed before the server starts and injected into the server (no lazy init).
+- The server is created by `create_server(engine)` and started in `cli.py` via `uvicorn.run`.
+- `TTSEngine` is constructed before the server starts (via `TTSEngine.from_config`) and injected into `create_server` (no lazy init).
 - The server does not restart the engine on failure — crash = process exit.
 
 ## Logging
 
-Application-level logging uses `log = logging.getLogger(__name__)`. uvicorn is started from `cli.py` via `uvicorn.run(...)` with its default log configuration; no custom `log_config` is passed.
+Application-level logging uses `log = logging.getLogger(__name__)` (a child of the `tts_engine` package logger configured by `setup_logging`). uvicorn is started from `cli.py` via `uvicorn.run(...)` with its default log configuration; no custom `log_config` is passed.
 
 ## MCP SDK usage pattern
 
 ```python
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP("tts-mcp")
+from tts_engine import tools
 
-@mcp.tool()
-async def speak(text: str) -> str:
-    ...
+def create_server(engine: TTSEngine) -> FastMCP:
+    mcp = FastMCP("tts-engine")
+
+    @mcp.tool()
+    async def speak(text: str) -> str:
+        return await tools.speak(engine, text)
+
+    return mcp
 ```
 
 The server is run via the SDK's StreamableHTTP transport using `uvicorn`.

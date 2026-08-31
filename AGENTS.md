@@ -1,13 +1,13 @@
-# AGENTS.md — TTS MCP Project
+# AGENTS.md — TTS Engine Project
 
 ## What this project is
 
-An MCP server that exposes text-to-speech capabilities via a `speak` tool. It accepts text input, synthesizes speech through a pluggable TTS module (ElevenLabs first), and plays the audio in real-time on the server machine using streaming playback.
+A streaming text-to-speech **engine**, usable two ways: imported directly as a Python library (`TTSEngine.from_config(...)` → `await engine.speak(text)`), or run as an **MCP server** that exposes a `speak` tool. It accepts text input, synthesizes speech through a pluggable TTS module (ElevenLabs first), and plays the audio in real-time on the machine it runs on using streaming playback. The repo is three layers — the reusable `TTSEngine`, provider-agnostic **tools** over it, and the **MCP** that exposes those tools — so the MCP is one interface, not the product.
 
 - **Language**: Python, project managed with `uv`
 - **MCP SDK**: official Python SDK (`modelcontextprotocol/python-sdk`)
 - **Transport**: StreamableHTTP — enables remote access on a local network
-- **One active module**: a single TTS module is loaded at startup, selected via `tts.type` in config
+- **One active module**: a single TTS module is loaded at startup, selected via the module `type` in config
 
 ## Key design decisions
 
@@ -15,13 +15,13 @@ An MCP server that exposes text-to-speech capabilities via a `speak` tool. It ac
 - **Callback-based streaming**: the module layer accepts a `callback: Callable[[bytes], None]` for each audio chunk — this decouples the module from the playback mechanism and makes the engine testable without audio hardware.
 - **MP3 from ElevenLabs, decoded in-process**: the ElevenLabs module requests `mp3_44100_128` and decodes each chunk to signed-16 PCM mono via `miniaudio` before the callback, so `AudioPlayer` always receives PCM.
 - **`speak` tool only (v1)**: no `synthesize`/file output, no `list_voices`, no MCP resources.
-- **Pluggable modules**: the `tts` config block uses `type` to select the module; all other fields under `tts` are module-specific. Only one module is active at a time.
-- **`sounddevice` for playback**: wraps PortAudio, best choice on Ubuntu; device is configurable via `audio.device` (`null` = system default).
+- **Pluggable modules**: the `engine.module` config block uses `type` to select the module; all other fields under `engine.module` are module-specific. Only one module is active at a time.
+- **`sounddevice` for playback**: wraps PortAudio, best choice on Ubuntu; device is configurable via `engine.player.device` (`null` = system default).
 
 ## Repository layout
 
 ```
-tts-mcp/
+tts-engine/
 ├── AGENTS.md                    # This file
 ├── pyproject.toml               # uv project: deps, entry points, pytest config
 ├── config.example.json          # Config template (no secrets)
@@ -33,6 +33,7 @@ tts-mcp/
 │   ├── overview.md
 │   ├── architecture.md
 │   ├── configuration.md
+│   ├── tools.md
 │   ├── mcp-server.md
 │   ├── tts-module-interface.md
 │   ├── elevenlabs-module.md
@@ -47,15 +48,19 @@ tts-mcp/
 │   ├── 202603261506_elevenlabs-module.md
 │   ├── 202603261507_tts-engine.md
 │   ├── 202603261508_mcp-server.md
-│   └── 202603261509_e2e-testing.md
+│   ├── 202603261509_e2e-testing.md
+│   ├── 202608311000_rename-and-library-structure.md
+│   └── 202608311001_nested-config-and-from-config.md
 ├── src/
-│   └── tts_mcp/
-│       ├── _logging.py          # setup_logging() for entry points
-│       ├── cli.py               # Server entry point (argparse → wires everything)
+│   └── tts_engine/
+│       ├── __init__.py          # Public API: TTSEngine, TTSEngineConfig, load_config
+│       ├── _logging.py          # setup_logging(level) — configures the package logger
+│       ├── cli.py               # MCP entry point (argparse → wires everything)
 │       ├── config.py            # Config dataclasses + load/validate
 │       ├── audio.py             # AudioPlayer: sounddevice-based streaming playback
-│       ├── engine.py            # TTSEngine: wires module + player, exposes speak()
-│       ├── server.py            # MCP server: speak tool, StreamableHTTP
+│       ├── engine.py            # TTSEngine: wires module + player, exposes speak() + from_config()
+│       ├── tools.py             # Provider/transport-agnostic tools: speak(engine, text)
+│       ├── mcp.py               # MCP server: speak tool (thin wrapper over tools), StreamableHTTP
 │       └── modules/
 │           ├── __init__.py      # REGISTRY + load_module()
 │           ├── base.py          # TTSModule ABC, TTSOptions, TTSError
@@ -65,7 +70,8 @@ tts-mcp/
 │   ├── test_config.py
 │   ├── test_audio.py
 │   ├── test_engine.py
-│   ├── test_server.py
+│   ├── test_tools.py
+│   ├── test_mcp.py
 │   ├── test_project_map.py      # Drift-guard: project map ↔ code ↔ spec frontmatter
 │   └── modules/
 │       ├── test_tts_module_interface.py
@@ -78,16 +84,17 @@ tts-mcp/
 
 ## Project map
 
-Where each concept lives, and the spec that governs it. This table is the inverse of each spec's `code:` frontmatter, and a test (`tests/test_project_map.py`) enforces that it lists **exactly** the top-level `src/tts_mcp/*.py` concept modules — keep it in sync when you add, rename, or remove one.
+Where each concept lives, and the spec that governs it. This table is the inverse of each spec's `code:` frontmatter, and a test (`tests/test_project_map.py`) enforces that it lists **exactly** the top-level `src/tts_engine/*.py` concept modules — keep it in sync when you add, rename, or remove one.
 
 | Module | Role | Spec |
 |---|---|---|
-| `src/tts_mcp/config.py` | Config dataclasses, `load_config()`, `ConfigError` | [configuration.md](specs/configuration.md) |
-| `src/tts_mcp/audio.py` | `AudioPlayer` — sounddevice streaming playback | [audio-player.md](specs/audio-player.md) |
-| `src/tts_mcp/engine.py` | `TTSEngine` — wires module + player, `speak()` | [architecture.md](specs/architecture.md) |
-| `src/tts_mcp/server.py` | MCP server, `speak` tool, StreamableHTTP | [mcp-server.md](specs/mcp-server.md) |
-| `src/tts_mcp/cli.py` | Entry point: argparse → config → engine → server | [project.md](specs/project.md) |
-| `src/tts_mcp/_logging.py` | `setup_logging()` for entry points | [project.md](specs/project.md) |
+| `src/tts_engine/config.py` | Config dataclasses, `load_config()`, `ConfigError` | [configuration.md](specs/configuration.md) |
+| `src/tts_engine/audio.py` | `AudioPlayer` — sounddevice streaming playback | [audio-player.md](specs/audio-player.md) |
+| `src/tts_engine/engine.py` | `TTSEngine` — wires module + player, `speak()`, `from_config()` | [architecture.md](specs/architecture.md) |
+| `src/tts_engine/tools.py` | Provider/transport-agnostic tools over an engine (`speak`) | [tools.md](specs/tools.md) |
+| `src/tts_engine/mcp.py` | MCP server, `speak` tool (thin wrapper over tools), StreamableHTTP | [mcp-server.md](specs/mcp-server.md) |
+| `src/tts_engine/cli.py` | Entry point: argparse → config → engine → MCP server | [project.md](specs/project.md) |
+| `src/tts_engine/_logging.py` | `setup_logging(level)` for entry points | [project.md](specs/project.md) |
 
 The `modules/` subpackage (`base.py` — `TTSModule` ABC + `TTSOptions` + `TTSError`; `__init__.py` — `REGISTRY` + `load_module()`; `elevenlabs.py` — ElevenLabs streaming module) is governed by [tts-module-interface.md](specs/tts-module-interface.md) and [elevenlabs-module.md](specs/elevenlabs-module.md). The package's top-level `__init__.py` is package glue (exempt).
 
@@ -98,13 +105,13 @@ Every concept spec opens with a YAML frontmatter block naming the code and tests
 ```
 ---
 code:
-  - src/tts_mcp/config.py
+  - src/tts_engine/config.py
 tests:
   - tests/test_config.py
 ---
 ```
 
-It gives the spec-drift checks an explicit, version-controlled scope. The mapping is many-to-many, so a file may appear in more than one spec. `tests/test_project_map.py` enforces three invariants: every listed path exists, every concept spec declares a non-empty `code:` list (project-wide overviews like [overview.md](specs/overview.md) are exempt), and every `src/tts_mcp/*.py` concept module is named by at least one spec. Keep the frontmatter current in the same change that moves or renames a file.
+It gives the spec-drift checks an explicit, version-controlled scope. The mapping is many-to-many, so a file may appear in more than one spec. `tests/test_project_map.py` enforces three invariants: every listed path exists, every concept spec declares a non-empty `code:` list (project-wide overviews like [overview.md](specs/overview.md) are exempt), and every `src/tts_engine/*.py` concept module is named by at least one spec. Keep the frontmatter current in the same change that moves or renames a file.
 
 ## Keeping statuses current
 
@@ -117,7 +124,7 @@ Specs and plans each carry a `**Status:**` line (near the top of the file, mirro
 
 ```bash
 uv sync --dev                                # Materialize the environment
-uv run tts-mcp-server --config config.json   # Start the MCP server
+uv run tts-engine-mcp --config config.json   # Start the MCP server
 uv run pytest                                # Unit tests only (default tier — no API key needed)
 uv run pytest tests-e2e/                     # Opt-in e2e tests (require config.json with valid API key)
 uv run ruff check .                          # Lint
@@ -130,36 +137,43 @@ uv run pyright                               # Type-check
 
 ```json
 {
-  "tts": {
-    "type": "elevenlabs",
-    "api_key": "...",
-    "voice_id": "JBFqnCBsd6RMkjVDRZzb",
-    "model": "eleven_flash_v2_5",
-    "stability": 0.5,
-    "similarity_boost": 0.75
-  },
-  "audio": {
-    "device": null
+  "engine": {
+    "module": {
+      "type": "elevenlabs",
+      "api_key": "...",
+      "voice_id": "JBFqnCBsd6RMkjVDRZzb",
+      "model": "eleven_flash_v2_5",
+      "stability": 0.5,
+      "similarity_boost": 0.75
+    },
+    "player": {
+      "device": null
+    }
   },
   "server": {
     "host": "127.0.0.1",
     "port": 8000
+  },
+  "logging": {
+    "level": "INFO"
   }
 }
 ```
 
-`tts.type` selects the module; all other `tts` fields are module-specific. `audio.device` is `null` for the system default or a device name/index for explicit selection.
+`load_config()` returns an `AppConfig(engine, server, logging)`. `engine` builds the `TTSEngine` (`TTSEngineConfig` = module + player); `engine.module.type` selects the module and all other `engine.module` fields are module-specific; `engine.player.device` is `null` for the system default or a device name/index. `server` is used only by the MCP entry point; `logging.level` sets the `tts_engine` package logger's level. `engine` is required; `server` and `logging` default when omitted.
 
 ## Data flow
 
 ```
-MCP client
-  → speak tool call (text, voice?, ...)
-    → TTSEngine.speak(text, options)
-      → TTSModule.stream(text, options, callback=AudioPlayer.feed)
-        → ElevenLabs API (streaming MP3) → miniaudio decode → PCM
-          → AudioPlayer.feed(chunk) on each PCM chunk
-            → sounddevice output stream
+MCP client                              Library caller
+  → speak tool call (text)                → tools.speak(engine, text)  ─┐
+    → mcp.py speak wrapper                                              │
+      → tools.speak(engine, text)  ◀──────────────────────────────────-┘
+        → TTSEngine.speak(text)
+          → TTSModule.stream(text, options, callback=AudioPlayer.feed)
+            → ElevenLabs API (streaming MP3) → miniaudio decode → PCM
+              → AudioPlayer.feed(chunk) on each PCM chunk
+                → sounddevice output stream
 ```
 
 ## Testing
@@ -192,14 +206,14 @@ Only mark a plan `Done` (and promote its spec to `Implemented`) once these pass.
 ## Logging conventions
 
 - Every module uses `log = logging.getLogger(__name__)` (variable name: `log`, not `logger`).
-- **Library modules** (`src/tts_mcp/`) never call `basicConfig` or configure handlers.
-- **Entry points** (`cli.py`) call `setup_logging()` from `tts_mcp._logging` at startup.
+- **Library modules** (`src/tts_engine/`) never call `basicConfig` or configure handlers, and never touch the root logger.
+- **Entry points** (`cli.py`) call `setup_logging(level)` from `tts_engine._logging` at startup — it configures the package logger (`tts_engine`), not root. The level comes from the `logging` config block.
 
 ## Adding a new TTS module
 
-1. Create `src/tts_mcp/modules/<name>.py` implementing `TTSModule` from `modules/base.py`
+1. Create `src/tts_engine/modules/<name>.py` implementing `TTSModule` from `modules/base.py`
 2. Register it in `modules/__init__.py`: `REGISTRY["<name>"] = <ClassName>`
-3. Document its config fields (the `tts` block accepts any fields beyond `type`)
+3. Document its config fields (the `engine.module` block accepts any fields beyond `type`)
 
 ## Documentation workflow
 

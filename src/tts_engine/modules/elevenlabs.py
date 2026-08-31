@@ -6,8 +6,8 @@ import miniaudio
 from elevenlabs import ElevenLabs
 from elevenlabs.types import VoiceSettings
 
-from tts_mcp.config import ConfigError
-from tts_mcp.modules.base import TTSError, TTSModule, TTSOptions
+from tts_engine.config import ConfigError
+from tts_engine.modules.base import TTSError, TTSModule, TTSOptions
 
 
 class _ChunkSource(miniaudio.StreamableSource):
