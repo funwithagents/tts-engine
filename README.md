@@ -20,7 +20,7 @@ from tts_engine import TTSEngine, load_config
 
 async def main():
     cfg = load_config("config.json")
-    engine = TTSEngine.from_config(cfg.engine)
+    engine = TTSEngine(cfg.engine)
     await engine.speak("Hello from the TTS engine")
 
 

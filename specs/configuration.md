@@ -58,7 +58,7 @@ class TTSEngineConfig:
     player: PlayerConfig
 ```
 
-`TTSEngine.from_config(engine_config)` consumes this (see [architecture.md](architecture.md)).
+`TTSEngine(engine_config)` consumes this (see [architecture.md](architecture.md)).
 
 ### `engine.module` block
 
@@ -144,7 +144,7 @@ The level is applied by `setup_logging(level)` to the package logger `logging.ge
 - File-read failures and invalid JSON raise `ConfigError` with the file path.
 - The top-level value and the `engine`, `engine.module`, `engine.player`, `server`, and `logging` blocks must be JSON objects. Shape failures raise `ConfigError`, never raw `AttributeError`/`TypeError`.
 - The `engine` block is required and must contain a `module` block. Missing required blocks/fields raise `ConfigError` with a message identifying the missing key.
-- `load_config` validates `engine.module.type` as a non-empty string. Registry membership is validated later by `load_module` during `TTSEngine.from_config`, avoiding a config↔module import cycle and allowing callers to register custom modules before constructing the engine. Unknown values still raise `ConfigError` before an engine is created.
+- `load_config` validates `engine.module.type` as a non-empty string. Registry membership is validated later by `load_module` during `TTSEngine` construction, avoiding a config↔module import cycle and allowing callers to register custom modules before constructing the engine. Unknown values still raise `ConfigError` before an engine is created.
 - `engine.player.device` must be a string, an integer other than `bool`, or `null`.
 - `server.host` must be a non-empty string; `server.port` must be an integer other than `bool` in range 1–65535.
 - `logging.level` must be a recognized level name; an unknown level raises `ConfigError`.

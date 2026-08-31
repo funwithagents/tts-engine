@@ -14,7 +14,7 @@ tests:
 
 The repo is three layers, from reusable core outward to transport:
 
-1. **`TTSEngine`** (`engine.py`) — the reusable core. Holds a `TTSModule` + `AudioPlayer` and exposes `speak(text)`. No protocol knowledge, no transport, no MCP.
+1. **`TTSEngine`** (`engine.py`) — the reusable core. Built from a `TTSEngineConfig`, it holds a `TTSModule` + `AudioPlayer` and exposes `speak(text)`. No protocol knowledge, no transport, no MCP.
 2. **Tools** (`tools.py`) — provider- and transport-agnostic functions over an engine, e.g. `speak(engine, text) -> str`. They own input guards (empty text) and turn `TTSError` into a caller-friendly string. Usable directly from library code or from any transport.
 3. **MCP** (`mcp.py`) — the MCP server. Registers thin `@mcp.tool()` wrappers that delegate to the tools layer and serves them over StreamableHTTP.
 
@@ -41,8 +41,9 @@ A library user stops at layer 1 or 2; an MCP client goes through layer 3.
                        │
 ┌──────────────────────▼──────────────────────────────┐
 │ TTSEngine  (engine.py)                              │
-│  • TTSEngine(module, player)                         │
-│  • TTSEngine.from_config(TTSEngineConfig)            │
+│  • TTSEngine(TTSEngineConfig)                        │
+│    → builds module (load_module) + player (Audio-    │
+│      Player) from config                             │
 │  • speak(text) → streams module output              │
 │    to AudioPlayer via callback                       │
 └────────────┬─────────────────────────┬──────────────┘
@@ -67,21 +68,16 @@ A library user stops at layer 1 or 2; an MCP client goes through layer 3.
 
 ## `TTSEngine` construction
 
-`TTSEngine` has two constructors:
+`TTSEngine` has a single constructor that takes the engine config:
 
 ```python
 class TTSEngine:
-    def __init__(self, module: TTSModule, player: AudioPlayer) -> None:
-        """Low-level injection. Used by tests (fake module/player, no audio hardware)."""
-
-    @classmethod
-    def from_config(cls, config: TTSEngineConfig) -> "TTSEngine":
-        """Build the module (via load_module) and player (AudioPlayer) from config,
-        then construct the engine."""
+    def __init__(self, config: TTSEngineConfig) -> None:
+        """Build the module (via load_module) and player (AudioPlayer) from config."""
 ```
 
-- `from_config` is the entry point for real use (library and MCP). It reads `config.module` (the raw module dict, including `type`) through `load_module`, and `config.player` (a `PlayerConfig`) to build the `AudioPlayer`.
-- The plain `__init__(module, player)` keeps dependency injection available so the engine's behavior is tested without touching a TTS provider or audio hardware.
+- The constructor is the entry point for all use (library and MCP). It reads `config.module` (the raw module dict, including `type`) through `load_module`, and `config.player` (a `PlayerConfig`) to build the `AudioPlayer`.
+- Tests exercise `speak()` behavior without touching a TTS provider or audio hardware by patching `load_module` and `AudioPlayer` in `engine.py` so the constructor yields fakes — dependency injection at the module-boundary rather than the constructor signature.
 
 See [configuration.md](configuration.md) for `TTSEngineConfig` / `PlayerConfig`.
 
@@ -108,12 +104,12 @@ Steps 3–7 above, entered directly: application code calls `tools.speak(engine,
 |-----------|---------------|
 | `mcp.py` | MCP protocol, tool registration, StreamableHTTP; thin wrappers over `tools`; builds the `FastMCP` app |
 | `tools.py` | Provider/transport-agnostic operations over an engine (`speak`); input guards; `TTSError` → string |
-| `engine.py` | Wires module + player; `speak()`; `from_config`; no protocol knowledge |
+| `engine.py` | Builds module + player from `TTSEngineConfig`; `speak()`; no protocol knowledge |
 | `modules/base.py` | Defines `TTSModule` ABC and shared dataclasses (`TTSOptions`) |
 | `modules/elevenlabs.py` | ElevenLabs API interaction, MP3→PCM decoding via miniaudio, config parsing |
 | `audio.py` | `sounddevice` output stream management; provider-agnostic consumer of the fixed PCM format contract |
 | `config.py` | Load, parse, and validate `config.json`; produce typed config dataclasses (`AppConfig`, `TTSEngineConfig`, …) |
-| `cli.py` | Argument parsing; `load_config` → `TTSEngine.from_config` → MCP server; `setup_logging(level)`; starts uvicorn |
+| `cli.py` | Argument parsing; `load_config` → `TTSEngine(cfg.engine)` → MCP server; `setup_logging(level)`; starts uvicorn |
 | `__init__.py` | Public API surface: re-exports `TTSEngine`, `TTSEngineConfig`, `load_config` |
 
 ## Public API

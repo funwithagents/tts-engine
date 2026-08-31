@@ -32,7 +32,7 @@ def main() -> None:
         cfg.server.port,
     )
 
-    engine = TTSEngine.from_config(cfg.engine)
+    engine = TTSEngine(cfg.engine)
     mcp_app = create_server(engine)
 
     uvicorn.run(

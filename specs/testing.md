@@ -30,7 +30,7 @@ Tests split into two directories, and the split is structural — a directory bo
 
 The live tier exercises both interfaces onto the engine, one file each:
 
-- **`test_engine.py`** — the **library** path. Builds the engine in-process (`TTSEngine.from_config(cfg.engine)`) and calls `speak()` directly, no MCP transport in the loop. Uses the `app_config` fixture (committed `tests-e2e/config.json` → `AppConfig`).
+- **`test_engine.py`** — the **library** path. Builds the engine in-process (`TTSEngine(cfg.engine)`) and calls `speak()` directly, no MCP transport in the loop. Uses the `app_config` fixture (committed `tests-e2e/config.json` → `AppConfig`).
 - **`test_mcp.py`** — the **MCP** path. Starts a `tts-engine-mcp` subprocess and calls the `speak` tool over StreamableHTTP with a real MCP client. Uses the `server_url` fixture.
 
 The `tests/` tier mirrors the `src/tts_engine/` module layout (`test_<module>.py` — e.g. `test_engine.py`, `test_tools.py`, `test_mcp.py`, `test_config.py` — `modules/test_*.py`, plus the `test_project_map.py` drift-guard); `tests-e2e/` is organized around these live scenarios rather than modules.

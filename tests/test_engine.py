@@ -24,8 +24,12 @@ def mock_player():
 
 
 @pytest.fixture
-def engine(mock_module, mock_player):
-    return TTSEngine(module=mock_module, player=mock_player)
+def engine(mock_module, mock_player, mocker):
+    # The constructor builds the module and player from config; patch both so the
+    # engine's speak/drain behavior can be exercised with fakes, no audio hardware.
+    mocker.patch("tts_engine.engine.load_module", return_value=mock_module)
+    mocker.patch("tts_engine.engine.AudioPlayer", return_value=mock_player)
+    return TTSEngine(TTSEngineConfig(module={"type": "fake"}, player=PlayerConfig()))
 
 
 @pytest.mark.asyncio
@@ -90,7 +94,7 @@ async def test_concurrent_speak_calls_are_serialized(engine, mock_module, mock_p
 
 
 @pytest.mark.asyncio
-async def test_from_config_wires_module_and_player(mocker):
+async def test_constructor_wires_module_and_player_from_config(mocker):
     fake_module = MagicMock()
     fake_module.stream = AsyncMock()
     fake_player = MagicMock()
@@ -104,12 +108,12 @@ async def test_from_config_wires_module_and_player(mocker):
     cfg = TTSEngineConfig(
         module={"type": "fake", "k": "v"}, player=PlayerConfig(device=3)
     )
-    engine = TTSEngine.from_config(cfg)
+    engine = TTSEngine(cfg)
 
     load_module.assert_called_once_with({"type": "fake", "k": "v"})
     audio_player.assert_called_once_with(device=3)
 
-    # The engine built by from_config drives the config's module and player.
+    # The engine drives the config's module and player.
     await engine.speak("hi")
     fake_module.stream.assert_awaited_once()
     assert fake_module.stream.call_args.kwargs["callback"] == fake_player.feed

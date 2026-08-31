@@ -55,7 +55,7 @@ Importing the package exposes the engine and its config:
 from tts_engine import TTSEngine, TTSEngineConfig, load_config
 
 cfg = load_config("config.json")  # -> AppConfig(engine, server, logging)
-engine = TTSEngine.from_config(cfg.engine)  # builds module + player from config
+engine = TTSEngine(cfg.engine)  # builds module + player from config
 await engine.speak("Hello world")
 ```
 

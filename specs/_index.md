@@ -1,6 +1,6 @@
 # TTS Engine — Specifications Index
 
-`tts-engine` is a streaming text-to-speech **engine** you can use two ways: import it directly as a Python library (`TTSEngine.from_config(...)` → `await engine.speak(text)`), or run it as an **MCP server** that exposes a `speak` tool. The engine synthesizes text through a pluggable TTS backend (ElevenLabs first) and plays the audio in real-time on the machine it runs on. The core idea is **streaming, low-latency playback** — audio is fed to the sound device chunk-by-chunk as it arrives from the provider, so sound starts before synthesis finishes — behind a clean module contract that keeps the provider swappable and the engine testable without audio hardware.
+`tts-engine` is a streaming text-to-speech **engine** you can use two ways: import it directly as a Python library (`TTSEngine(cfg.engine)` → `await engine.speak(text)`), or run it as an **MCP server** that exposes a `speak` tool. The engine synthesizes text through a pluggable TTS backend (ElevenLabs first) and plays the audio in real-time on the machine it runs on. The core idea is **streaming, low-latency playback** — audio is fed to the sound device chunk-by-chunk as it arrives from the provider, so sound starts before synthesis finishes — behind a clean module contract that keeps the provider swappable and the engine testable without audio hardware.
 
 The repo is organized as three layers: the **`TTSEngine`** (the reusable core), a set of provider-agnostic **tools** (`speak(engine, text)`), and the **MCP** server that exposes those tools. The MCP is one interface onto the engine, not the product.
 
@@ -15,7 +15,7 @@ Read the concept specs in order — each builds on the ones above it. `project.m
 | [project.md](project.md) | Project structure and tooling: Python version, packaging with uv, ruff/pyright, layout, library-first shape | Implemented |
 | [testing.md](testing.md) | Testing strategy: two-tier `tests/`/`tests-e2e/` split, functional-test philosophy, skip-without-credentials live tier | Implemented |
 | [overview.md](overview.md) | Goals, components, constraints, non-goals — library + MCP framing | Stable |
-| [architecture.md](architecture.md) | System diagram, layers (engine/tools/mcp), concurrency model, data flow, `TTSEngine` + `from_config`, public API | Implemented |
+| [architecture.md](architecture.md) | System diagram, layers (engine/tools/mcp), concurrency model, data flow, `TTSEngine(config)` construction, public API | Implemented |
 | [configuration.md](configuration.md) | Config file schema (`engine`/`server`/`logging`), dataclasses, `load_config`, validation rules | Implemented |
 | [tools.md](tools.md) | The provider-agnostic tools layer: `speak(engine, text)`, guards, return contract | Implemented |
 | [mcp-server.md](mcp-server.md) | `speak` tool, transport, lifecycle, error handling — thin wrappers over the tools layer | Implemented |

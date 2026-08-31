@@ -37,7 +37,7 @@ Structure and tooling for the `tts-engine` project itself: Python version, depen
 
 ## Entry point & plumbing
 
-- `src/tts_engine/cli.py` — the `tts-engine-mcp` console script (`main`): parses `--config`, calls `load_config`, calls `setup_logging(cfg.logging.level)`, builds the engine via `TTSEngine.from_config(cfg.engine)`, creates the MCP server, and starts uvicorn.
+- `src/tts_engine/cli.py` — the `tts-engine-mcp` console script (`main`): parses `--config`, calls `load_config`, calls `setup_logging(cfg.logging.level)`, builds the engine via `TTSEngine(cfg.engine)`, creates the MCP server, and starts uvicorn.
 - `src/tts_engine/_logging.py` — `setup_logging(level)` for entry points. It configures the **package** logger `logging.getLogger("tts_engine")` (attaches a handler and sets the level from config), never the root logger and never via `basicConfig`. Library modules never configure logging; only `cli.py` calls `setup_logging` (see [AGENTS.md](../AGENTS.md), "Logging conventions").
 
 ## Logging

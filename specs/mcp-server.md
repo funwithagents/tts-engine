@@ -58,7 +58,7 @@ Unexpected exceptions, including downstream playback/device failures, are delibe
 ## Lifecycle
 
 - The server is created by `create_server(engine)` and started in `cli.py` via `uvicorn.run`.
-- `TTSEngine` is constructed before the server starts (via `TTSEngine.from_config`) and injected into `create_server` (no lazy init).
+- `TTSEngine` is constructed before the server starts (via `TTSEngine(cfg.engine)`) and injected into `create_server` (no lazy init).
 - The server does not restart the engine on failure — crash = process exit.
 
 ## Logging
