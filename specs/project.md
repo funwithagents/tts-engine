@@ -71,8 +71,7 @@ Modules pull in third-party libraries of wildly different weight — the ElevenL
       from kokoro import KPipeline
   except ImportError as exc:
       raise ConfigError(
-          "The 'kokoro' module requires the kokoro extra: "
-          "pip install tts-engine[kokoro]"
+          "The 'kokoro' module requires the kokoro extra: pip install tts-engine[kokoro]"
       ) from exc
   ```
 

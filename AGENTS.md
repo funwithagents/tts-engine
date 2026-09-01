@@ -40,7 +40,7 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | [config.py](src/tts_engine/config.py) | Config dataclasses, `load_config()`, `ConfigError` | [configuration.md](specs/configuration.md) |
 | [audio.py](src/tts_engine/audio.py) | `AudioPlayer` — sounddevice streaming playback | [audio-player.md](specs/audio-player.md) |
 | [engine.py](src/tts_engine/engine.py) | `TTSEngine` — builds module + player from `TTSEngineConfig`, `speak()` | [architecture.md](specs/architecture.md) |
-| [tools.py](src/tts_engine/tools.py) | Provider/transport-agnostic tools over an engine (`speak`) | [tools.md](specs/tools.md) |
+| [tools.py](src/tts_engine/tools.py) | `TTSTools` — engine-bound, provider/transport-agnostic tools (`speak`) | [tools.md](specs/tools.md) |
 | [mcp.py](src/tts_engine/mcp.py) | MCP server, `speak` tool (thin wrapper over tools), StreamableHTTP | [mcp-server.md](specs/mcp-server.md) |
 | [mcp_server_cli.py](src/tts_engine/mcp_server_cli.py) | MCP server entry point: argparse → config → engine → MCP server; configures logging via `basicConfig` | [mcp-server.md](specs/mcp-server.md) |
 | `modules/` | Provider subpackage: `base.py` (`TTSModule` ABC + `TTSOptions` + `TTSError`), `__init__.py` (`REGISTRY` + `load_module()`), `elevenlabs.py` (ElevenLabs streaming module, MP3 → PCM) | [tts-module-interface.md](specs/tts-module-interface.md), [elevenlabs-module.md](specs/elevenlabs-module.md) |
@@ -112,10 +112,10 @@ uv run pyright                               # Type-check
 ## Data flow
 
 ```
-MCP client                              Library caller
-  → speak tool call (text)                → tools.speak(engine, text)  ─┐
-    → mcp.py speak wrapper                                              │
-      → tools.speak(engine, text)  ◀──────────────────────────────────-┘
+MCP client                              Library caller / agent
+  → speak tool call (text)                → TTSTools(engine).speak(text)  ─┐
+    → mcp.py speak wrapper                                                 │
+      → TTSTools.speak(text)  ◀──────────────────────────────────────────-┘
         → TTSEngine.speak(text)
           → TTSModule.stream(text, options, callback=AudioPlayer.feed)
             → ElevenLabs API (streaming MP3) → miniaudio decode → PCM

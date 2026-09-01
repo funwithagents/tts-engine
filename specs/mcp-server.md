@@ -13,7 +13,7 @@ tests:
 
 ## Overview
 
-The MCP server (`mcp.py`) exposes the engine's tools over StreamableHTTP. It is built with the official MCP Python SDK and served by `uvicorn`. It is a **thin** layer: each registered tool is a small wrapper that delegates to the transport-agnostic tools layer (see [tools.md](tools.md)); the server contains no synthesis or validation logic of its own.
+The MCP server (`mcp.py`) exposes the engine's tools over StreamableHTTP. It is built with the official MCP Python SDK and served by `uvicorn`. It is a **thin** layer: it builds one `TTSTools(engine)` and registers each method behind a small wrapper that delegates to the transport-agnostic tools layer (see [tools.md](tools.md)); the server contains no synthesis or validation logic of its own.
 
 ## Transport
 
@@ -31,15 +31,18 @@ MCP clients connect to `http://<host>:<port>/mcp`.
 
 ### Behaviour
 
-The registered `speak` tool is a thin wrapper:
+The registered `speak` tool is a thin wrapper over a `TTSTools` instance:
 
 ```python
+tools = TTSTools(engine)
+
+
 @mcp.tool()
 async def speak(text: str) -> str:
-    return await tools.speak(engine, text)
+    return await tools.speak(text)
 ```
 
-The empty-text guard, the call to `engine.speak`, and the `TTSError` → message mapping all live in `tools.speak` (see [tools.md](tools.md)). The wrapper only adapts the MCP call to that function.
+The empty-text guard, the call to `engine.speak`, and the `TTSError` → message mapping all live in `TTSTools.speak` (see [tools.md](tools.md)). The wrapper only adapts the MCP call to that method.
 
 ### Return value (success)
 
@@ -72,15 +75,16 @@ Application-level logging uses `log = logging.getLogger(__name__)` (a child of t
 ```python
 from mcp.server.fastmcp import FastMCP
 
-from tts_engine import tools
+from tts_engine.tools import TTSTools
 
 
 def create_server(engine: TTSEngine) -> FastMCP:
     mcp = FastMCP("tts-engine")
+    tools = TTSTools(engine)
 
     @mcp.tool()
     async def speak(text: str) -> str:
-        return await tools.speak(engine, text)
+        return await tools.speak(text)
 
     return mcp
 ```

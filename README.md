@@ -1,12 +1,12 @@
 # tts-engine
 
-A streaming text-to-speech engine. Text goes in, audio plays out on the local machine in real time. Use it **as a Python library** (import the engine and call `speak`) or **as an MCP server** that exposes a `speak` tool to any MCP-compatible AI client.
+A streaming text-to-speech engine. Text goes in, audio plays out on the local machine in real time. Use it three ways: **as a Python library** (import the engine and call `speak`), by **integrating its tools into your own agent** (register `tools.speak` directly, no MCP required), or **as an MCP server** that exposes a `speak` tool to any MCP-compatible AI client.
 
 ---
 
 ## How it works
 
-The core is a reusable `TTSEngine`: it streams audio from a pluggable TTS provider and feeds it to the local audio device chunk by chunk — sound starts playing with minimal latency, before the full audio is even synthesized. Around it are two thin layers: a set of provider-agnostic **tools** (`speak(engine, text)`) and an **MCP server** that exposes those tools over the network. The MCP is one interface onto the engine, not the whole product.
+The core is a reusable `TTSEngine`: it streams audio from a pluggable TTS provider and feeds it to the local audio device chunk by chunk — sound starts playing with minimal latency, before the full audio is even synthesized. Around it are two thin layers: a provider-agnostic **tools** object (`TTSTools(engine).speak(text)`) and an **MCP server** that exposes those tools over the network. The three layers map onto the three ways to use the package — call the engine directly, hand the tools to your own agent, or run the MCP server — and each outer layer is a thin wrapper over the one below it. The MCP is one interface onto the engine, not the whole product.
 
 ---
 
@@ -28,6 +28,26 @@ asyncio.run(main())
 ```
 
 No MCP client, transport, or server is involved — the engine plays on the machine running the code.
+
+---
+
+## Integrate the tools into your own agent
+
+If you're building an agent *without* MCP, register the tools layer directly — the same object the MCP server wraps. `TTSTools` binds an engine and exposes each operation as a method that returns a plain string (never raises for empty input or provider errors) and carries a docstring written to serve as the tool description. Hand a bound method straight to your framework:
+
+```python
+from tts_engine import TTSEngine, TTSTools, load_config
+
+engine = TTSEngine(load_config("config.json").engine)
+tools = TTSTools(engine)
+
+# `tools.speak` is `speak(text) -> str`, ready to register as a tool:
+# its __name__, docstring, and signature describe the tool to the model.
+# e.g. register `tools.speak` with your agent framework's tool interface.
+result = await tools.speak("Hello from my agent")  # -> "OK"
+```
+
+Use this layer (rather than `engine.speak` directly) when you want the agent-friendly contract: string results and no exceptions for empty text or synthesis failures. See [specs/tools.md](specs/tools.md) for the full return contract.
 
 ---
 

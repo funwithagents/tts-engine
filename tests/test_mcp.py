@@ -7,6 +7,7 @@ from mcp.types import TextContent
 
 from tts_engine.engine import TTSEngine
 from tts_engine.mcp import create_server
+from tts_engine.tools import TTSTools
 
 
 @pytest.fixture
@@ -24,13 +25,13 @@ async def _call_speak(mcp, text):
 
 
 async def test_speak_tool_delegates_to_tools_speak(mock_engine, mocker):
-    delegate = mocker.patch(
-        "tts_engine.mcp.tools.speak", new=AsyncMock(return_value="sentinel")
+    delegate = mocker.patch.object(
+        TTSTools, "speak", new=AsyncMock(return_value="sentinel")
     )
     result = await _call_speak(create_server(mock_engine), "hello")
 
     assert result == "sentinel"
-    delegate.assert_awaited_once_with(mock_engine, "hello")
+    delegate.assert_awaited_once_with("hello")
 
 
 async def test_speak_tool_returns_ok_on_success(mock_engine):

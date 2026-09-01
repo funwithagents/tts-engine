@@ -15,10 +15,10 @@ tests:
 The repo is three layers, from reusable core outward to transport:
 
 1. **`TTSEngine`** (`engine.py`) — the reusable core. Built from a `TTSEngineConfig`, it holds a `TTSModule` + `AudioPlayer` and exposes `speak(text)`. No protocol knowledge, no transport, no MCP.
-2. **Tools** (`tools.py`) — provider- and transport-agnostic functions over an engine, e.g. `speak(engine, text) -> str`. They own input guards (empty text) and turn `TTSError` into a caller-friendly string. Usable directly from library code or from any transport.
+2. **Tools** (`tools.py`) — `TTSTools`, an engine-bound class whose methods are provider- and transport-agnostic operations, e.g. `speak(text) -> str`. They own input guards (empty text) and turn `TTSError` into a caller-friendly string. Three kinds of caller use them: the MCP wrappers (layer 3), a **non-MCP agent that registers a bound method directly** (`TTSTools(engine).speak` is already `speak(text) -> str`, keeping its name/docstring for the tool schema), and plain library code wanting the guarded contract. See [tools.md](tools.md), "Consumers".
 3. **MCP** (`mcp.py`) — the MCP server. Registers thin `@mcp.tool()` wrappers that delegate to the tools layer and serves them over StreamableHTTP.
 
-A library user stops at layer 1 or 2; an MCP client goes through layer 3.
+A library user stops at layer 1 or 2; an agent embeds layer 2 directly; an MCP client goes through layer 3.
 
 ## Component overview
 
@@ -35,7 +35,7 @@ A library user stops at layer 1 or 2; an MCP client goes through layer 3.
                        │                                            │
 ┌──────────────────────▼──────────────────────────────┐             │
 │ Tools  (tools.py)                                   │             │
-│  • speak(engine, text) -> str                       │◀────────────┘
+│  • TTSTools(engine).speak(text) -> str              │◀────────────┘
 │  • empty-text guard, TTSError → message             │
 └──────────────────────┬──────────────────────────────┘
                        │
@@ -86,41 +86,41 @@ See [configuration.md](configuration.md) for `TTSEngineConfig` / `PlayerConfig`.
 ### Through the MCP
 
 1. MCP client sends a `speak` tool call with `{"text": "Hello world"}`.
-2. `mcp.py`'s `speak` wrapper calls `tools.speak(engine, text)`.
-3. `tools.speak` guards empty text, then `await engine.speak(text)`, mapping `TTSError` to an error string.
+2. `mcp.py`'s `speak` wrapper calls `tools.speak(text)` on its `TTSTools(engine)`.
+3. `TTSTools.speak` guards empty text, then `await engine.speak(text)`, mapping `TTSError` to an error string.
 4. `engine.speak` builds a `TTSOptions()` and calls `module.stream(text, options, callback=player.feed)`.
 5. The ElevenLabs module opens an HTTPS streaming connection requesting MP3 (`mp3_44100_128`) and decodes each chunk to raw signed 16-bit PCM mono via `miniaudio.stream_any` in-process.
 6. As decoded PCM chunks are produced, the module calls `player.feed(chunk)` for each one.
 7. `AudioPlayer.feed` writes the chunk to the open `sounddevice` output stream — playback begins on the first chunk.
-8. When the stream ends, `engine.speak` returns; `tools.speak` returns `"OK"`; `mcp.py` returns it to the client.
+8. When the stream ends, `engine.speak` returns; `TTSTools.speak` returns `"OK"`; `mcp.py` returns it to the client.
 
 ### From library code
 
-Steps 3–7 above, entered directly: application code calls `tools.speak(engine, text)` (for the guarded, string-returning contract) or `await engine.speak(text)` (raw) — no MCP layer involved.
+Steps 3–7 above, entered directly: application code calls `TTSTools(engine).speak(text)` (for the guarded, string-returning contract) or `await engine.speak(text)` (raw) — no MCP layer involved.
 
 ## Component responsibilities
 
 | Component | Responsibility |
 |-----------|---------------|
 | `mcp.py` | MCP protocol, tool registration, StreamableHTTP; thin wrappers over `tools`; builds the `FastMCP` app |
-| `tools.py` | Provider/transport-agnostic operations over an engine (`speak`); input guards; `TTSError` → string |
+| `tools.py` | `TTSTools`: engine-bound, provider/transport-agnostic operations (`speak`); input guards; `TTSError` → string |
 | `engine.py` | Builds module + player from `TTSEngineConfig` (opening the player at the module's `sample_rate`); `speak()`; no protocol knowledge |
 | `modules/base.py` | Defines `TTSModule` ABC and shared dataclasses (`TTSOptions`) |
 | `modules/elevenlabs.py` | ElevenLabs API interaction, MP3→PCM decoding via miniaudio, config parsing |
 | `audio.py` | `sounddevice` output stream management; provider-agnostic consumer of the fixed PCM format contract |
 | `config.py` | Load, parse, and validate `config.json`; produce typed config dataclasses (`AppConfig`, `TTSEngineConfig`, …) |
 | `mcp_server_cli.py` | Argument parsing (`--config`, `--log-level`); `load_config` → `TTSEngine(cfg.engine)` → MCP server; `logging.basicConfig(level=args.log_level)`; starts uvicorn |
-| `__init__.py` | Public API surface: re-exports `TTSEngine`, `TTSEngineConfig`, `load_config` |
+| `__init__.py` | Public API surface: re-exports `TTSEngine`, `TTSEngineConfig`, `TTSTools`, `load_config` |
 
 ## Public API
 
 The package exposes the library entry points at the top level:
 
 ```python
-from tts_engine import TTSEngine, TTSEngineConfig, load_config
+from tts_engine import TTSEngine, TTSEngineConfig, TTSTools, load_config
 ```
 
-Everything else (modules, audio, tools, mcp, mcp_server_cli) is reachable by submodule import but is not part of the curated top-level surface.
+`TTSTools` is curated so agents can register its bound methods directly (see [tools.md](tools.md), "Consumers"). Everything else (modules, audio, mcp, mcp_server_cli) is reachable by submodule import but is not part of the curated top-level surface.
 
 ## Threading / async model
 
