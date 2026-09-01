@@ -108,7 +108,7 @@ The API-backed pattern (ElevenLabs) is one shape; a second shape is a **local-mo
 - **Float → int16 conversion** happens in the module before the callback (clip to ±1.0, scale to the int16 range), since these libraries yield float waveforms.
 - **Cancellation and errors** follow the same rules as any module: stop calling `callback` before returning/raising, and wrap backend/inference failures in `TTSError`.
 
-Concrete config fields and dependencies for a specific local-model module are specced alongside its code when it lands, following this contract.
+Concrete config fields and dependencies for a specific local-model module are specced alongside its code when it lands, following this contract. Because these backends pull in heavy libraries (`torch` etc.), each ships behind its own packaging **extra** and imports that library lazily — see [project.md](project.md), "Dependency strategy for TTS backends".
 
 ## Error handling
 

@@ -47,6 +47,8 @@ The project follows the standard library-vs-application split:
 
 ## Key dependencies
 
+The base install is the **engine framework plus the reference (ElevenLabs) provider** — everything needed to run the MCP server and synthesize out of the box. Heavy/optional TTS backends are *not* here; they live behind extras (next section).
+
 | Package | Purpose |
 |---------|---------|
 | `mcp[cli]` | MCP Python SDK (FastMCP, StreamableHTTP transport) |
@@ -55,6 +57,27 @@ The project follows the standard library-vs-application split:
 | `sounddevice` | PortAudio bindings for PCM playback |
 | `numpy` | PCM byte→array conversion for sounddevice |
 | `miniaudio` | Streaming MP3→PCM decode for the ElevenLabs module |
+
+## Dependency strategy for TTS backends
+
+Modules pull in third-party libraries of wildly different weight — the ElevenLabs SDK is a few MB of pure Python, while local-model backends (Kokoro, ChatTTS, …) pull in `torch` (~1–2 GB). Bundling every backend into the base install would tax every API-only and MCP user with dependencies they never load. The decided approach:
+
+- **One optional extra per heavy backend.** Declared in `[project.optional-dependencies]` (PEP 621 extras), not `[dependency-groups]`: extras are installable by consumers of the published package (`pip install tts-engine[kokoro]` / `uv sync --extra kokoro`), whereas dependency groups (like `dev`) are workflow-only and invisible downstream. A convenience `all` extra aggregates the backends.
+- **The base stays framework + ElevenLabs.** ElevenLabs is light and is the reference provider, so it stays a core dependency and `tts-engine-mcp` synthesizes out of the box. Only backends heavier than the framework itself go behind an extra. (If the base ever needs to be provider-agnostic, ElevenLabs — and its `miniaudio` decode dep — would move into an `elevenlabs` extra; not done now.)
+- **Backends import their library lazily, never at module-file top.** `modules/__init__.py` eagerly imports each module *class* to populate the registry, so a top-level `import torch`/`import kokoro` would make `import tts_engine` (and `load_module`) require that library installed. Each optional backend therefore imports its heavy dependency inside `__init__` (or first `stream()`), converting a missing extra into a clear `ConfigError`:
+
+  ```python
+  try:
+      from kokoro import KPipeline
+  except ImportError as exc:
+      raise ConfigError(
+          "The 'kokoro' module requires the kokoro extra: "
+          "pip install tts-engine[kokoro]"
+      ) from exc
+  ```
+
+  The registry stays static and `load_module` keeps importing fine; construction fails — with an actionable message — only when you actually select a backend whose extra isn't installed.
+- **The default test tier stays installable without any backend extra.** Because backend files import lazily, `tests/` can unit-test a backend with its library faked, never pulling `torch`. Real-backend coverage lives in the opt-in `tests-e2e/` tier and skips cleanly when the extra (or model) is absent — the same availability-gated pattern as the `ELEVENLABS_API_KEY` skips (see [testing.md](testing.md)).
 
 ## System dependencies
 

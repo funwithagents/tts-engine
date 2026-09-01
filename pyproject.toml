@@ -19,6 +19,16 @@ dependencies = [
 [project.scripts]
 tts-engine-mcp = "tts_engine.mcp_server_cli:main"
 
+# One extra per heavy/optional TTS backend; the base install stays framework +
+# ElevenLabs (see specs/project.md, "Dependency strategy for TTS backends").
+# Each backend module imports its library lazily and raises ConfigError with a
+# "pip install tts-engine[<name>]" hint when the extra is absent. Add entries as
+# backends land, e.g.:
+#   kokoro  = ["kokoro>=0.9.2"]
+#   chattts = ["ChatTTS>=0.1.1"]
+#   all     = ["tts-engine[kokoro,chattts]"]
+[project.optional-dependencies]
+
 [dependency-groups]
 dev = [
     "pytest",
