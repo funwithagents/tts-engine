@@ -21,6 +21,16 @@ class TTSModule(ABC):
         need, raising `ConfigError` for missing/invalid ones.
         """
 
+    @property
+    @abstractmethod
+    def sample_rate(self) -> int:
+        """The sample rate (Hz) of the PCM the module feeds to `callback`.
+
+        Declared by the module and fixed for its lifetime: the engine reads it
+        once and opens the `AudioPlayer` output stream at this rate. A module
+        must resample internally if its backend's native rate differs.
+        """
+
     @abstractmethod
     async def stream(
         self,

@@ -41,6 +41,16 @@ class TTSModule(ABC):
         including `type`). Subclasses validate and extract the fields they
         need, raising `ConfigError` for missing/invalid ones."""
 
+    @property
+    @abstractmethod
+    def sample_rate(self) -> int:
+        """The sample rate (Hz) of the PCM the module feeds to `callback`.
+
+        Declared by the module and fixed for its lifetime — the engine reads it
+        once and opens the `AudioPlayer` output stream at this rate (see the
+        audio format contract below). A module must resample internally if its
+        backend's native rate differs from the value returned here."""
+
     @abstractmethod
     async def stream(
         self,
@@ -76,15 +86,29 @@ REGISTRY: dict[str, type[TTSModule]] = {
 
 ## Audio format contract
 
-All modules **must** produce audio in the following format unless the `AudioPlayer` spec is updated:
+All modules **must** feed `callback` raw PCM in this format:
 
 | Property | Value |
 |----------|-------|
 | Encoding | Signed 16-bit PCM (little-endian) |
-| Sample rate | 44100 Hz |
 | Channels | 1 (mono) |
+| Sample rate | Declared by the module via the `sample_rate` property (Hz) |
 
-The AudioPlayer is configured to match this format. Modules must not emit MP3 or other encoded formats without an explicit decoding step.
+Encoding and channel count are fixed. **Sample rate is module-declared**: each module returns its rate from `sample_rate`, and the engine opens the `AudioPlayer` output stream at that rate (see [audio-player.md](audio-player.md) and [architecture.md](architecture.md)). This lets API providers that stream at 44100 Hz (ElevenLabs) and local models with a native rate of, say, 24000 Hz coexist without a project-wide resample. A module whose backend emits a different rate than it declares must resample internally before the callback.
+
+Modules must not emit MP3 or other encoded formats without an explicit decoding step, and must not emit float samples — convert to signed 16-bit before the callback.
+
+## Local-model modules
+
+The API-backed pattern (ElevenLabs) is one shape; a second shape is a **local-model module** that runs inference in-process (e.g. Kokoro, ChatTTS, Piper). The [`huggingface/speech-to-speech`](https://github.com/huggingface/speech-to-speech/tree/main/src/speech_to_speech/TTS) TTS handlers are a useful catalogue of which engines work well and how to invoke them, but they are **not** reusable as-is: each extends that project's `BaseHandler[TTSIn, TTSOut]` pipeline (a `setup()`/queue/`CancelScope` framework), yields `numpy` arrays at 16 kHz, and pulls in the whole app package. A local-model module here wraps the **underlying model library directly** (e.g. the `kokoro` package), not the handler, and honors this interface:
+
+- **Config-driven construction.** `__init__` validates the `engine.module` block and loads the model (or defers the load to first use). Model download / device selection are config fields, mirroring `api_key_env`/`voice_id` on ElevenLabs.
+- **`sample_rate` reports the module's native rate** (commonly 24000 for these models), so no resampling is needed unless the backend itself varies.
+- **Inference runs off the event loop.** Local inference is blocking and CPU/GPU-bound; run it inside `asyncio.to_thread` (as ElevenLabs does for its blocking SDK iterator), driving `callback` from that single worker thread so calls never overlap.
+- **Float → int16 conversion** happens in the module before the callback (clip to ±1.0, scale to the int16 range), since these libraries yield float waveforms.
+- **Cancellation and errors** follow the same rules as any module: stop calling `callback` before returning/raising, and wrap backend/inference failures in `TTSError`.
+
+Concrete config fields and dependencies for a specific local-model module are specced alongside its code when it lands, following this contract.
 
 ## Error handling
 

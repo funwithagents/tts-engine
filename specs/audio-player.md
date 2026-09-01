@@ -17,9 +17,13 @@ tests:
 
 ```python
 class AudioPlayer:
-    def __init__(self, device: str | int | None = None) -> None:
+    def __init__(self, sample_rate: int, device: str | int | None = None) -> None:
         """
         Prepare the player. Does not open the audio stream yet.
+        `sample_rate`: Hz to open the output stream at. Required — there is no
+        meaningful default, since it must match the PCM the module feeds.
+        Supplied by the `TTSEngine` constructor from the active module's
+        `sample_rate` property (see tts-module-interface.md).
         `device`: sounddevice output device (None = system default).
         Supplied from `PlayerConfig.device` (the `engine.player` block) by
         the `TTSEngine` constructor; see configuration.md.
@@ -46,8 +50,10 @@ Matches the module contract (see `tts-module-interface.md`):
 | Property | Value |
 |----------|-------|
 | Encoding | Signed 16-bit PCM (little-endian) — `dtype='int16'` in sounddevice |
-| Sample rate | 44100 Hz |
 | Channels | 1 (mono) |
+| Sample rate | The `sample_rate` passed to `__init__` (Hz), from the active module's declared rate |
+
+Encoding and channel count are fixed constants; the sample rate is a required constructor argument, set once from the module's `sample_rate` and used to open the `OutputStream`. There is no default rate — it must match the PCM the module feeds. The player does not resample — a module must feed PCM already at the rate it declared.
 
 ## Implementation notes
 

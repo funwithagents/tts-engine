@@ -13,7 +13,7 @@ def test_feed_opens_stream_once(mocker):
     mock_stream = mocker.MagicMock()
     mock_ctor = mocker.patch("sounddevice.OutputStream", return_value=mock_stream)
 
-    player = AudioPlayer()
+    player = AudioPlayer(sample_rate=44100)
     player.feed(_pcm_bytes())
     player.feed(_pcm_bytes())
 
@@ -22,11 +22,19 @@ def test_feed_opens_stream_once(mocker):
     assert mock_stream.write.call_count == 2
 
 
+def test_feed_opens_stream_at_given_sample_rate(mocker):
+    mock_ctor = mocker.patch("sounddevice.OutputStream")
+
+    AudioPlayer(sample_rate=24000).feed(_pcm_bytes())
+
+    assert mock_ctor.call_args.kwargs["samplerate"] == 24000
+
+
 def test_drain_closes_stream(mocker):
     mock_stream = mocker.MagicMock()
     mocker.patch("sounddevice.OutputStream", return_value=mock_stream)
 
-    player = AudioPlayer()
+    player = AudioPlayer(sample_rate=44100)
     player.feed(_pcm_bytes())
     player.drain()
 
@@ -40,12 +48,12 @@ def test_drain_closes_stream(mocker):
 
 def test_drain_before_feed_does_not_raise(mocker):
     mocker.patch("sounddevice.OutputStream")
-    player = AudioPlayer()
+    player = AudioPlayer(sample_rate=44100)
     player.drain()  # must not raise
 
 
 def test_feed_empty_bytes_does_not_open_stream(mocker):
     mock_ctor = mocker.patch("sounddevice.OutputStream")
-    player = AudioPlayer()
+    player = AudioPlayer(sample_rate=44100)
     player.feed(b"")
     mock_ctor.assert_not_called()

@@ -97,6 +97,7 @@ async def test_concurrent_speak_calls_are_serialized(engine, mock_module, mock_p
 async def test_constructor_wires_module_and_player_from_config(mocker):
     fake_module = MagicMock()
     fake_module.stream = AsyncMock()
+    fake_module.sample_rate = 24000
     fake_player = MagicMock()
     load_module = mocker.patch(
         "tts_engine.engine.load_module", return_value=fake_module
@@ -111,7 +112,8 @@ async def test_constructor_wires_module_and_player_from_config(mocker):
     engine = TTSEngine(cfg)
 
     load_module.assert_called_once_with({"type": "fake", "k": "v"})
-    audio_player.assert_called_once_with(device=3)
+    # The player is opened at the module's declared sample rate.
+    audio_player.assert_called_once_with(device=3, sample_rate=24000)
 
     # The engine drives the config's module and player.
     await engine.speak("hi")

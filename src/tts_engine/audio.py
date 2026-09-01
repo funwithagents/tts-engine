@@ -7,13 +7,13 @@ import sounddevice as sd
 
 log = logging.getLogger(__name__)
 
-_SAMPLERATE = 44100
 _CHANNELS = 1
 _DTYPE = "int16"
 
 
 class AudioPlayer:
-    def __init__(self, device: str | int | None = None) -> None:
+    def __init__(self, sample_rate: int, device: str | int | None = None) -> None:
+        self._sample_rate = sample_rate
         self._device = device
         self._stream: sd.OutputStream | None = None
 
@@ -22,7 +22,7 @@ class AudioPlayer:
             return
         if self._stream is None:
             self._stream = sd.OutputStream(
-                samplerate=_SAMPLERATE,
+                samplerate=self._sample_rate,
                 channels=_CHANNELS,
                 dtype=_DTYPE,
                 device=self._device,

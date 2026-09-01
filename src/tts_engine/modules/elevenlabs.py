@@ -44,6 +44,12 @@ class ElevenLabsModule(TTSModule):
         self._similarity_boost: float = config.get("similarity_boost", 0.75)
         self._client = ElevenLabs(api_key=api_key)
 
+    @property
+    def sample_rate(self) -> int:
+        # Matches the requested output_format="mp3_44100_128" and the rate
+        # miniaudio decodes to below.
+        return 44100
+
     @staticmethod
     def _resolve_api_key(config: dict) -> str:
         """Resolve the API key from a literal ``api_key`` or, failing that, the

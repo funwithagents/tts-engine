@@ -76,7 +76,7 @@ class TTSEngine:
         """Build the module (via load_module) and player (AudioPlayer) from config."""
 ```
 
-- The constructor is the entry point for all use (library and MCP). It reads `config.module` (the raw module dict, including `type`) through `load_module`, and `config.player` (a `PlayerConfig`) to build the `AudioPlayer`.
+- The constructor is the entry point for all use (library and MCP). It reads `config.module` (the raw module dict, including `type`) through `load_module`, then builds the `AudioPlayer` from `config.player` (a `PlayerConfig`) **and the module's declared `sample_rate`** — `AudioPlayer(device=config.player.device, sample_rate=module.sample_rate)`. The module owns the rate (see [tts-module-interface.md](tts-module-interface.md)); the player opens its output stream to match.
 - Tests exercise `speak()` behavior without touching a TTS provider or audio hardware by patching `load_module` and `AudioPlayer` in `engine.py` so the constructor yields fakes — dependency injection at the module-boundary rather than the constructor signature.
 
 See [configuration.md](configuration.md) for `TTSEngineConfig` / `PlayerConfig`.
@@ -104,7 +104,7 @@ Steps 3–7 above, entered directly: application code calls `tools.speak(engine,
 |-----------|---------------|
 | `mcp.py` | MCP protocol, tool registration, StreamableHTTP; thin wrappers over `tools`; builds the `FastMCP` app |
 | `tools.py` | Provider/transport-agnostic operations over an engine (`speak`); input guards; `TTSError` → string |
-| `engine.py` | Builds module + player from `TTSEngineConfig`; `speak()`; no protocol knowledge |
+| `engine.py` | Builds module + player from `TTSEngineConfig` (opening the player at the module's `sample_rate`); `speak()`; no protocol knowledge |
 | `modules/base.py` | Defines `TTSModule` ABC and shared dataclasses (`TTSOptions`) |
 | `modules/elevenlabs.py` | ElevenLabs API interaction, MP3→PCM decoding via miniaudio, config parsing |
 | `audio.py` | `sounddevice` output stream management; provider-agnostic consumer of the fixed PCM format contract |

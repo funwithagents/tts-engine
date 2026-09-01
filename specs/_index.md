@@ -19,9 +19,9 @@ Read the concept specs in order — each builds on the ones above it. `project.m
 | [configuration.md](configuration.md) | Config file schema (`engine`/`server`), dataclasses, `load_config`, validation rules | Implemented |
 | [tools.md](tools.md) | The provider-agnostic tools layer: `speak(engine, text)`, guards, return contract | Implemented |
 | [mcp-server.md](mcp-server.md) | `speak` tool, transport, lifecycle, error handling — thin wrappers over the tools layer | Implemented |
-| [tts-module-interface.md](tts-module-interface.md) | ABC, audio format contract, registry, `TTSOptions` | Implemented |
+| [tts-module-interface.md](tts-module-interface.md) | ABC, audio format contract (module-declared sample rate), local-model module pattern, registry, `TTSOptions` | Implemented |
 | [elevenlabs-module.md](elevenlabs-module.md) | Streaming PCM, config fields, SDK usage, error handling | Implemented |
-| [audio-player.md](audio-player.md) | `AudioPlayer`, sounddevice integration, stream lifecycle | Implemented |
+| [audio-player.md](audio-player.md) | `AudioPlayer`, sounddevice integration, stream lifecycle, per-module sample rate | Implemented |
 
 ## Status legend
 

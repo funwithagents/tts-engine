@@ -12,7 +12,9 @@ class TTSEngine:
     def __init__(self, config: TTSEngineConfig) -> None:
         """Build the module (via load_module) and player (AudioPlayer) from config."""
         self._module = load_module(config.module)
-        self._player = AudioPlayer(device=config.player.device)
+        self._player = AudioPlayer(
+            device=config.player.device, sample_rate=self._module.sample_rate
+        )
         self._speak_lock = asyncio.Lock()
 
     async def speak(self, text: str) -> None:

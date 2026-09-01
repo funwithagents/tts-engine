@@ -15,6 +15,10 @@ def test_load_module_registered_type():
         def __init__(self, config: dict):
             self.config = config
 
+        @property
+        def sample_rate(self) -> int:
+            return 44100
+
         async def stream(self, text, options, callback):
             pass
 
