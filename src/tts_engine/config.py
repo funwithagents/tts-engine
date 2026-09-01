@@ -15,11 +15,6 @@ class PlayerConfig:
 
 
 @dataclass
-class LoggingConfig:
-    level: str = "INFO"
-
-
-@dataclass
 class ServerConfig:
     host: str = "127.0.0.1"
     port: int = 8000
@@ -35,10 +30,6 @@ class TTSEngineConfig:
 class AppConfig:
     engine: TTSEngineConfig
     server: ServerConfig = field(default_factory=ServerConfig)
-    logging: LoggingConfig = field(default_factory=LoggingConfig)
-
-
-_VALID_LEVELS = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"}
 
 
 def load_config(path: str) -> AppConfig:
@@ -73,12 +64,4 @@ def load_config(path: str) -> AppConfig:
         )
     server_cfg = ServerConfig(host=server_raw.get("host", "127.0.0.1"), port=port)
 
-    logging_raw = data.get("logging", {})
-    level = logging_raw.get("level", "INFO")
-    if not isinstance(level, str) or level.upper() not in _VALID_LEVELS:
-        raise ConfigError(
-            f"'logging.level' must be one of {sorted(_VALID_LEVELS)}, got {level!r}"
-        )
-    logging_cfg = LoggingConfig(level=level.upper())
-
-    return AppConfig(engine=engine_cfg, server=server_cfg, logging=logging_cfg)
+    return AppConfig(engine=engine_cfg, server=server_cfg)

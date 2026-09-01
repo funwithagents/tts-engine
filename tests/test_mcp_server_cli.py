@@ -2,8 +2,9 @@
 
 The default tier never starts a real server (that is the opt-in e2e test_mcp.py);
 here we drive main() with the real load_config and patched boundary collaborators,
-asserting only the wiring that can break — the values threaded from config into
-setup_logging and uvicorn.run, and the engine/app passed between the layers.
+asserting only the wiring that can break — the level threaded from --log-level into
+basicConfig, the values from config into uvicorn.run, and the engine/app passed
+between the layers.
 """
 
 import json
@@ -11,7 +12,7 @@ import json
 import pytest
 
 from tts_engine.config import load_config
-from tts_engine.mcp_server_cli import main
+from tts_engine.mcp_server_cli import _LOG_FORMAT, main
 
 _CONFIG = {
     "engine": {
@@ -27,7 +28,6 @@ _CONFIG = {
     },
     # Distinctive, non-default values so the assertions can't pass by coincidence.
     "server": {"host": "0.0.0.0", "port": 9123},
-    "logging": {"level": "WARNING"},
 }
 
 
@@ -39,17 +39,20 @@ def config_path(tmp_path):
 
 
 def test_main_wires_config_into_server(config_path, mocker):
-    setup_logging = mocker.patch("tts_engine.mcp_server_cli.setup_logging")
+    basic_config = mocker.patch("tts_engine.mcp_server_cli.logging.basicConfig")
     engine_cls = mocker.patch("tts_engine.mcp_server_cli.TTSEngine")
     create_server = mocker.patch("tts_engine.mcp_server_cli.create_server")
     uvicorn_run = mocker.patch("tts_engine.mcp_server_cli.uvicorn.run")
-    mocker.patch("sys.argv", ["tts-engine-mcp", "--config", str(config_path)])
+    mocker.patch(
+        "sys.argv",
+        ["tts-engine-mcp", "--config", str(config_path), "--log-level", "WARNING"],
+    )
 
     main()
 
     expected = load_config(str(config_path))
-    # Level from the logging block reaches setup_logging.
-    setup_logging.assert_called_once_with("WARNING")
+    # Level from the --log-level flag reaches basicConfig (which configures root).
+    basic_config.assert_called_once_with(level="WARNING", format=_LOG_FORMAT)
     # The engine is built from the parsed engine config, then handed to the server.
     engine_cls.assert_called_once_with(expected.engine)
     create_server.assert_called_once_with(engine_cls.return_value)
@@ -59,6 +62,18 @@ def test_main_wires_config_into_server(config_path, mocker):
         host="0.0.0.0",
         port=9123,
     )
+
+
+def test_log_level_defaults_to_info(config_path, mocker):
+    basic_config = mocker.patch("tts_engine.mcp_server_cli.logging.basicConfig")
+    mocker.patch("tts_engine.mcp_server_cli.TTSEngine")
+    mocker.patch("tts_engine.mcp_server_cli.create_server")
+    mocker.patch("tts_engine.mcp_server_cli.uvicorn.run")
+    mocker.patch("sys.argv", ["tts-engine-mcp", "--config", str(config_path)])
+
+    main()
+
+    basic_config.assert_called_once_with(level="INFO", format=_LOG_FORMAT)
 
 
 def test_main_requires_config(mocker):

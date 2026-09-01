@@ -26,7 +26,6 @@ VALID = {
         "player": {"device": None},
     },
     "server": {"host": "127.0.0.1", "port": 8000},
-    "logging": {"level": "INFO"},
 }
 
 
@@ -38,7 +37,6 @@ def test_valid_config(tmp_path):
     assert cfg.engine.player.device is None
     assert cfg.server.host == "127.0.0.1"
     assert cfg.server.port == 8000
-    assert cfg.logging.level == "INFO"
 
 
 def test_extra_module_fields_preserved(tmp_path):
@@ -53,12 +51,11 @@ def test_extra_module_fields_preserved(tmp_path):
     assert cfg.engine.module["custom_field"] == "hello"
 
 
-def test_server_and_logging_default_when_omitted(tmp_path):
+def test_server_defaults_when_omitted(tmp_path):
     data = {"engine": VALID["engine"]}
     cfg = load_config(_write_config(tmp_path, data))
     assert cfg.server.host == "127.0.0.1"
     assert cfg.server.port == 8000
-    assert cfg.logging.level == "INFO"
 
 
 def test_player_defaults_when_omitted(tmp_path):
@@ -108,15 +105,3 @@ def test_port_zero(tmp_path):
     data = {**VALID, "server": {"host": "127.0.0.1", "port": 0}}
     with pytest.raises(ConfigError, match="port"):
         load_config(_write_config(tmp_path, data))
-
-
-def test_unknown_logging_level(tmp_path):
-    data = {**VALID, "logging": {"level": "LOUD"}}
-    with pytest.raises(ConfigError, match="logging.level"):
-        load_config(_write_config(tmp_path, data))
-
-
-def test_logging_level_normalized_to_upper(tmp_path):
-    data = {**VALID, "logging": {"level": "debug"}}
-    cfg = load_config(_write_config(tmp_path, data))
-    assert cfg.logging.level == "DEBUG"

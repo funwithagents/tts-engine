@@ -65,7 +65,7 @@ Unexpected exceptions, including downstream playback/device failures, are delibe
 
 ## Logging
 
-Application-level logging uses `log = logging.getLogger(__name__)` (a child of the `tts_engine` package logger configured by `setup_logging`). uvicorn is started from `mcp_server_cli.py` via `uvicorn.run(...)` with its default log configuration; no custom `log_config` is passed.
+Application-level logging uses `log = logging.getLogger(__name__)` (a child of the `tts_engine` package logger). The entry point configures the root logger with `logging.basicConfig(level=..., format=...)`; the level comes from its `--log-level` flag (default `INFO`; one of `DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL`), not from the config file — see [project.md](project.md), "Logging". uvicorn is started from `mcp_server_cli.py` via `uvicorn.run(...)` with its default log configuration; no custom `log_config` is passed.
 
 ## MCP SDK usage pattern
 

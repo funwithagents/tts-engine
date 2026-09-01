@@ -21,12 +21,11 @@ The MCP server is started with `--config <path>` pointing to a JSON object. Ther
 ```json
 {
   "engine": { ... },
-  "server": { ... },
-  "logging": { ... }
+  "server": { ... }
 }
 ```
 
-`engine` is required. `server` and `logging` are optional (they have defaults) — the MCP entry point uses `server`; a pure library caller may omit both.
+`engine` is required. `server` is optional (it has defaults) and used only by the MCP entry point; a pure library caller may omit it. There is no logging block — the log level is an operational concern of the entry point, set via the MCP server's `--log-level` flag, not the config file (see [project.md](project.md), "Logging").
 
 `load_config(path)` returns an `AppConfig`:
 
@@ -35,7 +34,6 @@ The MCP server is started with `--config <path>` pointing to a JSON object. Ther
 class AppConfig:
     engine: TTSEngineConfig
     server: ServerConfig
-    logging: LoggingConfig
 ```
 
 ---
@@ -96,19 +94,9 @@ Consumed only by the MCP entry point.
 
 ---
 
-## `logging` block → `LoggingConfig`
+## Logging
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `level` | string | no | `"INFO"` | Log level for the package logger (`tts_engine`). One of the standard names: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`. |
-
-```python
-@dataclass
-class LoggingConfig:
-    level: str = "INFO"
-```
-
-The level is applied by `setup_logging(level)` to the package logger `logging.getLogger("tts_engine")` — never the root logger (see [project.md](project.md), "Logging").
+There is no `logging` config block. The log level is set at the process level by the `tts-engine-mcp` entry point's `--log-level` flag (default `INFO`), which the entry point applies via `logging.basicConfig(level=...)` (see [project.md](project.md), "Logging"). A library caller configures logging however its host application does; the library itself only attaches a `NullHandler`.
 
 ---
 
@@ -132,9 +120,6 @@ The level is applied by `setup_logging(level)` to the package logger `logging.ge
   "server": {
     "host": "127.0.0.1",
     "port": 8000
-  },
-  "logging": {
-    "level": "INFO"
   }
 }
 ```
@@ -142,9 +127,8 @@ The level is applied by `setup_logging(level)` to the package logger `logging.ge
 ## Validation rules
 
 - File-read failures and invalid JSON raise `ConfigError` with the file path.
-- The top-level value and the `engine`, `engine.module`, `engine.player`, `server`, and `logging` blocks must be JSON objects. Shape failures raise `ConfigError`, never raw `AttributeError`/`TypeError`.
+- The top-level value and the `engine`, `engine.module`, `engine.player`, and `server` blocks must be JSON objects. Shape failures raise `ConfigError`, never raw `AttributeError`/`TypeError`.
 - The `engine` block is required and must contain a `module` block. Missing required blocks/fields raise `ConfigError` with a message identifying the missing key.
 - `load_config` validates `engine.module.type` as a non-empty string. Registry membership is validated later by `load_module` during `TTSEngine` construction, avoiding a config↔module import cycle and allowing callers to register custom modules before constructing the engine. Unknown values still raise `ConfigError` before an engine is created.
 - `engine.player.device` must be a string, an integer other than `bool`, or `null`.
 - `server.host` must be a non-empty string; `server.port` must be an integer other than `bool` in range 1–65535.
-- `logging.level` must be a recognized level name; an unknown level raises `ConfigError`.

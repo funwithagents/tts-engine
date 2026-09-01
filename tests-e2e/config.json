@@ -9,8 +9,5 @@
     "player": {
       "device": null
     }
-  },
-  "logging": {
-    "level": "INFO"
   }
 }

@@ -90,9 +90,6 @@ export ELEVENLABS_API_KEY="sk_..."
   "server": {
     "host": "127.0.0.1",
     "port": 8000
-  },
-  "logging": {
-    "level": "INFO"
   }
 }
 ```
@@ -106,14 +103,14 @@ export ELEVENLABS_API_KEY="sk_..."
 | `engine.module.stability` / `engine.module.similarity_boost` | Voice tuning parameters (0.0–1.0) |
 | `engine.player.device` | Audio output device — `null` for system default, or a device name/index |
 | `server.host` / `server.port` | Where the MCP server listens |
-| `logging.level` | Log level for the `tts_engine` logger (`DEBUG`/`INFO`/…) |
 
-`server` and `logging` are optional (they default); a pure library caller can provide just `engine`.
+`server` is optional (it defaults); a pure library caller can provide just `engine`. The log level is not a config field — set it with the server's `--log-level` flag (default `INFO`).
 
 ## Running the server
 
 ```bash
 uv run tts-engine-mcp --config config.json
+uv run tts-engine-mcp --config config.json --log-level DEBUG
 ```
 
 ## Connecting an MCP client

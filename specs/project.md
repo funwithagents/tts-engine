@@ -2,7 +2,6 @@
 code:
   - pyproject.toml
   - src/tts_engine/mcp_server_cli.py
-  - src/tts_engine/_logging.py
 tests:
   - tests/test_project_map.py
 ---
@@ -29,7 +28,7 @@ Structure and tooling for the `tts-engine` project itself: Python version, depen
 - **Entry point:** `tts-engine-mcp = "tts_engine.mcp_server_cli:main"` (declared in `[project.scripts]`) — starts the MCP server. Both the script and the module (`mcp_server_cli.py`) are named for the interface they launch, since the library itself is used by import, not by a script; the module name leaves room for other clients/entry points later. The MCP entry point is specced in [mcp-server.md](mcp-server.md).
 - **Public API:** `src/tts_engine/__init__.py` re-exports `TTSEngine`, `TTSEngineConfig`, and `load_config` (see [architecture.md](architecture.md), "Public API").
 - **Repo shape:**
-  - `src/tts_engine/` — the package, one module per core concept (`engine.py`, `tools.py`, `mcp.py`, `audio.py`, `config.py`, `mcp_server_cli.py`, `_logging.py`) plus the `modules/` subpackage of TTS backends.
+  - `src/tts_engine/` — the package, one module per core concept (`engine.py`, `tools.py`, `mcp.py`, `audio.py`, `config.py`, `mcp_server_cli.py`) plus the `modules/` subpackage of TTS backends.
   - `specs/` — pre-implementation design docs, one per concept (this folder), indexed by [_index.md](_index.md).
   - `plans/` — implementation plans turning settled specs into buildable steps, indexed by [_index.md](../plans/_index.md).
   - `tests/` at repo root, mirroring the `src/tts_engine/` module structure.
@@ -37,14 +36,14 @@ Structure and tooling for the `tts-engine` project itself: Python version, depen
 
 ## Entry point & plumbing
 
-- `src/tts_engine/mcp_server_cli.py` — the `tts-engine-mcp` console script (`main`): parses `--config`, calls `load_config`, calls `setup_logging(cfg.logging.level)`, builds the engine via `TTSEngine(cfg.engine)`, creates the MCP server, and starts uvicorn. Its runtime behaviour (transport, lifecycle) is specced in [mcp-server.md](mcp-server.md).
-- `src/tts_engine/_logging.py` — `setup_logging(level)` for entry points. It configures the **package** logger `logging.getLogger("tts_engine")` (attaches a handler and sets the level from config), never the root logger and never via `basicConfig`. Library modules never configure logging; only `mcp_server_cli.py` calls `setup_logging` (see [AGENTS.md](../AGENTS.md), "Logging conventions").
+- `src/tts_engine/mcp_server_cli.py` — the `tts-engine-mcp` console script (`main`): parses `--config` and `--log-level` (default `INFO`), calls `load_config`, configures logging via `logging.basicConfig(level=args.log_level, ...)`, builds the engine via `TTSEngine(cfg.engine)`, creates the MCP server, and starts uvicorn. Its runtime behaviour (transport, lifecycle) is specced in [mcp-server.md](mcp-server.md).
 
 ## Logging
 
-- Every module that emits logs uses a module-level `log = logging.getLogger(__name__)`. Under the `tts_engine` package these are children of the `tts_engine` logger, so they inherit its configured handler and level.
-- The level is **not** hardcoded and the root logger is **not** touched: `setup_logging(level)` reads the level from the `logging` config block ([configuration.md](configuration.md)) and applies it to `logging.getLogger("tts_engine")`.
-- The configured package logger does not propagate to root, avoiding duplicate output when an embedding application has root handlers.
+The project follows the standard library-vs-application split:
+
+- **Library side.** Every module that emits logs uses a module-level `log = logging.getLogger(__name__)`; under `tts_engine` these are children of the `tts_engine` logger. The package `__init__.py` attaches a `logging.NullHandler()` to `logging.getLogger("tts_engine")` and nothing else — so `import tts_engine` is silent and side-effect-free, and where records go is left entirely to the host application. The library never sets a level, adds a stream handler, calls `basicConfig`, or touches the root logger.
+- **Application side.** The MCP entry point owns its process, so it configures logging the textbook way: `logging.basicConfig(level=..., format=...)` on the root logger. The level is an operational knob — it comes from the `tts-engine-mcp` `--log-level` flag (default `INFO`), not a config-file field, and there is no `logging` config block. The library's records reach root's handler by normal propagation (the `NullHandler` doesn't stop it). A pure library caller configures logging however its own application does.
 
 ## Key dependencies
 

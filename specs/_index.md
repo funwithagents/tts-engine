@@ -16,7 +16,7 @@ Read the concept specs in order — each builds on the ones above it. `project.m
 | [testing.md](testing.md) | Testing strategy: two-tier `tests/`/`tests-e2e/` split, functional-test philosophy, skip-without-credentials live tier | Implemented |
 | [overview.md](overview.md) | Goals, components, constraints, non-goals — library + MCP framing | Stable |
 | [architecture.md](architecture.md) | System diagram, layers (engine/tools/mcp), concurrency model, data flow, `TTSEngine(config)` construction, public API | Implemented |
-| [configuration.md](configuration.md) | Config file schema (`engine`/`server`/`logging`), dataclasses, `load_config`, validation rules | Implemented |
+| [configuration.md](configuration.md) | Config file schema (`engine`/`server`), dataclasses, `load_config`, validation rules | Implemented |
 | [tools.md](tools.md) | The provider-agnostic tools layer: `speak(engine, text)`, guards, return contract | Implemented |
 | [mcp-server.md](mcp-server.md) | `speak` tool, transport, lifecycle, error handling — thin wrappers over the tools layer | Implemented |
 | [tts-module-interface.md](tts-module-interface.md) | ABC, audio format contract, registry, `TTSOptions` | Implemented |

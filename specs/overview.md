@@ -23,7 +23,7 @@ The MCP is one interface onto the engine, not the whole product. The engine, the
 - Ship an **MCP server** that exposes those tools over StreamableHTTP, deployable on a local network
 - Stream audio from the provider to the audio device with minimal latency (playback starts before the full audio is received)
 - Support pluggable TTS backends, with ElevenLabs as the first implementation
-- Keep configuration simple: one config file, one active module, one place for logging level
+- Keep configuration simple: one config file, one active module (logging is the entry point's concern, not the config file's)
 
 ## Non-goals (v1)
 
@@ -54,7 +54,7 @@ Importing the package exposes the engine and its config:
 ```python
 from tts_engine import TTSEngine, TTSEngineConfig, load_config
 
-cfg = load_config("config.json")  # -> AppConfig(engine, server, logging)
+cfg = load_config("config.json")  # -> AppConfig(engine, server)
 engine = TTSEngine(cfg.engine)  # builds module + player from config
 await engine.speak("Hello world")
 ```
