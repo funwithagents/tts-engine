@@ -60,7 +60,7 @@ A live test needs real credentials, and it must **skip — never fail** — when
 
 ## Tooling
 
-- **`pytest`** is the runner (`asyncio_mode = "auto"` for the async server/engine tests); **`ruff`** lints and checks formatting; **`pyright`** (`standard` mode) type-checks. Formatting, lint, type check, and tests must all pass before work is considered done (see [AGENTS.md](../AGENTS.md), "Verification").
+- **`pytest`** is the runner (`asyncio_mode = "auto"` for the async server/engine tests); **`ruff`** lints and formats; **`pyright`** (`standard` mode) type-checks. Lint, type check, and tests must all pass before work is considered done (see [AGENTS.md](../AGENTS.md), "Verification"/"Commands").
 - **`pyright` covers test code too:** its `include` is `src`, `tests`, and `tests-e2e`, so tests are type-checked alongside the library rather than being a blind spot.
 
 ## Open questions

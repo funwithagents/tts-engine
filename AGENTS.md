@@ -152,11 +152,14 @@ sudo apt-get install libportaudio2
 
 ## Verification
 
-After any code change, run all four and fix any failures before considering the work done:
+After any code change, run linting, type checking, and tests, and fix any failures before considering the work done.
 
-```bash
-uv run ruff format --check .
+## Commands
+
+```
+uv sync --dev
 uv run ruff check .
+uv run ruff format .
 uv run pyright
 uv run pytest
 ```
