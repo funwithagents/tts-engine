@@ -2,11 +2,19 @@
 
 import numpy as np
 
-from tts_engine.audio import AudioPlayer
+from tts_engine.audio import AudioPlayer, AudioSink
 
 
 def _pcm_bytes(n_samples: int = 16) -> bytes:
     return np.zeros(n_samples, dtype=np.int16).tobytes()
+
+
+def test_audio_player_is_an_audio_sink():
+    # Static + structural conformance: AudioPlayer satisfies the AudioSink seam
+    # embedders type their own destinations against.
+    sink: AudioSink = AudioPlayer(sample_rate=44100)
+    assert callable(sink.feed)
+    assert callable(sink.drain)
 
 
 def test_feed_opens_stream_once(mocker):

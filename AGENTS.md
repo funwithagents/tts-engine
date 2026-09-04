@@ -38,8 +38,8 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | Module | Role | Spec |
 |---|---|---|
 | [config.py](src/tts_engine/config.py) | Config dataclasses, `load_config()`, `ConfigError` | [configuration.md](specs/configuration.md) |
-| [audio.py](src/tts_engine/audio.py) | `AudioPlayer` — sounddevice streaming playback | [audio-player.md](specs/audio-player.md) |
-| [engine.py](src/tts_engine/engine.py) | `TTSEngine` — builds module + player from `TTSEngineConfig`, `speak()` | [architecture.md](specs/architecture.md) |
+| [audio.py](src/tts_engine/audio.py) | `AudioSink` Protocol + `AudioPlayer` — sounddevice streaming playback (default sink) | [audio-player.md](specs/audio-player.md), [audio-sink.md](specs/audio-sink.md) |
+| [engine.py](src/tts_engine/engine.py) | `TTSEngine` — builds module + sink (default player) from `TTSEngineConfig`, `speak()`, `sample_rate` | [architecture.md](specs/architecture.md), [audio-sink.md](specs/audio-sink.md) |
 | [tools.py](src/tts_engine/tools.py) | `TTSTools` — engine-bound, provider/transport-agnostic tools (`speak`) | [tools.md](specs/tools.md) |
 | [mcp.py](src/tts_engine/mcp.py) | MCP server, `speak` tool (thin wrapper over tools), StreamableHTTP | [mcp-server.md](specs/mcp-server.md) |
 | [mcp_server_cli.py](src/tts_engine/mcp_server_cli.py) | MCP server entry point: argparse → config → engine → MCP server; configures logging via `basicConfig` | [mcp-server.md](specs/mcp-server.md) |

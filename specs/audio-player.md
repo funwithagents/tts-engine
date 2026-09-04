@@ -11,12 +11,14 @@ tests:
 
 ## Purpose
 
-`AudioPlayer` consumes raw PCM chunks produced by a `TTSModule` and writes them to the system audio output in real-time using `sounddevice`.
+`AudioPlayer` consumes raw PCM chunks produced by a `TTSModule` and writes them to the system audio output in real-time using `sounddevice`. It is the **default** `AudioSink` — the local-speaker implementation of the sink seam ([audio-sink.md](audio-sink.md)); an embedder can substitute its own destination without touching this class.
 
 ## Interface
 
+`AudioPlayer` is declared to implement the `AudioSink` Protocol ([audio-sink.md](audio-sink.md)) — its `feed`/`drain` shape *is* the sink contract. This is a static-conformance declaration only; there is no behavior change.
+
 ```python
-class AudioPlayer:
+class AudioPlayer(AudioSink):
     def __init__(self, sample_rate: int, device: str | int | None = None) -> None:
         """
         Prepare the player. Does not open the audio stream yet.
@@ -57,9 +59,13 @@ Encoding and channel count are fixed constants; the sample rate is a required co
 
 ## Implementation notes
 
+### Lazy sounddevice import
+
+`sounddevice` is imported **lazily inside `AudioPlayer`** (at the first `feed()`), not at `audio.py` module top level. This keeps `import tts_engine` and an engine driven by a custom sink working on hosts with no PortAudio / no audio device — see [audio-sink.md](audio-sink.md), "Importable without local audio." `numpy` remains a top-level import (no system dependency).
+
 ### Stream lifecycle
 
-- Open a `sounddevice.OutputStream` on the first `feed()` call (lazy open), not in `__init__`. This avoids opening the device if synthesis fails before the first chunk.
+- Open a `sounddevice.OutputStream` on the first `feed()` call (lazy open), not in `__init__`. This avoids opening the device if synthesis fails before the first chunk, and is also where sounddevice is first imported.
 - If opening succeeds but `stream.start()` fails, close the new stream before propagating the error.
 - `drain()` detaches the active stream, calls `stream.stop()`, and always calls `stream.close()` in a `finally` block. A failed stop therefore cannot leak the device or leave a stale stream attached to the player.
 

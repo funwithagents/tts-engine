@@ -93,6 +93,98 @@ async def test_concurrent_speak_calls_are_serialized(engine, mock_module, mock_p
     assert mock_player.drain.call_count == 2
 
 
+class CaptureSink:
+    """In-memory AudioSink: records fed chunks and drain calls."""
+
+    def __init__(self) -> None:
+        self.chunks: list[bytes] = []
+        self.drains = 0
+
+    def feed(self, chunk: bytes) -> None:
+        self.chunks.append(chunk)
+
+    def drain(self) -> None:
+        self.drains += 1
+
+
+def _feeding_stream(*chunks: bytes):
+    async def stream(text, options, callback):
+        for chunk in chunks:
+            callback(chunk)
+
+    return stream
+
+
+@pytest.fixture
+def engine_with_sink(mock_module, mocker):
+    # No AudioPlayer needed when a sink is injected — build the module only.
+    mocker.patch("tts_engine.engine.load_module", return_value=mock_module)
+    audio_player = mocker.patch("tts_engine.engine.AudioPlayer")
+    sink = CaptureSink()
+    engine = TTSEngine(
+        TTSEngineConfig(module={"type": "fake"}, player=PlayerConfig()), sink=sink
+    )
+    return engine, sink, audio_player
+
+
+@pytest.mark.asyncio
+async def test_injected_sink_receives_chunks_and_one_drain(
+    engine_with_sink, mock_module
+):
+    engine, sink, _ = engine_with_sink
+    mock_module.stream.side_effect = _feeding_stream(b"\x01\x00", b"\x02\x00")
+
+    await engine.speak("hello")
+
+    assert sink.chunks == [b"\x01\x00", b"\x02\x00"]
+    assert sink.drains == 1
+
+
+@pytest.mark.asyncio
+async def test_injected_sink_drained_once_on_tts_error(engine_with_sink, mock_module):
+    engine, sink, _ = engine_with_sink
+    mock_module.stream.side_effect = TTSError("synthesis failed")
+
+    with pytest.raises(TTSError):
+        await engine.speak("hello")
+
+    assert sink.drains == 1
+
+
+@pytest.mark.asyncio
+async def test_injected_sink_drained_once_on_cancellation(
+    engine_with_sink, mock_module
+):
+    engine, sink, _ = engine_with_sink
+
+    async def cancelling_stream(text, options, callback):
+        raise asyncio.CancelledError
+
+    mock_module.stream.side_effect = cancelling_stream
+
+    with pytest.raises(asyncio.CancelledError):
+        await engine.speak("hello")
+
+    assert sink.drains == 1
+
+
+@pytest.mark.asyncio
+async def test_injecting_sink_does_not_construct_audio_player(engine_with_sink):
+    _, _, audio_player = engine_with_sink
+    audio_player.assert_not_called()
+
+
+def test_sample_rate_exposes_module_rate(mock_module, mocker):
+    mock_module.sample_rate = 24000
+    mocker.patch("tts_engine.engine.load_module", return_value=mock_module)
+    engine = TTSEngine(
+        TTSEngineConfig(module={"type": "fake"}, player=PlayerConfig()),
+        sink=CaptureSink(),
+    )
+
+    assert engine.sample_rate == 24000
+
+
 @pytest.mark.asyncio
 async def test_constructor_wires_module_and_player_from_config(mocker):
     fake_module = MagicMock()
