@@ -12,7 +12,7 @@ tests:
 
 ## Config file
 
-The MCP server is started with `--config <path>` pointing to a JSON object. There is no default path — the argument is required. Library callers can load the same file with `load_config(path)` or construct the dataclasses directly.
+The MCP server is started with `--config <path>` pointing to a JSON object. There is no default path — the argument is required. Library callers can load the same file with `load_config(path)`, or build the engine config from an in-memory `engine` block with `TTSEngineConfig.from_dict(engine_block)` (the sanctioned "construct directly" path — see below).
 
 `config.example.json` in the repo root documents all fields with placeholder values and must be kept in sync with this spec.
 
@@ -57,6 +57,16 @@ class TTSEngineConfig:
 ```
 
 `TTSEngine(engine_config)` consumes this (see [architecture.md](architecture.md)).
+
+#### `TTSEngineConfig.from_dict(engine_block)`
+
+The sanctioned in-memory constructor: it takes the raw `engine` block (the object under the top-level `"engine"` key, **not** the whole file) and returns a validated `TTSEngineConfig`, running exactly the same structural validation `load_config` applies to `data["engine"]` (see "Validation rules"). `load_config` is implemented in terms of it — it parses the file, then delegates the `engine` block to `from_dict` — so both entry points share one validation path.
+
+```python
+engine_cfg = TTSEngineConfig.from_dict({"module": {"type": "elevenlabs", ...}, "player": {"device": null}})
+```
+
+The `module` block is carried through verbatim as a raw dict; **no environment variables are read** at this stage (the module resolves its own `api_key`/`api_key_env` later, at engine construction), so a config naming only an unset `api_key_env` still constructs. Use this to build an engine config from an in-memory dict — e.g. a host app composing several engine configs from one JSON file — without writing a temp file or duplicating validation.
 
 ### `engine.module` block
 
@@ -125,6 +135,8 @@ There is no `logging` config block. The log level is set at the process level by
 ```
 
 ## Validation rules
+
+The `engine`-block rules below are enforced by `TTSEngineConfig.from_dict` and so apply identically to `load_config(path)` and to a direct `from_dict(engine_block)` call; the file-level and `server` rules are `load_config`'s alone.
 
 - File-read failures and invalid JSON raise `ConfigError` with the file path.
 - The top-level value and the `engine`, `engine.module`, `engine.player`, and `server` blocks must be JSON objects. Shape failures raise `ConfigError`, never raw `AttributeError`/`TypeError`.

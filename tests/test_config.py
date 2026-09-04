@@ -4,7 +4,12 @@ import json
 
 import pytest
 
-from tts_engine.config import AppConfig, ConfigError, load_config
+from tts_engine.config import (
+    AppConfig,
+    ConfigError,
+    TTSEngineConfig,
+    load_config,
+)
 
 
 def _write_config(tmp_path, data):
@@ -105,3 +110,87 @@ def test_port_zero(tmp_path):
     data = {**VALID, "server": {"host": "127.0.0.1", "port": 0}}
     with pytest.raises(ConfigError, match="port"):
         load_config(_write_config(tmp_path, data))
+
+
+# --- TTSEngineConfig.from_dict --------------------------------------------
+
+
+def test_from_dict_valid():
+    cfg = TTSEngineConfig.from_dict(VALID["engine"])
+    assert isinstance(cfg, TTSEngineConfig)
+    assert cfg.module["type"] == "elevenlabs"
+    assert cfg.player.device is None
+
+
+def test_from_dict_carries_module_verbatim():
+    engine_block = {
+        "module": {
+            "type": "elevenlabs",
+            "api_key_env": "ELEVENLABS_API_KEY",
+            "voice_id": "abc123",
+            "custom_field": "hello",
+        },
+        "player": {"device": 3},
+    }
+    cfg = TTSEngineConfig.from_dict(engine_block)
+    assert cfg.module == engine_block["module"]
+    assert cfg.module["custom_field"] == "hello"
+    assert cfg.module["api_key_env"] == "ELEVENLABS_API_KEY"
+    assert cfg.player.device == 3
+
+
+def test_from_dict_player_defaults_when_omitted():
+    cfg = TTSEngineConfig.from_dict({"module": VALID["engine"]["module"]})
+    assert cfg.player.device is None
+
+
+def test_from_dict_no_env_read(monkeypatch):
+    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+    cfg = TTSEngineConfig.from_dict(
+        {"module": {"type": "elevenlabs", "api_key_env": "ELEVENLABS_API_KEY"}}
+    )
+    assert cfg.module["api_key_env"] == "ELEVENLABS_API_KEY"
+
+
+def test_from_dict_engine_not_object():
+    with pytest.raises(ConfigError, match="engine"):
+        TTSEngineConfig.from_dict(["not", "an", "object"])  # type: ignore[arg-type]
+
+
+def test_from_dict_module_missing():
+    with pytest.raises(ConfigError, match="engine.module"):
+        TTSEngineConfig.from_dict({"player": {"device": None}})
+
+
+def test_from_dict_module_not_object():
+    with pytest.raises(ConfigError, match="engine.module"):
+        TTSEngineConfig.from_dict({"module": "elevenlabs"})
+
+
+def test_from_dict_module_type_empty():
+    with pytest.raises(ConfigError, match="engine.module.type"):
+        TTSEngineConfig.from_dict({"module": {"type": ""}})
+
+
+def test_from_dict_module_type_non_string():
+    with pytest.raises(ConfigError, match="engine.module.type"):
+        TTSEngineConfig.from_dict({"module": {"type": 123}})
+
+
+def test_from_dict_player_device_bool():
+    with pytest.raises(ConfigError, match="device"):
+        TTSEngineConfig.from_dict(
+            {"module": VALID["engine"]["module"], "player": {"device": True}}
+        )
+
+
+def test_from_dict_player_device_invalid_type():
+    with pytest.raises(ConfigError, match="device"):
+        TTSEngineConfig.from_dict(
+            {"module": VALID["engine"]["module"], "player": {"device": 1.5}}
+        )
+
+
+def test_load_config_matches_from_dict(tmp_path):
+    cfg = load_config(_write_config(tmp_path, VALID))
+    assert cfg.engine == TTSEngineConfig.from_dict(VALID["engine"])

@@ -24,6 +24,7 @@ Implementation plans for TTS Engine — each plan turns a settled part of a spec
 | [Module-declared sample rate](202609011532_module-declared-sample-rate.md) | `TTSModule.sample_rate` property; `AudioPlayer(sample_rate=...)`; engine wires the two | Done |
 | [Pluggable audio sink](202609041557_pluggable-audio-sink.md) | `AudioSink` Protocol; constructor sink injection; `TTSEngine.sample_rate`; lazy sounddevice import | Done |
 | [Rename speak → say](202609041632_rename-speak-to-say.md) | Rename the operation to `say` across engine, tools, MCP tool, tests, specs, and docs | Done |
+| [Engine config from_dict](202609041741_engine-config-from-dict.md) | Extract `engine`-block validation into `TTSEngineConfig.from_dict`; `load_config` delegates to it | Done |
 
 ## Status legend
 
