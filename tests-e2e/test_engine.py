@@ -1,4 +1,4 @@
-"""E2E test for the library interface: `TTSEngine(config)` → `speak`.
+"""E2E test for the library interface: `TTSEngine(config)` → `say`.
 
 Drives the engine in-process, the way a library caller would — no MCP
 transport in the loop. It hits the real ElevenLabs API and the machine's audio
@@ -12,9 +12,9 @@ from __future__ import annotations
 from tts_engine import TTSEngine
 
 
-async def test_engine_speak_completes(app_config):
+async def test_engine_say_completes(app_config):
     engine = TTSEngine(app_config.engine)
-    await engine.speak("Hello directly from the TTS engine")
+    await engine.say("Hello directly from the TTS engine")
 
 
 class _CaptureSink:
@@ -31,14 +31,14 @@ class _CaptureSink:
         self.drains += 1
 
 
-async def test_engine_speak_into_custom_sink_produces_pcm(app_config):
+async def test_engine_say_into_custom_sink_produces_pcm(app_config):
     # The real ElevenLabs stream → miniaudio decode reaches an injected sink
     # through the public seam. Assert robust properties only (no audio content):
     # bytes were produced, whole int16 samples, drained once. Needs no audio hw.
     sink = _CaptureSink()
     engine = TTSEngine(app_config.engine, sink=sink)
 
-    await engine.speak("Captured straight from the TTS engine")
+    await engine.say("Captured straight from the TTS engine")
 
     assert len(sink.data) > 0
     assert len(sink.data) % 2 == 0  # whole signed-16-bit samples

@@ -1,4 +1,4 @@
-"""TTSEngine: builds module + sink from config, exposes speak()."""
+"""TTSEngine: builds module + sink from config, exposes say()."""
 
 import asyncio
 
@@ -26,7 +26,7 @@ class TTSEngine:
                 device=config.player.device, sample_rate=self._module.sample_rate
             )
         )
-        self._speak_lock = asyncio.Lock()
+        self._say_lock = asyncio.Lock()
 
     @property
     def sample_rate(self) -> int:
@@ -34,8 +34,8 @@ class TTSEngine:
         module's declared rate. Fixed for the engine's lifetime."""
         return self._module.sample_rate
 
-    async def speak(self, text: str) -> None:
-        async with self._speak_lock:
+    async def say(self, text: str) -> None:
+        async with self._say_lock:
             options = TTSOptions()
             try:
                 await self._module.stream(text, options, callback=self._sink.feed)

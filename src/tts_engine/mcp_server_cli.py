@@ -17,7 +17,7 @@ _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="tts-engine-mcp",
-        description="TTS Engine MCP server — exposes the engine's speak tool over StreamableHTTP",
+        description="TTS Engine MCP server — exposes the engine's say tool over StreamableHTTP",
     )
     parser.add_argument(
         "--config", required=True, metavar="PATH", help="Path to config JSON file"

@@ -1,12 +1,12 @@
 # tts-engine
 
-A streaming text-to-speech engine. Text goes in, audio plays out on the local machine in real time. Use it three ways: **as a Python library** (import the engine and call `speak`), by **integrating its tools into your own agent** (register `tools.speak` directly, no MCP required), or **as an MCP server** that exposes a `speak` tool to any MCP-compatible AI client.
+A streaming text-to-speech engine. Text goes in, audio plays out on the local machine in real time. Use it three ways: **as a Python library** (import the engine and call `say`), by **integrating its tools into your own agent** (register `tools.say` directly, no MCP required), or **as an MCP server** that exposes a `say` tool to any MCP-compatible AI client.
 
 ---
 
 ## How it works
 
-The core is a reusable `TTSEngine`: it streams audio from a pluggable TTS provider and feeds it to the local audio device chunk by chunk — sound starts playing with minimal latency, before the full audio is even synthesized. Around it are two thin layers: a provider-agnostic **tools** object (`TTSTools(engine).speak(text)`) and an **MCP server** that exposes those tools over the network. The three layers map onto the three ways to use the package — call the engine directly, hand the tools to your own agent, or run the MCP server — and each outer layer is a thin wrapper over the one below it. The MCP is one interface onto the engine, not the whole product.
+The core is a reusable `TTSEngine`: it streams audio from a pluggable TTS provider and feeds it to the local audio device chunk by chunk — sound starts playing with minimal latency, before the full audio is even synthesized. Around it are two thin layers: a provider-agnostic **tools** object (`TTSTools(engine).say(text)`) and an **MCP server** that exposes those tools over the network. The three layers map onto the three ways to use the package — call the engine directly, hand the tools to your own agent, or run the MCP server — and each outer layer is a thin wrapper over the one below it. The MCP is one interface onto the engine, not the whole product.
 
 ---
 
@@ -21,7 +21,7 @@ from tts_engine import TTSEngine, load_config
 async def main():
     cfg = load_config("config.json")
     engine = TTSEngine(cfg.engine)
-    await engine.speak("Hello from the TTS engine")
+    await engine.say("Hello from the TTS engine")
 
 
 asyncio.run(main())
@@ -41,13 +41,13 @@ from tts_engine import TTSEngine, TTSTools, load_config
 engine = TTSEngine(load_config("config.json").engine)
 tools = TTSTools(engine)
 
-# `tools.speak` is `speak(text) -> str`, ready to register as a tool:
+# `tools.say` is `say(text) -> str`, ready to register as a tool:
 # its __name__, docstring, and signature describe the tool to the model.
-# e.g. register `tools.speak` with your agent framework's tool interface.
-result = await tools.speak("Hello from my agent")  # -> "OK"
+# e.g. register `tools.say` with your agent framework's tool interface.
+result = await tools.say("Hello from my agent")  # -> "OK"
 ```
 
-Use this layer (rather than `engine.speak` directly) when you want the agent-friendly contract: string results and no exceptions for empty text or synthesis failures. See [specs/tools.md](specs/tools.md) for the full return contract.
+Use this layer (rather than `engine.say` directly) when you want the agent-friendly contract: string results and no exceptions for empty text or synthesis failures. See [specs/tools.md](specs/tools.md) for the full return contract.
 
 ---
 
@@ -55,7 +55,7 @@ Use this layer (rather than `engine.speak` directly) when you want the agent-fri
 
 Run the server on a machine with speakers; your MCP client (Claude Desktop, an agent, etc.) connects over the network. The server exposes a single tool:
 
-**`speak(text)`** — synthesizes `text` and plays it on the server machine. Returns when playback is complete.
+**`say(text)`** — synthesizes `text` and plays it on the server machine. Returns when playback is complete.
 
 Transport: StreamableHTTP. Clients connect to `http://<host>:<port>/mcp`.
 
@@ -154,7 +154,7 @@ Example with Claude Desktop — add to your `claude_desktop_config.json`:
 }
 ```
 
-The `speak` tool will then be available in your Claude session.
+The `say` tool will then be available in your Claude session.
 
 
 ## Architecture: TTS modules

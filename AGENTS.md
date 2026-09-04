@@ -2,7 +2,7 @@
 
 ## What this project is
 
-A streaming text-to-speech **engine**, usable two ways: imported directly as a Python library (`TTSEngine(cfg.engine)` → `await engine.speak(text)`), or run as an **MCP server** that exposes a `speak` tool. It accepts text input, synthesizes speech through a pluggable TTS module (ElevenLabs first), and plays the audio in real-time on the machine it runs on using streaming playback. The repo is three layers — the reusable `TTSEngine`, provider-agnostic **tools** over it, and the **MCP** that exposes those tools — so the MCP is one interface, not the product.
+A streaming text-to-speech **engine**, usable two ways: imported directly as a Python library (`TTSEngine(cfg.engine)` → `await engine.say(text)`), or run as an **MCP server** that exposes a `say` tool. It accepts text input, synthesizes speech through a pluggable TTS module (ElevenLabs first), and plays the audio in real-time on the machine it runs on using streaming playback. The repo is three layers — the reusable `TTSEngine`, provider-agnostic **tools** over it, and the **MCP** that exposes those tools — so the MCP is one interface, not the product.
 
 - **Language**: Python, project managed with `uv`
 - **MCP SDK**: official Python SDK (`modelcontextprotocol/python-sdk`)
@@ -14,7 +14,7 @@ A streaming text-to-speech **engine**, usable two ways: imported directly as a P
 - **Streaming playback**: audio is streamed from the TTS provider and fed to the audio device chunk-by-chunk, minimising latency before sound starts.
 - **Callback-based streaming**: the module layer accepts a `callback: Callable[[bytes], None]` for each audio chunk — this decouples the module from the playback mechanism and makes the engine testable without audio hardware.
 - **MP3 from ElevenLabs, decoded in-process**: the ElevenLabs module requests `mp3_44100_128` and decodes each chunk to signed-16 PCM mono via `miniaudio` before the callback, so `AudioPlayer` always receives PCM.
-- **`speak` tool only (v1)**: no `synthesize`/file output, no `list_voices`, no MCP resources.
+- **`say` tool only (v1)**: no `synthesize`/file output, no `list_voices`, no MCP resources.
 - **Pluggable modules**: the `engine.module` config block uses `type` to select the module; all other fields under `engine.module` are module-specific. Only one module is active at a time.
 - **`sounddevice` for playback**: wraps PortAudio, best choice on Ubuntu; device is configurable via `engine.player.device` (`null` = system default).
 
@@ -39,9 +39,9 @@ Where things live. This is a coarse, module-level map — for the full file inve
 |---|---|---|
 | [config.py](src/tts_engine/config.py) | Config dataclasses, `load_config()`, `ConfigError` | [configuration.md](specs/configuration.md) |
 | [audio.py](src/tts_engine/audio.py) | `AudioSink` Protocol + `AudioPlayer` — sounddevice streaming playback (default sink) | [audio-player.md](specs/audio-player.md), [audio-sink.md](specs/audio-sink.md) |
-| [engine.py](src/tts_engine/engine.py) | `TTSEngine` — builds module + sink (default player) from `TTSEngineConfig`, `speak()`, `sample_rate` | [architecture.md](specs/architecture.md), [audio-sink.md](specs/audio-sink.md) |
-| [tools.py](src/tts_engine/tools.py) | `TTSTools` — engine-bound, provider/transport-agnostic tools (`speak`) | [tools.md](specs/tools.md) |
-| [mcp.py](src/tts_engine/mcp.py) | MCP server, `speak` tool (thin wrapper over tools), StreamableHTTP | [mcp-server.md](specs/mcp-server.md) |
+| [engine.py](src/tts_engine/engine.py) | `TTSEngine` — builds module + sink (default player) from `TTSEngineConfig`, `say()`, `sample_rate` | [architecture.md](specs/architecture.md), [audio-sink.md](specs/audio-sink.md) |
+| [tools.py](src/tts_engine/tools.py) | `TTSTools` — engine-bound, provider/transport-agnostic tools (`say`) | [tools.md](specs/tools.md) |
+| [mcp.py](src/tts_engine/mcp.py) | MCP server, `say` tool (thin wrapper over tools), StreamableHTTP | [mcp-server.md](specs/mcp-server.md) |
 | [mcp_server_cli.py](src/tts_engine/mcp_server_cli.py) | MCP server entry point: argparse → config → engine → MCP server; configures logging via `basicConfig` | [mcp-server.md](specs/mcp-server.md) |
 | `modules/` | Provider subpackage: `base.py` (`TTSModule` ABC + `TTSOptions` + `TTSError`), `__init__.py` (`REGISTRY` + `load_module()`), `elevenlabs.py` (ElevenLabs streaming module, MP3 → PCM) | [tts-module-interface.md](specs/tts-module-interface.md), [elevenlabs-module.md](specs/elevenlabs-module.md) |
 | `__init__.py` | Public API surface — re-exports `TTSEngine`, `TTSEngineConfig`, `load_config`; package glue, exempt from the map check | — |
@@ -113,10 +113,10 @@ uv run pyright                               # Type-check
 
 ```
 MCP client                              Library caller / agent
-  → speak tool call (text)                → TTSTools(engine).speak(text)  ─┐
-    → mcp.py speak wrapper                                                 │
-      → TTSTools.speak(text)  ◀──────────────────────────────────────────-┘
-        → TTSEngine.speak(text)
+  → say tool call (text)                  → TTSTools(engine).say(text)  ─┐
+    → mcp.py say wrapper                                                  │
+      → TTSTools.say(text)  ◀────────────────────────────────────────────┘
+        → TTSEngine.say(text)
           → TTSModule.stream(text, options, callback=AudioPlayer.feed)
             → ElevenLabs API (streaming MP3) → miniaudio decode → PCM
               → AudioPlayer.feed(chunk) on each PCM chunk
@@ -128,7 +128,7 @@ MCP client                              Library caller / agent
 Two physically-separated tiers — the full strategy (what a good test asserts, the speed budget, the smell checklist) is specced in [specs/testing.md](specs/testing.md):
 
 - **`tests/`** — fast, in-process, no network; the default `uv run pytest` collects only this tier.
-- **`tests-e2e/`** — opt-in; drives the real ElevenLabs API + audio hardware, from the committed secret-free `tests-e2e/config.json` (its `api_key_env` names `ELEVENLABS_API_KEY`). Skips cleanly when that env var is unset. It does **not** verify audio content — it asserts the `speak` call completes. Two scenarios, one file each: `test_engine.py` (in-process library path, `TTSEngine(cfg.engine) → speak`) and `test_mcp.py` (`speak` tool over StreamableHTTP against a subprocess server).
+- **`tests-e2e/`** — opt-in; drives the real ElevenLabs API + audio hardware, from the committed secret-free `tests-e2e/config.json` (its `api_key_env` names `ELEVENLABS_API_KEY`). Skips cleanly when that env var is unset. It does **not** verify audio content — it asserts the `say` call completes. Two scenarios, one file each: `test_engine.py` (in-process library path, `TTSEngine(cfg.engine) → say`) and `test_mcp.py` (`say` tool over StreamableHTTP against a subprocess server).
 
 **The keys live in `~/.zshrc`**, but the shell tool runs a non-interactive `bash`/`zsh` that doesn't source it — a plain `uv run pytest tests-e2e` in that shell sees no keys and every case skips. Source it explicitly in an interactive `zsh` invocation:
 

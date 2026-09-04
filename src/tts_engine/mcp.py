@@ -1,4 +1,4 @@
-"""MCP server: speak tool, StreamableHTTP transport.
+"""MCP server: say tool, StreamableHTTP transport.
 
 A thin transport layer: each tool wrapper delegates to the transport-agnostic
 `TTSTools` layer; the synthesis/validation logic lives there, not here.
@@ -15,8 +15,8 @@ def create_server(engine: TTSEngine) -> FastMCP:
     tools = TTSTools(engine)
 
     @mcp.tool()
-    async def speak(text: str) -> str:
+    async def say(text: str) -> str:
         """Synthesize text and play it via the configured TTS engine."""
-        return await tools.speak(text)
+        return await tools.say(text)
 
     return mcp

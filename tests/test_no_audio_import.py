@@ -57,7 +57,7 @@ _SCRIPT = textwrap.dedent(
     engine = TTSEngine(
         TTSEngineConfig(module={"type": "fake"}, player=PlayerConfig()), sink=sink
     )
-    asyncio.run(engine.speak("hi"))
+    asyncio.run(engine.say("hi"))
 
     assert engine.sample_rate == 24000
     assert sink.chunks == [b"\\x01\\x00"]

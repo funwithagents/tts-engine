@@ -26,17 +26,17 @@ def mock_player():
 @pytest.fixture
 def engine(mock_module, mock_player, mocker):
     # The constructor builds the module and player from config; patch both so the
-    # engine's speak/drain behavior can be exercised with fakes, no audio hardware.
+    # engine's say/drain behavior can be exercised with fakes, no audio hardware.
     mocker.patch("tts_engine.engine.load_module", return_value=mock_module)
     mocker.patch("tts_engine.engine.AudioPlayer", return_value=mock_player)
     return TTSEngine(TTSEngineConfig(module={"type": "fake"}, player=PlayerConfig()))
 
 
 @pytest.mark.asyncio
-async def test_speak_calls_stream_with_text_and_options(
+async def test_say_calls_stream_with_text_and_options(
     engine, mock_module, mock_player
 ):
-    await engine.speak("hello world")
+    await engine.say("hello world")
 
     mock_module.stream.assert_awaited_once()
     args, kwargs = mock_module.stream.call_args
@@ -46,35 +46,35 @@ async def test_speak_calls_stream_with_text_and_options(
 
 
 @pytest.mark.asyncio
-async def test_speak_calls_drain_after_stream(engine, mock_module, mock_player):
-    await engine.speak("hello")
+async def test_say_calls_drain_after_stream(engine, mock_module, mock_player):
+    await engine.say("hello")
 
     mock_module.stream.assert_awaited_once()
     mock_player.drain.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_speak_calls_drain_even_on_tts_error(engine, mock_module, mock_player):
+async def test_say_calls_drain_even_on_tts_error(engine, mock_module, mock_player):
     mock_module.stream.side_effect = TTSError("synthesis failed")
 
     with pytest.raises(TTSError):
-        await engine.speak("hello")
+        await engine.say("hello")
 
     mock_player.drain.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_speak_propagates_tts_error_after_drain(engine, mock_module, mock_player):
+async def test_say_propagates_tts_error_after_drain(engine, mock_module, mock_player):
     mock_module.stream.side_effect = TTSError("synthesis failed")
 
     with pytest.raises(TTSError, match="synthesis failed"):
-        await engine.speak("hello")
+        await engine.say("hello")
 
     mock_player.drain.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_concurrent_speak_calls_are_serialized(engine, mock_module, mock_player):
+async def test_concurrent_say_calls_are_serialized(engine, mock_module, mock_player):
     active = 0
     maximum_active = 0
 
@@ -87,7 +87,7 @@ async def test_concurrent_speak_calls_are_serialized(engine, mock_module, mock_p
 
     mock_module.stream.side_effect = stream
 
-    await asyncio.gather(engine.speak("first"), engine.speak("second"))
+    await asyncio.gather(engine.say("first"), engine.say("second"))
 
     assert maximum_active == 1
     assert mock_player.drain.call_count == 2
@@ -134,7 +134,7 @@ async def test_injected_sink_receives_chunks_and_one_drain(
     engine, sink, _ = engine_with_sink
     mock_module.stream.side_effect = _feeding_stream(b"\x01\x00", b"\x02\x00")
 
-    await engine.speak("hello")
+    await engine.say("hello")
 
     assert sink.chunks == [b"\x01\x00", b"\x02\x00"]
     assert sink.drains == 1
@@ -146,7 +146,7 @@ async def test_injected_sink_drained_once_on_tts_error(engine_with_sink, mock_mo
     mock_module.stream.side_effect = TTSError("synthesis failed")
 
     with pytest.raises(TTSError):
-        await engine.speak("hello")
+        await engine.say("hello")
 
     assert sink.drains == 1
 
@@ -163,7 +163,7 @@ async def test_injected_sink_drained_once_on_cancellation(
     mock_module.stream.side_effect = cancelling_stream
 
     with pytest.raises(asyncio.CancelledError):
-        await engine.speak("hello")
+        await engine.say("hello")
 
     assert sink.drains == 1
 
@@ -208,7 +208,7 @@ async def test_constructor_wires_module_and_player_from_config(mocker):
     audio_player.assert_called_once_with(device=3, sample_rate=24000)
 
     # The engine drives the config's module and player.
-    await engine.speak("hi")
+    await engine.say("hi")
     fake_module.stream.assert_awaited_once()
     assert fake_module.stream.call_args.kwargs["callback"] == fake_player.feed
     fake_player.drain.assert_called_once()

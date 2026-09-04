@@ -21,7 +21,7 @@ StreamableHTTP, mounted at `/mcp`. Default bind: `127.0.0.1:8000` (configurable 
 
 MCP clients connect to `http://<host>:<port>/mcp`.
 
-## Tool: `speak`
+## Tool: `say`
 
 ### Input schema
 
@@ -31,18 +31,18 @@ MCP clients connect to `http://<host>:<port>/mcp`.
 
 ### Behaviour
 
-The registered `speak` tool is a thin wrapper over a `TTSTools` instance:
+The registered `say` tool is a thin wrapper over a `TTSTools` instance:
 
 ```python
 tools = TTSTools(engine)
 
 
 @mcp.tool()
-async def speak(text: str) -> str:
-    return await tools.speak(text)
+async def say(text: str) -> str:
+    return await tools.say(text)
 ```
 
-The empty-text guard, the call to `engine.speak`, and the `TTSError` → message mapping all live in `TTSTools.speak` (see [tools.md](tools.md)). The wrapper only adapts the MCP call to that method.
+The empty-text guard, the call to `engine.say`, and the `TTSError` → message mapping all live in `TTSTools.say` (see [tools.md](tools.md)). The wrapper only adapts the MCP call to that method.
 
 ### Return value (success)
 
@@ -83,8 +83,8 @@ def create_server(engine: TTSEngine) -> FastMCP:
     tools = TTSTools(engine)
 
     @mcp.tool()
-    async def speak(text: str) -> str:
-        return await tools.speak(text)
+    async def say(text: str) -> str:
+        return await tools.say(text)
 
     return mcp
 ```
