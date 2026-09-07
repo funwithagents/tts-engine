@@ -21,9 +21,7 @@ def tools(mock_engine):
     return TTSTools(mock_engine)
 
 
-async def test_say_empty_text_returns_error_without_calling_engine(
-    tools, mock_engine
-):
+async def test_say_empty_text_returns_error_without_calling_engine(tools, mock_engine):
     result = await tools.say("")
 
     assert result == "TTS error: text must not be empty"

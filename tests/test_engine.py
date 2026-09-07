@@ -33,9 +33,7 @@ def engine(mock_module, mock_player, mocker):
 
 
 @pytest.mark.asyncio
-async def test_say_calls_stream_with_text_and_options(
-    engine, mock_module, mock_player
-):
+async def test_say_calls_stream_with_text_and_options(engine, mock_module, mock_player):
     await engine.say("hello world")
 
     mock_module.stream.assert_awaited_once()

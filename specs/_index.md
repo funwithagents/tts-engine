@@ -13,7 +13,7 @@ Read the concept specs in order — each builds on the ones above it. `project.m
 | Spec | Description | Status |
 |---|---|---|
 | [project.md](project.md) | Project structure and tooling: Python version, packaging with uv, ruff/pyright, layout, library-first shape | Implemented |
-| [testing.md](testing.md) | Testing strategy: two-tier `tests/`/`tests-e2e/` split, functional-test philosophy, skip-without-credentials live tier | Implemented |
+| [testing.md](testing.md) | Testing strategy: two-tier `tests/`/`tests-e2e/` split, functional-test philosophy, skip-without-credentials live tier, per-module live conformance | Implemented |
 | [overview.md](overview.md) | Goals, components, constraints, non-goals — library + MCP framing | Stable |
 | [architecture.md](architecture.md) | System diagram, layers (engine/tools/mcp), concurrency model, data flow, `TTSEngine(config)` construction, public API | Implemented |
 | [configuration.md](configuration.md) | Config file schema (`engine`/`server`), dataclasses, `load_config`, validation rules | Implemented |

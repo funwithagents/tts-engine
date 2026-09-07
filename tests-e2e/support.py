@@ -1,58 +1,121 @@
 """Shared support for the opt-in live/e2e tier.
 
-Holds the subprocess/config helpers the live tests share, plus `require_env` —
-the skip-not-fail guard so a test with no credentials skips cleanly instead of
-failing (you only exercise the services you hold keys for).
+Holds the hardcoded per-module configs (no committed `config.json`), the skip
+gates so a test with no credentials/extra skips cleanly instead of failing, and
+the subprocess helpers the live tests share.
+
+Configs live here in code, asr-engine style: `default_module()` picks the single
+backend the module-agnostic tests drive, and `MODULES` is the per-backend table
+the parametrized conformance test iterates. Both share one source for the
+reference backend's config.
 """
 
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
 import logging
 import os
 import socket
 import tempfile
-from pathlib import Path
 
 import pytest
 
 log = logging.getLogger(__name__)
 
-# Committed, secret-free e2e config: it carries `api_key_env` (the name of the
-# env var holding the ElevenLabs key), not the key itself — so the live tier is
-# driven by setting that variable, not by dropping an untracked file here.
-CONFIG_PATH = Path(__file__).parent / "config.json"
+
+class CaptureSink:
+    """In-memory `AudioSink`: keeps the synthesized PCM instead of playing it.
+
+    Lets the per-module conformance test assert that a backend produced whole
+    signed-16-bit samples and drained once, with no audio hardware in the loop.
+    """
+
+    def __init__(self) -> None:
+        self.data = bytearray()
+        self.drains = 0
+
+    def feed(self, chunk: bytes) -> None:
+        self.data.extend(chunk)
+
+    def drain(self) -> None:
+        self.drains += 1
 
 
-def require_env(name: str) -> str:
-    """Return env var `name`, or skip the calling test if it's unset/empty."""
-    value = os.environ.get(name)
-    if not value:
-        pytest.skip(f"{name} not set; skipping live test")
-    return value
+# module type → the importable library whose packaging extra gates that backend.
+# Base backends (elevenlabs) are always installed and declare nothing here; a
+# local-model backend behind an extra (e.g. a future `pocket` needing the
+# `pocket_tts` library) lists it so `require_module` can skip when the extra is
+# absent. See specs/project.md, "Dependency strategy for TTS backends".
+_REQUIRED_IMPORT: dict[str, str] = {}
 
 
-def load_config() -> dict:
-    with open(CONFIG_PATH) as f:
-        return json.load(f)
+def require_module(module_type: str, config: dict) -> None:
+    """Skip the calling live test unless *this* backend can actually run.
 
+    Backends gate differently, so this generalizes the API-key check:
 
-def require_e2e_config() -> dict:
-    """Load the committed e2e config, skipping the calling test when its
-    credentials aren't available — a literal `api_key` counts, otherwise the
-    env var named by `api_key_env` must be set."""
-    config = load_config()
-    module = config.get("engine", {}).get("module", {})
-    if module.get("api_key"):
-        return config
-    env_name = module.get("api_key_env")
-    if not env_name:
+    - an API backend without its key — `config["api_key_env"]` names an unset
+      variable — skips (opt-in live tier; keys may live in ``~/.zshrc``, which a
+      non-interactive shell doesn't source);
+    - a local-model backend whose packaging extra isn't installed — its
+      `_REQUIRED_IMPORT` library isn't importable — skips.
+
+    A keyless backend whose library is present is never skipped.
+    """
+    env_name = config.get("api_key_env")
+    if env_name and not os.environ.get(env_name):
+        pytest.skip(f"{env_name} not set; skipping live test for {module_type!r}")
+
+    lib = _REQUIRED_IMPORT.get(module_type)
+    if lib and importlib.util.find_spec(lib) is None:
         pytest.skip(
-            f"{CONFIG_PATH.name} has no 'api_key' or 'api_key_env'; skipping live test"
+            f"{lib!r} not importable; install the {module_type!r} extra to run "
+            f"its live test (pip install tts-engine[{module_type}])"
         )
-    require_env(env_name)
-    return config
+
+
+# The reference backend's config, shared by `default_module()` and the
+# `elevenlabs` row of `MODULES` so there is one source of truth. It carries
+# `api_key_env` (the *name* of the env var holding the key), never the key
+# itself — the live tier is turned on by exporting that variable.
+_ELEVENLABS_CONFIG = {
+    "api_key_env": "ELEVENLABS_API_KEY",
+    "voice_id": "JBFqnCBsd6RMkjVDRZzb",
+    "model": "eleven_flash_v2_5",
+}
+
+
+def default_module() -> tuple[str, dict]:
+    """Module type + config for the module-agnostic live tests (real audio
+    hardware in `test_engine.py`, MCP transport in `test_mcp.py`).
+
+    The single place the default backend is chosen, so none of those tests
+    hardcodes one. Skips (via `require_module`) when its key env var is unset.
+    """
+    module_type, config = "elevenlabs", _ELEVENLABS_CONFIG
+    require_module(module_type, config)
+    return module_type, config
+
+
+# Per-module config table for the parametrized conformance test
+# (`test_modules.py`). Each row carries the module type and its own dedicated
+# config; the module identity is the parametrize id. Add a row when adding a TTS
+# module so it gets live conformance coverage. `api_key_env` (not a literal key)
+# and any extra-gated library (via `_REQUIRED_IMPORT`) decide when a row skips.
+MODULES = [
+    pytest.param("elevenlabs", _ELEVENLABS_CONFIG, id="elevenlabs"),
+]
+
+
+def engine_block(module_type: str, module_config: dict) -> dict:
+    """The `engine` config block for a `(type, config)` pair — the shape both
+    `TTSEngineConfig.from_dict` (in-process) and the MCP subprocess consume."""
+    return {
+        "module": {"type": module_type, **module_config},
+        "player": {"device": None},
+    }
 
 
 def find_free_port() -> int:
@@ -76,10 +139,17 @@ async def _wait_for_port(host: str, port: int, timeout: float = 15.0) -> None:
 
 
 async def start_mcp_server(
-    config: dict, port: int
+    module_type: str, module_config: dict, port: int
 ) -> tuple[asyncio.subprocess.Process, str]:
-    """Start a tts-engine-mcp subprocess.  Returns (process, tmp_config_path)."""
-    cfg = {**config, "server": {"host": "127.0.0.1", "port": port}}
+    """Start a tts-engine-mcp subprocess for a `(type, config)` pair.
+
+    Writes a temp config built from the hardcoded module config (no committed
+    file) and spawns the real binary against it. Returns (process, tmp_config_path).
+    """
+    cfg = {
+        "engine": engine_block(module_type, module_config),
+        "server": {"host": "127.0.0.1", "port": port},
+    }
 
     fd, config_path = tempfile.mkstemp(suffix=".json", prefix="tts_engine_e2e_")
     with os.fdopen(fd, "w") as f:

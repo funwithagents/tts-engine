@@ -25,6 +25,7 @@ Implementation plans for TTS Engine — each plan turns a settled part of a spec
 | [Pluggable audio sink](202609041557_pluggable-audio-sink.md) | `AudioSink` Protocol; constructor sink injection; `TTSEngine.sample_rate`; lazy sounddevice import | Done |
 | [Rename speak → say](202609041632_rename-speak-to-say.md) | Rename the operation to `say` across engine, tools, MCP tool, tests, specs, and docs | Done |
 | [Engine config from_dict](202609041741_engine-config-from-dict.md) | Extract `engine`-block validation into `TTSEngineConfig.from_dict`; `load_config` delegates to it | Done |
+| [Per-module e2e architecture](202609071611_per-module-e2e.md) | Default config for module-agnostic live tests + parametrized per-module conformance (`MODULES` table, generalized skip gate) | Done |
 
 ## Status legend
 

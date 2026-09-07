@@ -18,9 +18,7 @@ async def test_say_returns_ok(server_url):
         ClientSession(read, write) as session,
     ):
         await session.initialize()
-        result = await session.call_tool(
-            "say", {"text": "Hello from the TTS MCP test"}
-        )
+        result = await session.call_tool("say", {"text": "Hello from the TTS MCP test"})
     block = result.content[0]
     assert isinstance(block, TextContent)
     assert block.text == "OK"

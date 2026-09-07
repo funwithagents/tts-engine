@@ -2,9 +2,10 @@
 code:
   - pyproject.toml
   - tests/conftest.py
-  - tests-e2e/config.json
   - tests-e2e/conftest.py
   - tests-e2e/support.py
+  - tests-e2e/test_modules.py
+  - tests-e2e/test_mcp.py
 tests:
 ---
 
@@ -28,12 +29,18 @@ Tests split into two directories, and the split is structural — a directory bo
 - **`tests/` is the normal dev loop.** Fast, deterministic, no real network, no credentials, no audio hardware. `pyproject.toml`'s `testpaths = ["tests"]` points the default `uv run pytest` here, so this is what runs on every change and what any contributor or CI can run with zero credentials.
 - **`tests-e2e/` is opt-in.** It drives the real ElevenLabs API and the machine's audio output — network, credentials, non-deterministic — so it is deliberately *not* collected by the default run. Because `testpaths` already excludes it, no pytest marker or `--run-e2e` flag is needed: the physical separation is the whole mechanism. Run it explicitly (`uv run pytest tests-e2e`).
 
-The live tier exercises both interfaces onto the engine, one file each:
+**Configs are hardcoded in `support.py`, not a committed file.** The live tier carries no `config.json`; every module config lives in code (asr-engine style), and the MCP subprocess is handed a temp config the helpers build from those dicts. This keeps the configs, the skip gates, and the backend table in one reviewed place.
 
-- **`test_engine.py`** — the **library** path. Builds the engine in-process (`TTSEngine(cfg.engine)`) and calls `say()` directly, no MCP transport in the loop. Uses the `app_config` fixture (committed `tests-e2e/config.json` → `AppConfig`).
-- **`test_mcp.py`** — the **MCP** path. Starts a `tts-engine-mcp` subprocess and calls the `say` tool over StreamableHTTP with a real MCP client. Uses the `server_url` fixture.
+The live tier splits by **what actually varies when the TTS module changes** — the backend contract (and the engine's full library path) is per-module; only the MCP transport is module-agnostic and runs once against a **default module**:
 
-The `tests/` tier mirrors the `src/tts_engine/` module layout (`test_<module>.py` — e.g. `test_engine.py`, `test_tools.py`, `test_mcp.py`, `test_config.py` — `modules/test_*.py`, plus the `test_project_map.py` drift-guard); `tests-e2e/` is organized around these live scenarios rather than modules.
+- **Per module — `test_modules.py`** (parametrized, engine-direct). Built from the **`MODULES` table** in `support.py` — one `pytest.param(module_type, module_config, ...)` row per backend, each carrying its own dedicated config (voice/model, `api_key_env`, backend-specific fields). **Adding a module means adding one row.** Each backend runs two scenarios, both asserting robust properties only, never audio content:
+  - `test_module_say_produces_pcm` — synthesize into an injected `AudioSink` (`TTSEngine(cfg, sink=CaptureSink())`, no audio hardware); assert **whole signed-16-bit PCM** was produced, drained once, `sample_rate > 0`.
+  - `test_module_say_completes` — the same synthesis through the default `AudioPlayer` sink, so the output stream is opened at *that module's* declared sample rate on real audio hardware; assert the pass completes without raising.
+- **Module-agnostic — `test_mcp.py`** (default module). The MCP transport doesn't change with the backend, so it runs once: it starts a `tts-engine-mcp` subprocess (temp config built from `default_module()`) and calls the `say` tool over StreamableHTTP with a real MCP client. Uses the `server_url` fixture.
+
+**Default module vs per-module configs.** `support.default_module()` is the single place the *default backend* the module-agnostic MCP test drives is chosen; the `MODULES` table holds the *per-module configs* for the parametrized conformance tests. They share one config dict for the reference backend (elevenlabs) so it isn't duplicated, but serve different tests.
+
+The `tests/` tier mirrors the `src/tts_engine/` module layout (`test_<module>.py` — e.g. `test_engine.py`, `test_tools.py`, `test_mcp.py`, `test_config.py` — one `modules/test_<backend>.py` per TTS module, plus the `test_project_map.py` drift-guard); `tests-e2e/` is organized around these live scenarios rather than modules.
 
 ## What a good test asserts
 
@@ -54,9 +61,8 @@ The full unit tier (`uv run pytest tests/`) must complete in under 5 seconds. If
 
 A live test needs real credentials, and it must **skip — never fail** — when they're absent, so you exercise only the services you hold keys for and a contributor (or CI) with none is never broken.
 
-- **The e2e config is committed and secret-free.** `tests-e2e/config.json` is checked in (un-ignored past the repo-wide `config.json` rule) and carries `api_key_env: "ELEVENLABS_API_KEY"` — the *name* of the env var holding the key, never the key itself (see [elevenlabs-module.md](elevenlabs-module.md), "API key resolution"). So the live tier is turned on by exporting `ELEVENLABS_API_KEY`, not by dropping an untracked file in place — which is what makes it CI-ready.
-- **`support.require_e2e_config()` is the skip gate.** It loads the committed config and skips the calling test unless credentials are available: a literal `api_key` counts, otherwise the env var named by `api_key_env` must be set. Both the `server_url` and `app_config` fixtures go through it. The MCP subprocess inherits the parent environment, so the same `ELEVENLABS_API_KEY` reaches the server it spawns. A missing committed config is repository corruption and fails rather than skipping; missing credentials skip cleanly.
-- **`support.require_env(NAME)`** is the underlying one-variable guard: it returns the variable or calls `pytest.skip(...)` when it's unset. Secrets live only in the environment, never in the tree.
+- **No secrets in the tree.** The hardcoded module configs carry `api_key_env: "ELEVENLABS_API_KEY"` — the *name* of the env var holding the key, never the key itself (see [elevenlabs-module.md](elevenlabs-module.md), "API key resolution"). The live tier is turned on by exporting `ELEVENLABS_API_KEY`; the MCP subprocess inherits the parent environment, so the same variable reaches the server it spawns. This is what makes the tier CI-ready.
+- **`support.require_module(module_type, config)` is the skip gate**, and both entry points funnel through it — `default_module()` calls it before returning, and the parametrized `test_modules.py` calls it per row. Backends gate differently, so it generalizes the key check: it skips when either (a) the config's `api_key_env` names an unset variable (an API backend without its key, like elevenlabs), **or** (b) the backend's optional library isn't importable (a local-model backend whose packaging extra isn't installed, like a future `pocket` needing `pocket_tts` — see [project.md](project.md), "Dependency strategy for TTS backends"). A backend that needs no key and whose library is present never skips. The module type → gating-library map lives beside the `MODULES` table.
 
 ## Tooling
 

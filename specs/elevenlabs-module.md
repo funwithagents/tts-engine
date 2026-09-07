@@ -3,7 +3,7 @@ code:
   - src/tts_engine/modules/elevenlabs.py
 tests:
   - tests/modules/test_elevenlabs.py
-  - tests-e2e/test_engine.py
+  - tests-e2e/test_modules.py
   - tests-e2e/test_mcp.py
 ---
 
