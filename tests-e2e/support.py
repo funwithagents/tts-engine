@@ -48,7 +48,7 @@ class CaptureSink:
 # local-model backend behind an extra (e.g. a future `pocket` needing the
 # `pocket_tts` library) lists it so `require_module` can skip when the extra is
 # absent. See specs/project.md, "Dependency strategy for TTS backends".
-_REQUIRED_IMPORT: dict[str, str] = {}
+_REQUIRED_IMPORT: dict[str, str] = {"pocket": "pocket_tts"}
 
 
 def require_module(module_type: str, config: dict) -> None:
@@ -106,6 +106,9 @@ def default_module() -> tuple[str, dict]:
 # and any extra-gated library (via `_REQUIRED_IMPORT`) decide when a row skips.
 MODULES = [
     pytest.param("elevenlabs", _ELEVENLABS_CONFIG, id="elevenlabs"),
+    # Local-model backend: no api_key_env; gated on the `pocket` extra
+    # (_REQUIRED_IMPORT) so it skips cleanly when torch/pocket-tts aren't installed.
+    pytest.param("pocket", {"voice": "alba"}, id="pocket"),
 ]
 
 

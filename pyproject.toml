@@ -22,12 +22,12 @@ tts-engine-mcp = "tts_engine.mcp_server_cli:main"
 # One extra per heavy/optional TTS backend; the base install stays framework +
 # ElevenLabs (see specs/project.md, "Dependency strategy for TTS backends").
 # Each backend module imports its library lazily and raises ConfigError with a
-# "pip install tts-engine[<name>]" hint when the extra is absent. Add entries as
-# backends land, e.g.:
-#   kokoro  = ["kokoro>=0.9.2"]
-#   chattts = ["ChatTTS>=0.1.1"]
-#   all     = ["tts-engine[kokoro,chattts]"]
+# "pip install tts-engine[<name>]" hint when the extra is absent.
 [project.optional-dependencies]
+# pocket-tts pulls in torch (~hundreds of MB) + a model download — see specs/pocket-module.md.
+pocket = [
+    "pocket-tts>=3.1.0",
+]
 
 [dependency-groups]
 dev = [

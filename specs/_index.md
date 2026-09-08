@@ -21,6 +21,7 @@ Read the concept specs in order — each builds on the ones above it. `project.m
 | [mcp-server.md](mcp-server.md) | `say` tool, transport, lifecycle, error handling — thin wrappers over the tools layer | Implemented |
 | [tts-module-interface.md](tts-module-interface.md) | ABC, audio format contract (module-declared sample rate), local-model module pattern, registry, `TTSOptions` | Implemented |
 | [elevenlabs-module.md](elevenlabs-module.md) | Streaming PCM, config fields, SDK usage, error handling | Implemented |
+| [pocket-module.md](pocket-module.md) | Local-model backend (pocket-tts): `pocket` extra, lazy import, native 24 kHz, device auto-detect, float→int16 | Implemented |
 | [audio-player.md](audio-player.md) | `AudioPlayer`, sounddevice integration, stream lifecycle, per-module sample rate | Implemented |
 | [audio-sink.md](audio-sink.md) | `AudioSink` Protocol, constructor sink injection, `TTSEngine.sample_rate`, lazy sounddevice import | Implemented |
 

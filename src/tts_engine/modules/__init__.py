@@ -3,9 +3,11 @@
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import TTSModule
 from tts_engine.modules.elevenlabs import ElevenLabsModule
+from tts_engine.modules.pocket import PocketModule
 
 REGISTRY: dict[str, type[TTSModule]] = {
     "elevenlabs": ElevenLabsModule,
+    "pocket": PocketModule,
 }
 
 
