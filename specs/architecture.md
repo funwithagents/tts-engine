@@ -113,16 +113,16 @@ Steps 3–7 above, entered directly: application code calls `TTSTools(engine).sa
 | `modules/base.py` | Defines `TTSModule` ABC and shared dataclasses (`TTSOptions`) |
 | `modules/elevenlabs.py` | ElevenLabs API interaction, MP3→PCM decoding via miniaudio, config parsing |
 | `audio.py` | Defines the `AudioSink` Protocol; `AudioPlayer` (its default impl): `sounddevice` output stream management, lazily imported; provider-agnostic consumer of the fixed PCM format contract |
-| `config.py` | Load, parse, and validate `config.json`; produce typed config dataclasses (`AppConfig`, `TTSEngineConfig`, …) |
-| `mcp_server_cli.py` | Argument parsing (`--config`, `--log-level`); `load_config` → `TTSEngine(cfg.engine)` → MCP server; `logging.basicConfig(level=args.log_level)`; starts uvicorn |
-| `__init__.py` | Public API surface: re-exports `TTSEngine`, `TTSEngineConfig`, `TTSTools`, `AudioSink`, `load_config` |
+| `config.py` | Parse and validate config; produce typed config dataclasses (`MCPServerConfig`, `TTSEngineConfig`, …), each with a `from_dict`/`from_json`/`from_json_file` constructor trio |
+| `mcp_server_cli.py` | Argument parsing (`--config`, `--log-level`); `MCPServerConfig.from_json_file` → `TTSEngine(cfg.engine)` → MCP server; `logging.basicConfig(level=args.log_level)`; starts uvicorn |
+| `__init__.py` | Public API surface: re-exports `TTSEngine`, `TTSEngineConfig`, `MCPServerConfig`, `TTSTools`, `AudioSink` |
 
 ## Public API
 
 The package exposes the library entry points at the top level:
 
 ```python
-from tts_engine import TTSEngine, TTSEngineConfig, TTSTools, AudioSink, load_config
+from tts_engine import TTSEngine, TTSEngineConfig, MCPServerConfig, TTSTools, AudioSink
 ```
 
 `TTSTools` is curated so agents can register its bound methods directly (see [tools.md](tools.md), "Consumers"). `AudioSink` is exported so embedders can type their own playback destination against the seam ([audio-sink.md](audio-sink.md)). Everything else (modules, the concrete `AudioPlayer`, mcp, mcp_server_cli) is reachable by submodule import but is not part of the curated top-level surface.

@@ -140,7 +140,7 @@ Start from the shipped template: `cp config.example.json config.json`.
 | `server.host` / `server.port` | `127.0.0.1` / `8000` | Where the MCP server listens (`http://<host>:<port>/mcp`) |
 | `--log-level` *(CLI flag, not config)* | `INFO` | Server log verbosity |
 
-**Using the library instead?** You don't need this file. Build the engine config in memory with `TTSEngineConfig.from_dict(engine_block)` (just the `engine` part — the per-module field tables above still apply), or reuse an existing file's `engine` block via `load_config(path).engine`. The `server` block is MCP-only.
+**Using the library instead?** You don't need this file. Build the engine config in memory with `TTSEngineConfig.from_dict(engine_block)` (just the `engine` part — the per-module field tables above still apply), load an engine-only file with `TTSEngineConfig.from_json_file(path)`, or reuse an existing MCP config file's `engine` block via `MCPServerConfig.from_json_file(path).engine`. The `server` block is MCP-only.
 
 ---
 
@@ -151,11 +151,11 @@ Start from the shipped template: `cp config.example.json config.json`.
 ```python
 import asyncio
 
-from tts_engine import TTSEngine, load_config
+from tts_engine import TTSEngine, MCPServerConfig
 
 
 async def main():
-    cfg = load_config("config.json")
+    cfg = MCPServerConfig.from_json_file("config.json")
     engine = TTSEngine(cfg.engine)
     await engine.say("Hello from the TTS engine")
 
@@ -170,9 +170,9 @@ No MCP client, transport, or server is involved — the engine plays on the mach
 If you're building an agent *without* MCP, register the tools layer directly — the same object the MCP server wraps. `TTSTools` binds an engine and exposes each operation as a method that returns a plain string (never raises for empty input or provider errors) and carries a docstring written to serve as the tool description. Hand a bound method straight to your framework:
 
 ```python
-from tts_engine import TTSEngine, TTSTools, load_config
+from tts_engine import TTSEngine, TTSTools, MCPServerConfig
 
-engine = TTSEngine(load_config("config.json").engine)
+engine = TTSEngine(MCPServerConfig.from_json_file("config.json").engine)
 tools = TTSTools(engine)
 
 # `tools.say` is `say(text) -> str`, ready to register as a tool:

@@ -12,7 +12,7 @@ tests:
 
 ## Config file
 
-The MCP server is started with `--config <path>` pointing to a JSON object. There is no default path — the argument is required. Library callers can load the same file with `load_config(path)`, or build the engine config from an in-memory `engine` block with `TTSEngineConfig.from_dict(engine_block)` (the sanctioned "construct directly" path — see below).
+The MCP server is started with `--config <path>` pointing to a JSON object. There is no default path — the argument is required. The entry point parses it with `MCPServerConfig.from_json_file(path)`. Library callers can load the same file the same way and take `.engine`, or build the engine config directly from an in-memory `engine` block with `TTSEngineConfig.from_dict(engine_block)` (see "Constructors" below).
 
 `config.example.json` in the repo root documents all fields with placeholder values and must be kept in sync with this spec.
 
@@ -27,14 +27,29 @@ The MCP server is started with `--config <path>` pointing to a JSON object. Ther
 
 `engine` is required. `server` is optional (it has defaults) and used only by the MCP entry point; a pure library caller may omit it. There is no logging block — the log level is an operational concern of the entry point, set via the MCP server's `--log-level` flag, not the config file (see [project.md](project.md), "Logging").
 
-`load_config(path)` returns an `AppConfig`:
+This top-level object is the MCP server's config, so it is modeled as `MCPServerConfig` (not a generic "app" config — the whole point of the layering is that the MCP is one interface, not the product). A pure library caller never touches it; it uses `TTSEngineConfig` directly.
 
 ```python
 @dataclass
-class AppConfig:
+class MCPServerConfig:
     engine: TTSEngineConfig
     server: ServerConfig
 ```
+
+## Constructors
+
+Both public config dataclasses expose the **same symmetric trio**, layered file → json → dict so all three share one validation path (`from_dict`):
+
+| Constructor | Input | Notes |
+|---|---|---|
+| `from_dict(data)` | a parsed dict | validates and builds |
+| `from_json(text)` | a JSON string | parses, then delegates to `from_dict` |
+| `from_json_file(path)` | a file path | reads the file, then delegates to `from_json`'s parse — an invalid-JSON error names the path |
+
+- `MCPServerConfig.*` parse the **top-level** `{engine, server}` object (the `--config` file). `from_dict` requires `engine` (delegated to `TTSEngineConfig.from_dict`) and defaults `server`.
+- `TTSEngineConfig.*` parse an **`engine` block on its own** — an object of `module` + `player`, *not* wrapped under an `"engine"` key. Use these when a library caller keeps an engine config in its own dict/string/file.
+
+There is no free `load_config` function — `MCPServerConfig.from_json_file(path)` replaces it.
 
 ---
 
@@ -60,13 +75,13 @@ class TTSEngineConfig:
 
 #### `TTSEngineConfig.from_dict(engine_block)`
 
-The sanctioned in-memory constructor: it takes the raw `engine` block (the object under the top-level `"engine"` key, **not** the whole file) and returns a validated `TTSEngineConfig`, running exactly the same structural validation `load_config` applies to `data["engine"]` (see "Validation rules"). `load_config` is implemented in terms of it — it parses the file, then delegates the `engine` block to `from_dict` — so both entry points share one validation path.
+The sanctioned in-memory constructor: it takes the raw `engine` block (the object of `module` + `player`, **not** the whole file) and returns a validated `TTSEngineConfig`, running the structural validation in "Validation rules". `MCPServerConfig.from_dict` delegates its `data["engine"]` here, and `TTSEngineConfig.from_json` / `from_json_file` delegate here after parsing — so every path shares one validation path.
 
 ```python
 engine_cfg = TTSEngineConfig.from_dict({"module": {"type": "elevenlabs", ...}, "player": {"device": null}})
 ```
 
-The `module` block is carried through verbatim as a raw dict; **no environment variables are read** at this stage (the module resolves its own `api_key`/`api_key_env` later, at engine construction), so a config naming only an unset `api_key_env` still constructs. Use this to build an engine config from an in-memory dict — e.g. a host app composing several engine configs from one JSON file — without writing a temp file or duplicating validation.
+The `module` block is carried through verbatim as a raw dict; **no environment variables are read** at this stage (the module resolves its own `api_key`/`api_key_env` later, at engine construction), so a config naming only an unset `api_key_env` still constructs. Use this to build an engine config from an in-memory dict — e.g. a host app composing several engine configs — without writing a temp file or duplicating validation.
 
 ### `engine.module` block
 
@@ -136,11 +151,11 @@ There is no `logging` config block. The log level is set at the process level by
 
 ## Validation rules
 
-The `engine`-block rules below are enforced by `TTSEngineConfig.from_dict` and so apply identically to `load_config(path)` and to a direct `from_dict(engine_block)` call; the file-level and `server` rules are `load_config`'s alone.
+The `engine`-block rules below are enforced by `TTSEngineConfig.from_dict` and so apply identically whether reached via `MCPServerConfig` or a direct `TTSEngineConfig` constructor; the top-level and `server` rules are `MCPServerConfig.from_dict`'s alone. Invalid JSON raises `ConfigError`, and the `*_json_file` constructors include the file path in that message.
 
-- File-read failures and invalid JSON raise `ConfigError` with the file path.
+- Invalid JSON raises `ConfigError` (with the file path when parsing a file).
 - The top-level value and the `engine`, `engine.module`, `engine.player`, and `server` blocks must be JSON objects. Shape failures raise `ConfigError`, never raw `AttributeError`/`TypeError`.
 - The `engine` block is required and must contain a `module` block. Missing required blocks/fields raise `ConfigError` with a message identifying the missing key.
-- `load_config` validates `engine.module.type` as a non-empty string. Registry membership is validated later by `load_module` during `TTSEngine` construction, avoiding a config↔module import cycle and allowing callers to register custom modules before constructing the engine. Unknown values still raise `ConfigError` before an engine is created.
+- `engine.module.type` must be a non-empty string. Registry membership is validated later by `load_module` during `TTSEngine` construction, avoiding a config↔module import cycle and allowing callers to register custom modules before constructing the engine. Unknown values still raise `ConfigError` before an engine is created.
 - `engine.player.device` must be a string, an integer other than `bool`, or `null`.
 - `server.host` must be a non-empty string; `server.port` must be an integer other than `bool` in range 1–65535.

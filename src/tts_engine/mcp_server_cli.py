@@ -5,7 +5,7 @@ import logging
 
 import uvicorn
 
-from tts_engine.config import load_config
+from tts_engine.config import MCPServerConfig
 from tts_engine.engine import TTSEngine
 from tts_engine.mcp import create_server
 
@@ -31,7 +31,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    cfg = load_config(args.config)
+    cfg = MCPServerConfig.from_json_file(args.config)
     logging.basicConfig(level=args.log_level, format=_LOG_FORMAT)
     log.info(
         "Config loaded: module.type=%s host=%s port=%d",

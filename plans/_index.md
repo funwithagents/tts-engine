@@ -27,6 +27,7 @@ Implementation plans for TTS Engine — each plan turns a settled part of a spec
 | [Engine config from_dict](202609041741_engine-config-from-dict.md) | Extract `engine`-block validation into `TTSEngineConfig.from_dict`; `load_config` delegates to it | Done |
 | [Per-module e2e architecture](202609071611_per-module-e2e.md) | Default config for module-agnostic live tests + parametrized per-module conformance (`MODULES` table, generalized skip gate) | Done |
 | [Pocket TTS module](202609071730_pocket-module.md) | Local-model `pocket` backend: `pocket-tts` behind an extra, lazy import, native 24 kHz, device auto-detect, faked-library unit tests + live `MODULES` row | Done |
+| [MCPServerConfig + constructor trio](202609081319_mcp-config-and-constructor-trio.md) | Rename `AppConfig`→`MCPServerConfig`, drop `load_config`, add `from_dict`/`from_json`/`from_json_file` on both configs | Done |
 
 ## Status legend
 

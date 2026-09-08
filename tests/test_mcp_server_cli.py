@@ -1,7 +1,7 @@
 """Tests for the MCP server entry point: main() wires config into the server.
 
 The default tier never starts a real server (that is the opt-in e2e test_mcp.py);
-here we drive main() with the real load_config and patched boundary collaborators,
+here we drive main() with the real MCPServerConfig parse and patched boundary collaborators,
 asserting only the wiring that can break — the level threaded from --log-level into
 basicConfig, the values from config into uvicorn.run, and the engine/app passed
 between the layers.
@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from tts_engine.config import load_config
+from tts_engine.config import MCPServerConfig
 from tts_engine.mcp_server_cli import _LOG_FORMAT, main
 
 _CONFIG = {
@@ -50,7 +50,7 @@ def test_main_wires_config_into_server(config_path, mocker):
 
     main()
 
-    expected = load_config(str(config_path))
+    expected = MCPServerConfig.from_json_file(str(config_path))
     # Level from the --log-level flag reaches basicConfig (which configures root).
     basic_config.assert_called_once_with(level="WARNING", format=_LOG_FORMAT)
     # The engine is built from the parsed engine config, then handed to the server.

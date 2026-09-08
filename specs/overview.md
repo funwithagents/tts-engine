@@ -54,9 +54,9 @@ Example use cases:
 Importing the package exposes the engine and its config:
 
 ```python
-from tts_engine import TTSEngine, TTSEngineConfig, TTSTools, load_config
+from tts_engine import TTSEngine, TTSEngineConfig, TTSTools, MCPServerConfig
 
-cfg = load_config("config.json")  # -> AppConfig(engine, server)
+cfg = MCPServerConfig.from_json_file("config.json")  # -> engine + server
 engine = TTSEngine(cfg.engine)  # builds module + player from config
 await engine.say("Hello world")  # raw engine call, or:
 await TTSTools(engine).say("Hello world")  # guarded, agent-friendly contract
