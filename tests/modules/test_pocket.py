@@ -5,7 +5,9 @@ The fast tier must run without the `pocket` extra (no `torch`), so `torch` and
 validation runs before the lazy import.
 """
 
+import asyncio
 import sys
+import time
 import types
 
 import numpy as np
@@ -42,6 +44,7 @@ class _FakeModel:
         self.stream_kwargs: dict = {}
         self.chunks = [_FakeChunk([0.0, 0.5, -0.5, 1.0]), _FakeChunk([0.25])]
         self.raise_on_stream: Exception | None = None
+        self.endless = False
 
     def to(self, device):
         self.moved_to = device
@@ -55,6 +58,10 @@ class _FakeModel:
         self.stream_kwargs = kwargs
         if self.raise_on_stream is not None:
             raise self.raise_on_stream
+        if self.endless:
+            while True:
+                time.sleep(0.005)
+                yield _FakeChunk([0.1])
         yield from self.chunks
 
 
@@ -208,3 +215,28 @@ def test_stream_does_not_mask_callback_errors(monkeypatch, fresh_model):
 
     with pytest.raises(ValueError, match="playback failed"):
         asyncio.run(module.stream("hi", TTSOptions(), bad_callback))
+
+
+async def test_cancel_stops_callbacks_before_stream_raises(monkeypatch, fresh_model):
+    _install_fakes(monkeypatch)
+    fresh_model.endless = True
+    module = PocketModule({"type": "pocket"})
+
+    loop = asyncio.get_running_loop()
+    first_chunk = asyncio.Event()
+    count = 0
+
+    def callback(_chunk: bytes) -> None:
+        nonlocal count
+        count += 1
+        loop.call_soon_threadsafe(first_chunk.set)
+
+    task = asyncio.create_task(module.stream("hi", TTSOptions(), callback))
+    await first_chunk.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    settled = count
+    await asyncio.sleep(0.05)
+    assert count == settled

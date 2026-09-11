@@ -111,6 +111,9 @@ class MCPServerConfig:
         server_raw = data.get("server", {})
         if not isinstance(server_raw, dict):
             raise ConfigError("'server' must be an object")
+        host = server_raw.get("host", "127.0.0.1")
+        if not isinstance(host, str) or not host:
+            raise ConfigError("'server.host' must be a non-empty string")
         port = server_raw.get("port", 8000)
         if (
             not isinstance(port, int)
@@ -120,7 +123,7 @@ class MCPServerConfig:
             raise ConfigError(
                 f"'server.port' must be an integer in range 1–65535, got {port!r}"
             )
-        server_cfg = ServerConfig(host=server_raw.get("host", "127.0.0.1"), port=port)
+        server_cfg = ServerConfig(host=host, port=port)
 
         return cls(engine=engine_cfg, server=server_cfg)
 

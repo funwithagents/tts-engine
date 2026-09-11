@@ -8,7 +8,7 @@ tests:
 
 # TTS Module Interface
 
-**Status:** Updated
+**Status:** Implemented
 
 ## Purpose
 
@@ -98,6 +98,10 @@ All modules **must** feed `callback` raw PCM in this format:
 Encoding and channel count are fixed. **Sample rate is module-declared**: each module returns its rate from `sample_rate`, and the engine opens the `AudioPlayer` output stream at that rate (see [audio-player.md](audio-player.md) and [architecture.md](architecture.md)). This lets API providers that stream at 44100 Hz (ElevenLabs) and local models with a native rate of, say, 24000 Hz coexist without a project-wide resample. A module whose backend emits a different rate than it declares must resample internally before the callback.
 
 Modules must not emit MP3 or other encoded formats without an explicit decoding step, and must not emit float samples — convert to signed 16-bit before the callback.
+
+## Cancellation
+
+`stream()` must not return or raise while its worker thread can still call `callback` — otherwise the engine would `drain()` the sink (closing the player) while chunks are still arriving, and release its `say` lock while an old utterance is still playing. A running `asyncio.to_thread` worker cannot be cancelled from outside, so cancellation is **cooperative**: every module runs its blocking loop through `run_cancellable_worker(worker)` in `modules/base.py`. The helper hands the worker a `threading.Event` (`stop`); the worker polls `stop.is_set()` between chunks and returns as soon as it is set. On `CancelledError` the helper sets the flag, waits for the thread to exit, and only then re-raises. A module written this way satisfies the "returns or raises only after it has stopped invoking `callback`" clause of the ABC docstring for free.
 
 ## Local-model modules
 

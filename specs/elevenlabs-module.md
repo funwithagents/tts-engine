@@ -9,7 +9,7 @@ tests:
 
 # ElevenLabs Module
 
-**Status:** Updated
+**Status:** Implemented
 
 ## Overview
 
@@ -66,13 +66,17 @@ class _ChunkSource(miniaudio.StreamableSource):
 
 
 async def stream(self, text, options, callback):
-    # Build and advance the provider/decoder iterator inside a worker thread.
-    # Provider and decoder exceptions become TTSError. Invoke callback outside
-    # that catch boundary so playback failures retain their real identity.
-    ...
+    def _blocking_stream(stop: threading.Event) -> None:
+        # Build the provider request + decoder inside the TTSError boundary,
+        # then loop: advance the decoder inside that boundary, invoke callback
+        # outside it (so playback failures keep their identity), and poll
+        # `stop` between chunks for cooperative cancellation.
+        ...
+
+    await run_cancellable_worker(_blocking_stream)
 ```
 
-The ElevenLabs SDK streaming method is synchronous (returns an iterator). The entire decode-and-feed loop is wrapped in `asyncio.to_thread` to avoid blocking the event loop. On coroutine cancellation, a thread-safe stop flag requests termination between decoded chunks and the coroutine waits for the worker to finish before propagating `CancelledError`; no callback can occur after `stream()` exits.
+The ElevenLabs SDK streaming method is synchronous (returns an iterator). The entire decode-and-feed loop is wrapped in `asyncio.to_thread` to avoid blocking the event loop. Cancellation is cooperative via `run_cancellable_worker` (see [tts-module-interface.md](tts-module-interface.md), "Cancellation"): the worker polls the stop flag between decoded chunks, and the coroutine waits for the thread to finish before propagating `CancelledError`, so no callback can occur after `stream()` exits.
 
 ### Dependencies
 

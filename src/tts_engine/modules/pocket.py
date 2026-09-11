@@ -6,13 +6,18 @@ are imported lazily inside `__init__` so `import tts_engine` and `load_module`
 never require the `pocket` extra — a missing extra becomes a clear `ConfigError`.
 """
 
-import asyncio
+import threading
 from collections.abc import Callable
 
 import numpy as np
 
 from tts_engine.config import ConfigError
-from tts_engine.modules.base import TTSError, TTSModule, TTSOptions
+from tts_engine.modules.base import (
+    TTSError,
+    TTSModule,
+    TTSOptions,
+    run_cancellable_worker,
+)
 
 _VALID_DEVICES = {"auto", "cpu", "cuda", "mps"}
 
@@ -86,7 +91,7 @@ class PocketModule(TTSModule):
     ) -> None:
         max_tokens = self._max_tokens
 
-        def _blocking_stream() -> None:
+        def _blocking_stream(stop: threading.Event) -> None:
             # Pass max_tokens only when configured, else the library's own
             # default (50) applies — None would override it and is rejected.
             if max_tokens is None:
@@ -95,7 +100,7 @@ class PocketModule(TTSModule):
                 stream_iter = self._model.generate_audio_stream(
                     self._voice_state, text, max_tokens=max_tokens
                 )
-            while True:
+            while not stop.is_set():
                 # Advance the generator inside the provider try so inference
                 # errors become TTSError; feed the callback outside it so a
                 # downstream playback failure keeps its own identity.
@@ -107,4 +112,4 @@ class PocketModule(TTSModule):
                     raise TTSError(f"pocket-tts synthesis failed: {exc}") from exc
                 callback(_to_int16_pcm(chunk))
 
-        await asyncio.to_thread(_blocking_stream)
+        await run_cancellable_worker(_blocking_stream)

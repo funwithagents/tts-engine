@@ -7,7 +7,7 @@ tests:
 
 # AudioPlayer
 
-**Status:** Updated
+**Status:** Implemented
 
 ## Purpose
 

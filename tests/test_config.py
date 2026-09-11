@@ -153,6 +153,13 @@ def test_port_bool_rejected(tmp_path):
         MCPServerConfig.from_json_file(_write(tmp_path, data))
 
 
+@pytest.mark.parametrize("bad", ["", 123, None])
+def test_host_invalid_rejected(bad):
+    data = {**VALID, "server": {"host": bad, "port": 8000}}
+    with pytest.raises(ConfigError, match="host"):
+        MCPServerConfig.from_dict(data)
+
+
 # --- TTSEngineConfig.from_dict / from_json / from_json_file ----------------
 
 

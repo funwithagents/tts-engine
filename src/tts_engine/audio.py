@@ -46,18 +46,30 @@ class AudioPlayer(AudioSink):
             # engine driven by a custom sink work on hosts with no PortAudio.
             import sounddevice as sd
 
-            self._stream = sd.OutputStream(
+            stream = sd.OutputStream(
                 samplerate=self._sample_rate,
                 channels=_CHANNELS,
                 dtype=_DTYPE,
                 device=self._device,
             )
-            self._stream.start()
+            try:
+                stream.start()
+            except Exception:
+                # Never leave a half-opened stream attached: release the
+                # device, and let the next feed() try afresh.
+                stream.close()
+                raise
+            self._stream = stream
         array = np.frombuffer(chunk, dtype=np.int16)
         self._stream.write(array)
 
     def drain(self) -> None:
-        if self._stream is not None:
-            self._stream.stop()
-            self._stream.close()
-            self._stream = None
+        # Detach first so a failing stop() cannot leave a stale stream on the
+        # player; close() always runs so the device is released either way.
+        stream, self._stream = self._stream, None
+        if stream is None:
+            return
+        try:
+            stream.stop()
+        finally:
+            stream.close()
