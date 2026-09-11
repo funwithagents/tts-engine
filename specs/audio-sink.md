@@ -6,6 +6,7 @@ code:
 tests:
   - tests/test_audio.py
   - tests/test_engine.py
+  - tests/test_no_audio_import.py
 ---
 
 # Audio Sink
@@ -117,6 +118,7 @@ The engine (and `import tts_engine`) must work on hosts with **no PortAudio / no
 - `sounddevice` is imported **lazily**, inside `AudioPlayer` on the first `feed()` — not at module top level. So `import tts_engine`, `TTSEngine(config, sink=custom_sink)`, and `say` through that sink never import sounddevice.
 - `numpy` stays a top-level import in `audio.py` — it has no system dependency and is needed by `AudioPlayer`'s buffer conversion.
 - The default (no-sink) path is unchanged for a host that *does* have audio: the first `feed` imports sounddevice and opens the stream lazily, exactly as [audio-player.md](audio-player.md) already specifies.
+- Guarded by `tests/test_no_audio_import.py`, which runs the import → construct-with-sink → `say` path in a subprocess where `sounddevice` is made unimportable.
 
 ## Open questions
 

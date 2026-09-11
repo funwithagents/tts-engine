@@ -45,9 +45,9 @@ class CaptureSink:
 
 # module type → the importable library whose packaging extra gates that backend.
 # Base backends (elevenlabs) are always installed and declare nothing here; a
-# local-model backend behind an extra (e.g. a future `pocket` needing the
-# `pocket_tts` library) lists it so `require_module` can skip when the extra is
-# absent. See specs/project.md, "Dependency strategy for TTS backends".
+# local-model backend behind an extra (`pocket` needing the `pocket_tts`
+# library) lists it so `require_module` can skip when the extra is absent.
+# See specs/project.md, "Dependency strategy for TTS backends".
 _REQUIRED_IMPORT: dict[str, str] = {"pocket": "pocket_tts"}
 
 
@@ -88,10 +88,11 @@ _ELEVENLABS_CONFIG = {
 
 
 def default_module() -> tuple[str, dict]:
-    """Module type + config for the module-agnostic live tests (real audio
-    hardware in `test_engine.py`, MCP transport in `test_mcp.py`).
+    """Module type + config for the module-agnostic live tests (the MCP
+    transport in `test_mcp.py`; per-module conformance lives in `test_modules.py`
+    and iterates `MODULES` instead).
 
-    The single place the default backend is chosen, so none of those tests
+    The single place the default backend is chosen, so no module-agnostic test
     hardcodes one. Skips (via `require_module`) when its key env var is unset.
     """
     module_type, config = "elevenlabs", _ELEVENLABS_CONFIG

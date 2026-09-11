@@ -82,15 +82,28 @@ Model download/load is blocking and takes ~10 s on first run (weights are fetche
 
 ```python
 async def stream(self, text, options, callback):
-    def _blocking_stream():
-        try:
-            for chunk in self._model.generate_audio_stream(
-                self._voice_state, text, max_tokens=self._max_tokens
-            ):
-                pcm = _to_int16_pcm(chunk)  # float tensor -> signed-16 LE bytes
-                callback(pcm)
-        except Exception as exc:
-            raise TTSError(f"pocket-tts synthesis failed: {exc}") from exc
+    max_tokens = self._max_tokens
+
+    def _blocking_stream() -> None:
+        # Pass max_tokens only when configured, else the library's own
+        # default (50) applies — None would override it and is rejected.
+        if max_tokens is None:
+            stream_iter = self._model.generate_audio_stream(self._voice_state, text)
+        else:
+            stream_iter = self._model.generate_audio_stream(
+                self._voice_state, text, max_tokens=max_tokens
+            )
+        while True:
+            # Advance the generator inside the provider try so inference
+            # errors become TTSError; feed the callback outside it so a
+            # downstream playback failure keeps its own identity.
+            try:
+                chunk = next(stream_iter)
+            except StopIteration:
+                break
+            except Exception as exc:
+                raise TTSError(f"pocket-tts synthesis failed: {exc}") from exc
+            callback(_to_int16_pcm(chunk))  # float tensor -> signed-16 LE bytes
 
     await asyncio.to_thread(_blocking_stream)
 ```

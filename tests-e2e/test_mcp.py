@@ -1,8 +1,8 @@
 """E2E test for the MCP interface: the `say` tool over StreamableHTTP.
 
 Drives the engine through the full MCP transport — a `tts-engine-mcp`
-subprocess reached with a real MCP client. The in-process library path is
-covered separately in `test_engine.py`.
+subprocess reached with a real MCP client, against the default module. The
+in-process library path is covered per backend in `test_modules.py`.
 """
 
 from __future__ import annotations

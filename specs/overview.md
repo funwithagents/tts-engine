@@ -9,7 +9,7 @@ tests: []
 
 ## Purpose
 
-`tts-engine` is a streaming text-to-speech engine. Its core is a reusable `TTSEngine` that synthesizes a text string through a pluggable cloud TTS provider and plays the audio in real-time on the machine it runs on. The engine is usable two ways:
+`tts-engine` is a streaming text-to-speech engine. Its core is a reusable `TTSEngine` that synthesizes a text string through a pluggable TTS backend — a cloud provider (ElevenLabs) or a local in-process model (pocket-tts) — and plays the audio in real-time on the machine it runs on. The engine is usable two ways:
 
 - **As a library** — import `tts_engine`, build an engine from config, and call `await engine.say(text)` directly from your own Python code.
 - **As an agent's tools** — construct `TTSTools(engine)` and register a bound method (e.g. `tools.say`) directly into your own (non-MCP) agent, reusing its implementation and docstring as the tool description.
@@ -23,7 +23,7 @@ The MCP is one interface onto the engine, not the whole product. The engine, the
 - Expose the engine's capabilities as provider-agnostic **tools** (`say`), reusable independently of any transport
 - Ship an **MCP server** that exposes those tools over StreamableHTTP, deployable on a local network
 - Stream audio from the provider to the audio device with minimal latency (playback starts before the full audio is received)
-- Support pluggable TTS backends, with ElevenLabs as the first implementation
+- Support pluggable TTS backends — API-backed (ElevenLabs, the reference) and local-model (pocket-tts) — behind one module contract
 - Keep configuration simple: one config file, one active module (logging is the entry point's concern, not the config file's)
 
 ## Non-goals (v1)

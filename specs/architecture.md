@@ -41,26 +41,34 @@ A library user stops at layer 1 or 2; an agent embeds layer 2 directly; an MCP c
                        │
 ┌──────────────────────▼──────────────────────────────┐
 │ TTSEngine  (engine.py)                              │
-│  • TTSEngine(TTSEngineConfig)                        │
-│    → builds module (load_module) + player (Audio-    │
-│      Player) from config                             │
+│  • TTSEngine(TTSEngineConfig, *, sink=None)         │
+│    → builds module (load_module) from config;       │
+│      uses the injected sink or builds the default   │
+│      AudioPlayer at the module's sample_rate        │
 │  • say(text) → streams module output                │
-│    to AudioPlayer via callback                       │
+│    to the sink via callback, then drains it         │
 └────────────┬─────────────────────────┬──────────────┘
              │                         │
 ┌────────────▼──────────┐  ┌──────────▼──────────────┐
-│ TTSModule             │  │ AudioPlayer  (audio.py)  │
-│ (modules/base.py ABC) │  │  • Opens sounddevice     │
-│                       │  │    output stream         │
-│ elevenlabs.py         │  │  • feed(chunk: bytes)    │
-│  • Calls ElevenLabs   │  │    writes PCM to device  │
-│    streaming API      │  └─────────────────────────-┘
-│  • Decodes MP3→PCM    │
-│    via miniaudio      │
-│  • Calls callback per │
-│    PCM chunk          │
+│ TTSModule             │  │ AudioSink  (audio.py)   │
+│ (modules/base.py ABC) │  │  Protocol: feed / drain │
+│                       │  │                         │
+│ elevenlabs.py         │  │ AudioPlayer (default)   │
+│  • Calls ElevenLabs   │  │  • Opens sounddevice    │
+│    streaming API      │  │    output stream lazily │
+│  • Decodes MP3→PCM    │  │  • feed() writes PCM    │
+│    via miniaudio      │  │    to the device        │
+│                       │  │                         │
+│ pocket.py             │  │ or an injected custom   │
+│  • Runs pocket-tts    │  │ sink (capture, network, │
+│    in-process         │  │ another pipeline)       │
+│  • float32 → int16    │  └─────────────────────────┘
+│                       │
+│ Both: callback per    │
+│ PCM chunk, from one   │
+│ asyncio.to_thread     │
 └────────────┬──────────┘
-             │ HTTPS streaming
+             │ HTTPS streaming (elevenlabs only)
 ┌────────────▼──────────┐
 │ ElevenLabs API        │
 └───────────────────────┘
@@ -94,9 +102,9 @@ See [configuration.md](configuration.md) for `TTSEngineConfig` / `PlayerConfig`.
 2. `mcp.py`'s `say` wrapper calls `tools.say(text)` on its `TTSTools(engine)`.
 3. `TTSTools.say` guards empty text, then `await engine.say(text)`, mapping `TTSError` to an error string.
 4. `engine.say` builds a `TTSOptions()` and calls `module.stream(text, options, callback=sink.feed)` — the sink being the injected one or the default `AudioPlayer`.
-5. The ElevenLabs module opens an HTTPS streaming connection requesting MP3 (`mp3_44100_128`) and decodes each chunk to raw signed 16-bit PCM mono via `miniaudio.stream_any` in-process.
-6. As decoded PCM chunks are produced, the module calls `player.feed(chunk)` for each one.
-7. `AudioPlayer.feed` writes the chunk to the open `sounddevice` output stream — playback begins on the first chunk.
+5. The module produces raw signed 16-bit PCM mono at its declared `sample_rate`, inside a single `asyncio.to_thread` worker: the ElevenLabs module opens an HTTPS streaming connection requesting MP3 (`mp3_44100_128`) and decodes each chunk via `miniaudio.stream_any` in-process; the pocket module runs local inference and converts each float32 chunk to int16.
+6. As PCM chunks are produced, the module calls `sink.feed(chunk)` for each one.
+7. With the default sink, `AudioPlayer.feed` writes the chunk to the open `sounddevice` output stream — playback begins on the first chunk. A custom sink does whatever its destination needs.
 8. When the stream ends, `engine.say` returns; `TTSTools.say` returns `"OK"`; `mcp.py` returns it to the client.
 
 ### From library code
@@ -112,6 +120,7 @@ Steps 3–7 above, entered directly: application code calls `TTSTools(engine).sa
 | `engine.py` | Builds the module from `TTSEngineConfig`; uses an injected `AudioSink` or builds the default `AudioPlayer` (at the module's `sample_rate`); `say()`; `sample_rate` property; no protocol knowledge |
 | `modules/base.py` | Defines `TTSModule` ABC and shared dataclasses (`TTSOptions`) |
 | `modules/elevenlabs.py` | ElevenLabs API interaction, MP3→PCM decoding via miniaudio, config parsing |
+| `modules/pocket.py` | Local pocket-tts inference (behind the `pocket` extra, lazy import), float→int16 conversion, config parsing |
 | `audio.py` | Defines the `AudioSink` Protocol; `AudioPlayer` (its default impl): `sounddevice` output stream management, lazily imported; provider-agnostic consumer of the fixed PCM format contract |
 | `config.py` | Parse and validate config; produce typed config dataclasses (`MCPServerConfig`, `TTSEngineConfig`, …), each with a `from_dict`/`from_json`/`from_json_file` constructor trio |
 | `mcp_server_cli.py` | Argument parsing (`--config`, `--log-level`); `MCPServerConfig.from_json_file` → `TTSEngine(cfg.engine)` → MCP server; `logging.basicConfig(level=args.log_level)`; starts uvicorn |

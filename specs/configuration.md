@@ -8,7 +8,7 @@ tests:
 
 # Configuration
 
-**Status:** Implemented
+**Status:** Updated
 
 ## Config file
 

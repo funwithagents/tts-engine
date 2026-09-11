@@ -31,20 +31,20 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | `specs/` | Pre-implementation design docs, one per concept, each with a `**Status:**` — indexed by [specs/_index.md](specs/_index.md) |
 | `plans/` | Implementation plans (`YYYYMMDDHHmm_` prefixed) turning settled specs into buildable steps — indexed by [plans/_index.md](plans/_index.md) |
 | `tests/` | Fast, deterministic, no-network tests; mirrors the `src/tts_engine/` module structure — collected by default `pytest` |
-| `tests-e2e/` | Opt-in full-loop tests hitting the real ElevenLabs API + audio hardware (not collected by default `pytest`); skip cleanly when `ELEVENLABS_API_KEY` is unset |
+| `tests-e2e/` | Opt-in full-loop tests hitting the real TTS backends (ElevenLabs API, local pocket-tts model) + audio hardware (not collected by default `pytest`); each case skips cleanly when its key env var (e.g. `ELEVENLABS_API_KEY`) is unset or its packaging extra is absent |
 
 ### `src/tts_engine/` modules
 
 | Module | Role | Spec |
 |---|---|---|
-| [config.py](src/tts_engine/config.py) | Config dataclasses, `load_config()`, `ConfigError` | [configuration.md](specs/configuration.md) |
+| [config.py](src/tts_engine/config.py) | Config dataclasses (`TTSEngineConfig`, `MCPServerConfig`, each with a `from_dict`/`from_json`/`from_json_file` trio), `ConfigError` | [configuration.md](specs/configuration.md) |
 | [audio.py](src/tts_engine/audio.py) | `AudioSink` Protocol + `AudioPlayer` — sounddevice streaming playback (default sink) | [audio-player.md](specs/audio-player.md), [audio-sink.md](specs/audio-sink.md) |
 | [engine.py](src/tts_engine/engine.py) | `TTSEngine` — builds module + sink (default player) from `TTSEngineConfig`, `say()`, `sample_rate` | [architecture.md](specs/architecture.md), [audio-sink.md](specs/audio-sink.md) |
 | [tools.py](src/tts_engine/tools.py) | `TTSTools` — engine-bound, provider/transport-agnostic tools (`say`) | [tools.md](specs/tools.md) |
 | [mcp.py](src/tts_engine/mcp.py) | MCP server, `say` tool (thin wrapper over tools), StreamableHTTP | [mcp-server.md](specs/mcp-server.md) |
 | [mcp_server_cli.py](src/tts_engine/mcp_server_cli.py) | MCP server entry point: argparse → config → engine → MCP server; configures logging via `basicConfig` | [mcp-server.md](specs/mcp-server.md) |
 | `modules/` | Provider subpackage: `base.py` (`TTSModule` ABC + `TTSOptions` + `TTSError`), `__init__.py` (`REGISTRY` + `load_module()`), `elevenlabs.py` (ElevenLabs streaming module, MP3 → PCM), `pocket.py` (local-model pocket-tts backend behind the `pocket` extra, float → PCM) | [tts-module-interface.md](specs/tts-module-interface.md), [elevenlabs-module.md](specs/elevenlabs-module.md), [pocket-module.md](specs/pocket-module.md) |
-| `__init__.py` | Public API surface — re-exports `TTSEngine`, `TTSEngineConfig`, `load_config`; package glue, exempt from the map check | — |
+| `__init__.py` | Public API surface — re-exports `TTSEngine`, `TTSEngineConfig`, `MCPServerConfig`, `TTSTools`, `AudioSink`; package glue, exempt from the map check | — |
 
 **Keep this map current:** when you add, rename, or remove a top-level `src/tts_engine/` module or a root directory, update the map in the same change — same discipline as keeping spec/plan statuses honest (below). A test (`tests/test_project_map.py`) enforces that every top-level `src/tts_engine/*.py` concept module appears here and vice-versa — and that the spec frontmatter (see below) stays honest too.
 
@@ -107,7 +107,7 @@ uv run pyright                               # Type-check
 }
 ```
 
-`load_config()` returns an `AppConfig(engine, server)`. `engine` builds the `TTSEngine` (`TTSEngineConfig` = module + player); `engine.module.type` selects the module and all other `engine.module` fields are module-specific; `engine.player.device` is `null` for the system default or a device name/index. `server` is used only by the MCP entry point. `engine` is required; `server` defaults when omitted. There is no `logging` block — the log level comes from the MCP server's `--log-level` flag (default `INFO`), not the config file.
+`MCPServerConfig.from_json_file(path)` parses this file into an `MCPServerConfig(engine, server)`; `TTSEngineConfig.from_dict(engine_block)` (or `from_json`/`from_json_file`) builds just the `engine` block for library callers. `engine` builds the `TTSEngine` (`TTSEngineConfig` = module + player); `engine.module.type` selects the module and all other `engine.module` fields are module-specific; `engine.player.device` is `null` for the system default or a device name/index. `server` is used only by the MCP entry point. `engine` is required; `server` defaults when omitted. There is no `logging` block — the log level comes from the MCP server's `--log-level` flag (default `INFO`), not the config file.
 
 ## Data flow
 
@@ -117,10 +117,12 @@ MCP client                              Library caller / agent
     → mcp.py say wrapper                                                  │
       → TTSTools.say(text)  ◀────────────────────────────────────────────┘
         → TTSEngine.say(text)
-          → TTSModule.stream(text, options, callback=AudioPlayer.feed)
-            → ElevenLabs API (streaming MP3) → miniaudio decode → PCM
-              → AudioPlayer.feed(chunk) on each PCM chunk
-                → sounddevice output stream
+          → TTSModule.stream(text, options, callback=sink.feed)
+            → elevenlabs: ElevenLabs API (streaming MP3) → miniaudio decode → PCM
+              pocket:     local pocket-tts inference (float32) → int16 PCM
+              → sink.feed(chunk) on each PCM chunk
+                → AudioPlayer (default sink) → sounddevice output stream
+                   or an injected AudioSink (capture / custom destination)
 ```
 
 ## Testing
@@ -172,7 +174,8 @@ Only mark a plan `Done` (and promote its spec to `Implemented`) once these pass.
 
 1. Create `src/tts_engine/modules/<name>.py` implementing `TTSModule` from `modules/base.py`
 2. Register it in `modules/__init__.py`: `REGISTRY["<name>"] = <ClassName>`
-3. Document its config fields (the `engine.module` block accepts any fields beyond `type`)
+3. Document its config fields (the `engine.module` block accepts any fields beyond `type`) in a `specs/<name>-module.md` spec, and add the spec to the `modules/` row of the project map above
+4. Add a `pytest.param` row to the `MODULES` table in `tests-e2e/support.py` (plus a `_REQUIRED_IMPORT` entry if the backend sits behind a packaging extra) so it gets live conformance coverage
 
 ## Documentation workflow
 

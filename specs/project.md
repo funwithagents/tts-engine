@@ -26,7 +26,7 @@ Structure and tooling for the `tts-engine` project itself: Python version, depen
 - **Testing:** `pytest`, in two physically-separated tiers — a fast, deterministic, no-network default run (`tests/`, the only tier `testpaths` collects) and an opt-in live tier (`tests-e2e/`) that hits the real ElevenLabs API and audio hardware. Full strategy is specced in [testing.md](testing.md).
 - **Distribution name:** `tts-engine` (`[project].name`).
 - **Entry point:** `tts-engine-mcp = "tts_engine.mcp_server_cli:main"` (declared in `[project.scripts]`) — starts the MCP server. Both the script and the module (`mcp_server_cli.py`) are named for the interface they launch, since the library itself is used by import, not by a script; the module name leaves room for other clients/entry points later. The MCP entry point is specced in [mcp-server.md](mcp-server.md).
-- **Public API:** `src/tts_engine/__init__.py` re-exports `TTSEngine`, `TTSEngineConfig`, and `MCPServerConfig` (see [architecture.md](architecture.md), "Public API").
+- **Public API:** `src/tts_engine/__init__.py` re-exports `TTSEngine`, `TTSEngineConfig`, `MCPServerConfig`, `TTSTools`, and `AudioSink` (see [architecture.md](architecture.md), "Public API").
 - **Repo shape:**
   - `src/tts_engine/` — the package, one module per core concept (`engine.py`, `tools.py`, `mcp.py`, `audio.py`, `config.py`, `mcp_server_cli.py`) plus the `modules/` subpackage of TTS backends.
   - `specs/` — pre-implementation design docs, one per concept (this folder), indexed by [_index.md](_index.md).

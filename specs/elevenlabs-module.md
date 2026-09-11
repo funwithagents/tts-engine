@@ -9,7 +9,7 @@ tests:
 
 # ElevenLabs Module
 
-**Status:** Implemented
+**Status:** Updated
 
 ## Overview
 

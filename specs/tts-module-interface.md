@@ -8,7 +8,7 @@ tests:
 
 # TTS Module Interface
 
-**Status:** Implemented
+**Status:** Updated
 
 ## Purpose
 
@@ -79,6 +79,7 @@ class TTSModule(ABC):
 ```python
 REGISTRY: dict[str, type[TTSModule]] = {
     "elevenlabs": ElevenLabsModule,
+    "pocket": PocketModule,
 }
 ```
 
