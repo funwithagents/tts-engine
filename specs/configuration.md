@@ -153,6 +153,7 @@ There is no `logging` config block. The log level is set at the process level by
 
 The `engine`-block rules below are enforced by `TTSEngineConfig.from_dict` and so apply identically whether reached via `MCPServerConfig` or a direct `TTSEngineConfig` constructor; the top-level and `server` rules are `MCPServerConfig.from_dict`'s alone. Invalid JSON raises `ConfigError`, and the `*_json_file` constructors include the file path in that message.
 
+- `ConfigError` subclasses `ValueError` (a malformed config is invalid input data), so a caller can catch either `ConfigError` for the specific type or `ValueError` for any bad-config surface — including the module-level `ConfigError`s raised at `TTSEngine` construction.
 - Invalid JSON raises `ConfigError` (with the file path when parsing a file).
 - The top-level value and the `engine`, `engine.module`, `engine.player`, and `server` blocks must be JSON objects. Shape failures raise `ConfigError`, never raw `AttributeError`/`TypeError`.
 - The `engine` block is required and must contain a `module` block. Missing required blocks/fields raise `ConfigError` with a message identifying the missing key.

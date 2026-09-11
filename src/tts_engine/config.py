@@ -10,8 +10,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-class ConfigError(Exception):
-    pass
+class ConfigError(ValueError):
+    """Invalid configuration: bad JSON, a wrong shape, or a missing/invalid field.
+
+    Subclasses ``ValueError`` — a malformed config is bad input data — so a
+    caller composing this engine's config with others can catch one uniform
+    "bad config" type.
+    """
 
 
 def _loads(text: str, source: str | None = None) -> Any:

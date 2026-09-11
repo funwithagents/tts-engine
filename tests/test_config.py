@@ -253,3 +253,11 @@ def test_from_dict_player_device_invalid_type():
         TTSEngineConfig.from_dict(
             {"module": VALID["engine"]["module"], "player": {"device": 1.5}}
         )
+
+
+def test_config_error_is_a_value_error():
+    # ConfigError subclasses ValueError so callers composing configs can catch one
+    # uniform "bad config" type; a plain `except ValueError` must catch it.
+    assert issubclass(ConfigError, ValueError)
+    with pytest.raises(ValueError, match="engine.module.type"):
+        TTSEngineConfig.from_dict({"module": {}})

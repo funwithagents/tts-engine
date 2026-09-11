@@ -29,6 +29,7 @@ Implementation plans for TTS Engine — each plan turns a settled part of a spec
 | [Pocket TTS module](202609071730_pocket-module.md) | Local-model `pocket` backend: `pocket-tts` behind an extra, lazy import, native 24 kHz, device auto-detect, faked-library unit tests + live `MODULES` row | Done |
 | [MCPServerConfig + constructor trio](202609081319_mcp-config-and-constructor-trio.md) | Rename `AppConfig`→`MCPServerConfig`, drop `load_config`, add `from_dict`/`from_json`/`from_json_file` on both configs | Done |
 | [Close spec/code gaps](202609111500_close-spec-code-gaps.md) | Cooperative worker cancellation (both modules), ElevenLabs callback-error propagation + config validation, `AudioPlayer` start/drain safety, `server.host` validation, private-attr test cleanup | Done |
+| [ConfigError is a ValueError](202609111713_configerror-valueerror.md) | `ConfigError` subclasses `ValueError` so composing callers can catch one uniform bad-config type; contract test + spec bullet | Done |
 
 ## Status legend
 
