@@ -25,13 +25,13 @@ sudo apt-get install libportaudio2
 The base installation is provider-agnostic: it contains the engine, tools, MCP server, audio player, and the `tone`/`audiofile` fixture modules, but no speech provider. Install the provider you want as an extra:
 
 ```bash
-uv sync --extra elevenlabs   # ElevenLabs cloud API
 uv sync --extra pocket       # local pocket-tts model (pulls in torch)
+uv sync --extra elevenlabs   # ElevenLabs cloud API
 uv sync --all-extras         # every provider
 
 # For an installed package:
-pip install "tts-engine[elevenlabs]"
 pip install "tts-engine[pocket]"
+pip install "tts-engine[elevenlabs]"
 pip install "tts-engine[all]"
 ```
 
@@ -39,13 +39,7 @@ Selecting a provider whose extra is not installed fails at engine construction w
 
 ## Quick start
 
-Choose a provider first and install its extra (see [TTS modules](#tts-modules)). This example uses ElevenLabs (`uv sync --extra elevenlabs`) with an API key in the environment:
-
-```bash
-export ELEVENLABS_API_KEY="sk_..."
-```
-
-Construct an engine configuration and speak:
+Choose a provider first and install its extra (see [TTS modules](#tts-modules)). This example uses the local pocket-tts provider, which needs no API key (`uv sync --extra pocket`). Construct an engine configuration and speak:
 
 ```python
 import asyncio
@@ -54,13 +48,7 @@ from tts_engine import TTSEngine, TTSEngineConfig
 
 
 async def main() -> None:
-    config = TTSEngineConfig(
-        module={
-            "type": "elevenlabs",
-            "api_key_env": "ELEVENLABS_API_KEY",
-            "voice_id": "JBFqnCBsd6RMkjVDRZzb",
-        }
-    )
+    config = TTSEngineConfig(module={"type": "pocket", "voice": "alba"})
 
     engine = TTSEngine(config)
     await engine.say("Hello from the TTS engine")
@@ -69,7 +57,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-No server or protocol is involved. The text is synthesized through the configured module and streamed to the local audio device.
+No server or protocol is involved. The text is synthesized through the configured module and streamed to the local audio device. Any other module works the same way: only the `module` block changes.
 
 > **No key or extra yet?** Swap the module for `{"type": "tone"}` to check the engine and your audio output end to end. It plays a short sine tone rather than speech. It is a fixture module for tests, not a TTS backend.
 
@@ -90,14 +78,13 @@ The module declares its output sample rate, and the engine configures the defaul
 
 ## Configuring an engine
 
-`TTSEngine` consumes a `TTSEngineConfig`. Whether it comes from a dictionary, JSON text, or a file, its data has the same **engine-block** shape:
+`TTSEngine` consumes a `TTSEngineConfig`. Whether it comes from a dictionary, JSON text, or a file, its data has the same **engine-block** shape. `module.type` selects the module and every other `module` field is specific to it (this example uses `pocket`; see [TTS modules](#tts-modules)):
 
 ```json
 {
   "module": {
-    "type": "elevenlabs",
-    "api_key_env": "ELEVENLABS_API_KEY",
-    "voice_id": "JBFqnCBsd6RMkjVDRZzb"
+    "type": "pocket",
+    "voice": "alba"
   },
   "player": {
     "device": null
@@ -107,7 +94,7 @@ The module declares its output sample rate, and the engine configures the defaul
 
 Pass that object directly to a loader; do not add an outer `"engine"` key. A larger application can store it under any key it chooses, while the optional MCP server format specifically stores it under `"engine"`.
 
-The [`examples/`](examples/) directory holds one complete MCP-server config per module (`config.elevenlabs.json`, `config.pocket.json`, `config.tone.json`, `config.audiofile.json`). No single example is the default.
+The [`examples/`](examples/) directory holds one complete MCP-server config per module (`config.pocket.json`, `config.elevenlabs.json`, `config.tone.json`, `config.audiofile.json`). No single example is the default.
 
 | Source | Constructor | Expected shape |
 |---|---|---|
@@ -146,12 +133,46 @@ A module is a swappable synthesis backend. Its `type` selects an entry from the 
 
 | Module | Kind | Execution | Installation | Credentials |
 |---|---|---|---|---|
-| `elevenlabs` | Provider | ElevenLabs cloud API | `tts-engine[elevenlabs]` | API key |
 | `pocket` | Provider | Local, in-process model | `tts-engine[pocket]` | None |
+| `elevenlabs` | Provider | ElevenLabs cloud API | `tts-engine[elevenlabs]` | API key |
 | `tone` | Fixture | Sine tone, no synthesis | Base installation | None |
 | `audiofile` | Fixture | Pre-recorded WAV files, no synthesis | Base installation | None |
 
 Providers produce real speech. Fixture modules exist for tests and demos and are never a substitute for a provider.
+
+### `pocket`
+
+The pocket module runs [kyutai-labs/pocket-tts](https://github.com/kyutai-labs/pocket-tts) in process. It needs no API key and makes no network request during synthesis after its model weights are available. The first use may download weights into the Hugging Face cache.
+
+Install the optional dependencies:
+
+```bash
+uv sync --extra pocket
+# For an installed package:
+pip install "tts-engine[pocket]"
+```
+
+Then select the module:
+
+```json
+{
+  "module": {
+    "type": "pocket",
+    "voice": "alba",
+    "language": "english",
+    "device": "auto"
+  }
+}
+```
+
+| Field | Required | Default | Description |
+|---|---|---|---|
+| `voice` | no | `alba` | Preset name, local `.wav` path (relative to `base_dir`), or supported Hugging Face URL. |
+| `language` | no | Model default (`english`) | `english`, `german`, `italian`, `portuguese`, `spanish`, or `french_24l`. |
+| `device` | no | `auto` | `auto`, `cpu`, `cuda`, or experimental `mps`. `auto` selects CUDA when available and otherwise CPU. |
+| `max_tokens` | no | pocket-tts default | Per-text-chunk token cap. Increase only for unusually long unbroken text. |
+
+The module emits mono PCM at the model's native sample rate, typically 24,000 Hz. On Apple Silicon, `auto` intentionally uses CPU; `mps` remains explicit and experimental.
 
 ### `elevenlabs`
 
@@ -188,40 +209,6 @@ Prefer referencing an environment variable so secrets do not appear in configura
 | `similarity_boost` | no | `0.75` | Similarity boost from 0.0 to 1.0. |
 
 The module emits mono PCM at 44,100 Hz.
-
-### `pocket`
-
-The pocket module runs [kyutai-labs/pocket-tts](https://github.com/kyutai-labs/pocket-tts) in process. It needs no API key and makes no network request during synthesis after its model weights are available. The first use may download weights into the Hugging Face cache.
-
-Install the optional dependencies:
-
-```bash
-uv sync --extra pocket
-# For an installed package:
-pip install "tts-engine[pocket]"
-```
-
-Then select the module:
-
-```json
-{
-  "module": {
-    "type": "pocket",
-    "voice": "alba",
-    "language": "english",
-    "device": "auto"
-  }
-}
-```
-
-| Field | Required | Default | Description |
-|---|---|---|---|
-| `voice` | no | `alba` | Preset name, local `.wav` path (relative to `base_dir`), or supported Hugging Face URL. |
-| `language` | no | Model default (`english`) | `english`, `german`, `italian`, `portuguese`, `spanish`, or `french_24l`. |
-| `device` | no | `auto` | `auto`, `cpu`, `cuda`, or experimental `mps`. `auto` selects CUDA when available and otherwise CPU. |
-| `max_tokens` | no | pocket-tts default | Per-text-chunk token cap. Increase only for unusually long unbroken text. |
-
-The module emits mono PCM at the model's native sample rate, typically 24,000 Hz. On Apple Silicon, `auto` intentionally uses CPU; `mps` remains explicit and experimental.
 
 ### `tone`
 
@@ -335,9 +322,8 @@ The MCP server exposes `TTSTools.say` over StreamableHTTP. Its configuration wra
 {
   "engine": {
     "module": {
-      "type": "elevenlabs",
-      "api_key_env": "ELEVENLABS_API_KEY",
-      "voice_id": "JBFqnCBsd6RMkjVDRZzb"
+      "type": "pocket",
+      "voice": "alba"
     },
     "player": {
       "device": null
@@ -353,7 +339,7 @@ The MCP server exposes `TTSTools.say` over StreamableHTTP. Its configuration wra
 Start from the example for your module in [`examples/`](examples/), then run:
 
 ```bash
-cp examples/config.elevenlabs.json config.json
+cp examples/config.pocket.json config.json   # or config.elevenlabs.json, …
 uv run tts-engine-mcp --config config.json
 
 # Or, with no provider installed, try the transport with the tone fixture module:
@@ -383,20 +369,20 @@ engine = TTSEngine(mcp_config.engine)
 - Leave `player.device` as `null` to use the system default, or inspect the available devices with `sounddevice.query_devices()`.
 - Remember that audio plays on the machine running `TTSEngine`, not necessarily the machine that initiated an MCP call.
 
-### ElevenLabs module requires the elevenlabs extra
+### A provider module requires its extra
 
-A `ConfigError` saying `The 'elevenlabs' module requires the elevenlabs extra` means the provider's libraries are not installed. Run `uv sync --extra elevenlabs` (or `pip install "tts-engine[elevenlabs]"`). The same applies to `pocket` with its own extra.
-
-### ElevenLabs
-
-- Verify that the environment variable named by `api_key_env` is set in the process running the engine.
-- Verify that `voice_id` exists and is available to the configured ElevenLabs account.
+A `ConfigError` such as `The 'pocket' module requires the pocket extra` means that provider's libraries are not installed. Run `uv sync --extra <name>` (or `pip install "tts-engine[<name>]"`), e.g. `--extra pocket` or `--extra elevenlabs`.
 
 ### pocket-tts
 
 - Ensure the `pocket` extra is installed.
 - Allow network access and sufficient disk space when model weights are downloaded for the first time.
 - On Apple Silicon, keep `device` set to `auto` or `cpu` unless explicitly testing the experimental `mps` path.
+
+### ElevenLabs
+
+- Verify that the environment variable named by `api_key_env` is set in the process running the engine.
+- Verify that `voice_id` exists and is available to the configured ElevenLabs account.
 
 ## Development
 
