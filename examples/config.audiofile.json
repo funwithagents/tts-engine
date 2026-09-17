@@ -1,0 +1,25 @@
+{
+  "engine": {
+    "module": {
+      "type": "audiofile",
+      "default_file": "fixtures/default.wav",
+      "files": [
+        {
+          "text": "Hello, world!",
+          "file": "fixtures/hello.wav"
+        },
+        {
+          "text": "Goodbye.",
+          "file": "fixtures/goodbye.wav"
+        }
+      ]
+    },
+    "player": {
+      "device": null
+    }
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000
+  }
+}

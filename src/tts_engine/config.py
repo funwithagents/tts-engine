@@ -7,6 +7,7 @@ which parses JSON and delegates to `from_dict(data)`, which validates and builds
 
 import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 
@@ -45,15 +46,22 @@ class TTSEngineConfig:
     player: PlayerConfig = field(default_factory=PlayerConfig)
 
     @classmethod
-    def from_dict(cls, engine_block: dict[str, Any]) -> "TTSEngineConfig":
+    def from_dict(
+        cls, engine_block: dict[str, Any], *, base_dir: str | Path | None = None
+    ) -> "TTSEngineConfig":
         """Build (and validate) a TTSEngineConfig from a raw ``engine`` block dict.
 
         Structural validation: ``engine`` must be an object, ``module`` an object,
-        ``module.type`` a non-empty string, and ``player.device`` a
-        str | int (not bool) | None. The ``module`` block is carried through
-        verbatim as a raw dict; no environment variables are read here (the
-        module resolves its own credentials later at engine construction).
-        Raises ConfigError on shape failures.
+        ``module.type`` a non-empty string, ``module.base_dir`` (if present) a
+        non-empty string, and ``player.device`` a str | int (not bool) | None.
+
+        The ``module`` block is carried through as a raw dict; ``type`` and
+        ``base_dir`` are the only two keys the loader touches. ``base_dir`` (the
+        directory relative file paths resolve against) is filled in from this
+        call's ``base_dir`` when absent, or absolutized against it when relative.
+        No environment variables are read here (the module resolves its own
+        credentials later at engine construction). Raises ConfigError on shape
+        failures.
         """
         if not isinstance(engine_block, dict):
             raise ConfigError("'engine' must be an object")
@@ -64,6 +72,17 @@ class TTSEngineConfig:
         module_type = module_raw.get("type")
         if not module_type or not isinstance(module_type, str):
             raise ConfigError("'engine.module.type' must be a non-empty string")
+
+        module = dict(module_raw)
+        loader_dir = Path(base_dir).resolve() if base_dir is not None else None
+        if "base_dir" in module:
+            raw = module["base_dir"]
+            if not isinstance(raw, str) or not raw:
+                raise ConfigError("'engine.module.base_dir' must be a non-empty string")
+            if loader_dir is not None and not Path(raw).is_absolute():
+                module["base_dir"] = str((loader_dir / raw).resolve())
+        elif loader_dir is not None:
+            module["base_dir"] = str(loader_dir)
 
         player_raw = engine_block.get("player", {})
         if not isinstance(player_raw, dict):
@@ -76,19 +95,24 @@ class TTSEngineConfig:
                 "'engine.player.device' must be a string, an integer, or null"
             )
 
-        return cls(module=dict(module_raw), player=PlayerConfig(device=device))
+        return cls(module=module, player=PlayerConfig(device=device))
 
     @classmethod
-    def from_json(cls, text: str) -> "TTSEngineConfig":
+    def from_json(
+        cls, text: str, *, base_dir: str | Path | None = None
+    ) -> "TTSEngineConfig":
         """Build a TTSEngineConfig from a JSON string that *is* the engine block."""
-        return cls.from_dict(_loads(text))
+        return cls.from_dict(_loads(text), base_dir=base_dir)
 
     @classmethod
     def from_json_file(cls, path: str) -> "TTSEngineConfig":
         """Build a TTSEngineConfig from a JSON file whose top-level object is the
-        engine block (``module`` + ``player``), not a whole MCP-server config."""
+        engine block (``module`` + ``player``), not a whole MCP-server config.
+        Relative paths in the module block resolve against the file's directory."""
         with open(path) as f:
-            return cls.from_dict(_loads(f.read(), source=path))
+            return cls.from_dict(
+                _loads(f.read(), source=path), base_dir=Path(path).resolve().parent
+            )
 
 
 @dataclass
@@ -101,17 +125,21 @@ class MCPServerConfig:
     server: ServerConfig = field(default_factory=ServerConfig)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "MCPServerConfig":
+    def from_dict(
+        cls, data: dict[str, Any], *, base_dir: str | Path | None = None
+    ) -> "MCPServerConfig":
         """Build (and validate) an MCPServerConfig from a raw top-level config dict.
 
         Requires an ``engine`` block (delegated to ``TTSEngineConfig.from_dict``);
-        ``server`` is optional and defaults. Raises ConfigError on shape failures.
+        ``server`` is optional and defaults. ``base_dir`` is forwarded to the
+        engine block (see ``TTSEngineConfig.from_dict``). Raises ConfigError on
+        shape failures.
         """
         if not isinstance(data, dict):
             raise ConfigError("config must be an object")
         if "engine" not in data:
             raise ConfigError("Missing required config block: 'engine'")
-        engine_cfg = TTSEngineConfig.from_dict(data["engine"])
+        engine_cfg = TTSEngineConfig.from_dict(data["engine"], base_dir=base_dir)
 
         server_raw = data.get("server", {})
         if not isinstance(server_raw, dict):
@@ -133,12 +161,17 @@ class MCPServerConfig:
         return cls(engine=engine_cfg, server=server_cfg)
 
     @classmethod
-    def from_json(cls, text: str) -> "MCPServerConfig":
+    def from_json(
+        cls, text: str, *, base_dir: str | Path | None = None
+    ) -> "MCPServerConfig":
         """Build an MCPServerConfig from a JSON string (top-level ``{engine, server}``)."""
-        return cls.from_dict(_loads(text))
+        return cls.from_dict(_loads(text), base_dir=base_dir)
 
     @classmethod
     def from_json_file(cls, path: str) -> "MCPServerConfig":
-        """Build an MCPServerConfig from a JSON config file (the ``--config`` file)."""
+        """Build an MCPServerConfig from a JSON config file (the ``--config`` file).
+        Relative paths in the module block resolve against the file's directory."""
         with open(path) as f:
-            return cls.from_dict(_loads(f.read(), source=path))
+            return cls.from_dict(
+                _loads(f.read(), source=path), base_dir=Path(path).resolve().parent
+            )

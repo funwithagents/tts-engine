@@ -52,15 +52,17 @@ def test_valid_config(tmp_path):
 
 
 def test_from_json_matches_from_json_file(tmp_path):
-    from_str = MCPServerConfig.from_json(json.dumps(VALID))
+    # A file load binds base_dir to the file's directory; a string has no
+    # location, so it gets the same directory through the keyword.
+    from_str = MCPServerConfig.from_json(json.dumps(VALID), base_dir=tmp_path)
     from_file = MCPServerConfig.from_json_file(_write(tmp_path, VALID))
     assert from_str == from_file
 
 
 def test_from_dict_top_level(tmp_path):
-    assert MCPServerConfig.from_dict(VALID) == MCPServerConfig.from_json_file(
-        _write(tmp_path, VALID)
-    )
+    assert MCPServerConfig.from_dict(
+        VALID, base_dir=tmp_path
+    ) == MCPServerConfig.from_json_file(_write(tmp_path, VALID))
 
 
 def test_extra_module_fields_preserved(tmp_path):
@@ -174,8 +176,11 @@ def test_engine_from_json_and_file_match(tmp_path):
     engine_block = VALID["engine"]
     p = tmp_path / "engine.json"
     p.write_text(json.dumps(engine_block))
-    from_dict = TTSEngineConfig.from_dict(engine_block)
-    assert TTSEngineConfig.from_json(json.dumps(engine_block)) == from_dict
+    from_dict = TTSEngineConfig.from_dict(engine_block, base_dir=tmp_path)
+    assert (
+        TTSEngineConfig.from_json(json.dumps(engine_block), base_dir=tmp_path)
+        == from_dict
+    )
     assert TTSEngineConfig.from_json_file(str(p)) == from_dict
 
 
@@ -253,6 +258,56 @@ def test_from_dict_player_device_invalid_type():
         TTSEngineConfig.from_dict(
             {"module": VALID["engine"]["module"], "player": {"device": 1.5}}
         )
+
+
+# --- module.base_dir ---------------------------------------------------------
+
+
+def test_from_json_file_fills_module_base_dir(tmp_path):
+    cfg = MCPServerConfig.from_json_file(_write(tmp_path, VALID))
+    assert cfg.engine.module["base_dir"] == str(tmp_path.resolve())
+
+    p = tmp_path / "engine.json"
+    p.write_text(json.dumps(VALID["engine"]))
+    engine_cfg = TTSEngineConfig.from_json_file(str(p))
+    assert engine_cfg.module["base_dir"] == str(tmp_path.resolve())
+
+
+def test_from_dict_without_base_dir_leaves_module_untouched():
+    cfg = TTSEngineConfig.from_dict({"module": {"type": "x"}})
+    assert "base_dir" not in cfg.module
+
+
+def test_from_dict_with_base_dir_keyword_fills_module(tmp_path):
+    block = {"module": {"type": "x"}}
+    cfg = TTSEngineConfig.from_dict(block, base_dir=tmp_path)
+    assert cfg.module["base_dir"] == str(tmp_path.resolve())
+    assert "base_dir" not in block["module"]  # the caller's dict is not mutated
+    assert TTSEngineConfig.from_json(json.dumps(block), base_dir=tmp_path) == cfg
+
+
+def test_relative_module_base_dir_is_absolutized_against_loader(tmp_path):
+    block = {"module": {"type": "x", "base_dir": "fixtures"}}
+    cfg = TTSEngineConfig.from_dict(block, base_dir=tmp_path)
+    assert cfg.module["base_dir"] == str((tmp_path / "fixtures").resolve())
+
+
+def test_relative_module_base_dir_kept_without_loader_base_dir():
+    cfg = TTSEngineConfig.from_dict({"module": {"type": "x", "base_dir": "fixtures"}})
+    assert cfg.module["base_dir"] == "fixtures"
+
+
+def test_absolute_module_base_dir_kept(tmp_path):
+    absolute = str(tmp_path / "elsewhere")
+    block = {"module": {"type": "x", "base_dir": absolute}}
+    cfg = TTSEngineConfig.from_dict(block, base_dir=tmp_path / "loader")
+    assert cfg.module["base_dir"] == absolute
+
+
+@pytest.mark.parametrize("bad", ["", 3, None, True])
+def test_module_base_dir_invalid_rejected(bad):
+    with pytest.raises(ConfigError, match="base_dir"):
+        TTSEngineConfig.from_dict({"module": {"type": "x", "base_dir": bad}})
 
 
 def test_config_error_is_a_value_error():

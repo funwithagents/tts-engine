@@ -1,0 +1,14 @@
+{
+  "engine": {
+    "module": {
+      "type": "tone"
+    },
+    "player": {
+      "device": null
+    }
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000
+  }
+}

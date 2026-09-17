@@ -3,8 +3,8 @@ code:
   - src/tts_engine/modules/elevenlabs.py
 tests:
   - tests/modules/test_elevenlabs.py
+  - tests/modules/test_lazy_imports.py
   - tests-e2e/test_modules.py
-  - tests-e2e/test_mcp.py
 ---
 
 # ElevenLabs Module
@@ -13,7 +13,7 @@ tests:
 
 ## Overview
 
-`elevenlabs` implements `TTSModule` using the ElevenLabs streaming TTS API. It requests MP3 output and incrementally decodes the encoded stream to raw signed 16-bit PCM mono in-process before the callback, so `AudioPlayer` always receives PCM.
+`elevenlabs` implements `TTSModule` using the ElevenLabs streaming TTS API. It requests MP3 output and incrementally decodes the encoded stream to raw signed 16-bit PCM mono in-process before the callback, so `AudioPlayer` always receives PCM. It is one API-backed provider among others — not the default and not the base install — and ships behind the `elevenlabs` packaging extra (see "Dependencies").
 
 ## Config fields
 
@@ -78,9 +78,25 @@ async def stream(self, text, options, callback):
 
 The ElevenLabs SDK streaming method is synchronous (returns an iterator). The entire decode-and-feed loop is wrapped in `asyncio.to_thread` to avoid blocking the event loop. Cancellation is cooperative via `run_cancellable_worker` (see [tts-module-interface.md](tts-module-interface.md), "Cancellation"): the worker polls the stop flag between decoded chunks, and the coroutine waits for the thread to finish before propagating `CancelledError`, so no callback can occur after `stream()` exits.
 
-### Dependencies
+### Dependencies and lazy import
 
-Requires `miniaudio` (`pip install miniaudio`) for MP3 → PCM streaming decoding.
+Requires the `elevenlabs` extra: `pip install tts-engine[elevenlabs]` / `uv sync --extra elevenlabs`, declared in `[project.optional-dependencies]` as `elevenlabs = ["elevenlabs", "miniaudio"]` — the official SDK plus `miniaudio` for the MP3 → PCM streaming decode. Neither is a base dependency (see [project.md](project.md), "Dependency strategy for TTS backends").
+
+`modules/__init__.py` imports every module *class* eagerly to build `REGISTRY`, so `elevenlabs.py` must **not** import `elevenlabs` or `miniaudio` at file top. Both imports happen inside `__init__`, turning a missing extra into an actionable `ConfigError` before any config field is read:
+
+```python
+try:
+    import miniaudio
+    from elevenlabs import ElevenLabs
+    from elevenlabs.types import VoiceSettings
+except ImportError as exc:
+    raise ConfigError(
+        "The 'elevenlabs' module requires the elevenlabs extra: "
+        "pip install tts-engine[elevenlabs]"
+    ) from exc
+```
+
+Because `_ChunkSource` subclasses `miniaudio.StreamableSource`, that class cannot be defined at module top either. It is built by a small factory, `_make_chunk_source_class(miniaudio_module)`, called once in `__init__`; the constructor stores the imported `miniaudio` module, the `VoiceSettings` class, and the resulting adapter class on the instance for `stream()` to use. Nothing observable changes: `sample_rate`, config validation, streaming, and error handling are as specified above.
 
 ### Error handling
 

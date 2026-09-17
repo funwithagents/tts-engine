@@ -1,12 +1,13 @@
-"""ElevenLabs streaming TTS module."""
+"""ElevenLabs streaming TTS module.
+
+Behind the `elevenlabs` extra: `elevenlabs` and `miniaudio` are imported lazily
+inside `__init__` so `import tts_engine` and `load_module` never require them —
+a missing extra becomes a clear `ConfigError`.
+"""
 
 import os
 import threading
 from collections.abc import Callable, Iterator
-
-import miniaudio
-from elevenlabs import ElevenLabs
-from elevenlabs.types import VoiceSettings
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
@@ -17,22 +18,28 @@ from tts_engine.modules.base import (
 )
 
 
-class _ChunkSource(miniaudio.StreamableSource):
-    """Wraps a bytes-chunk iterator as a miniaudio StreamableSource."""
+def _make_chunk_source_class(miniaudio_mod):
+    """Build the chunk-source adapter from the lazily imported miniaudio module
+    (its base class can't be named at file top without importing the extra)."""
 
-    def __init__(self, chunks: Iterator[bytes]) -> None:
-        self._chunks = chunks
-        self._buf = bytearray()
+    class _ChunkSource(miniaudio_mod.StreamableSource):
+        """Wraps a bytes-chunk iterator as a miniaudio StreamableSource."""
 
-    def read(self, num_bytes: int) -> bytes:
-        while len(self._buf) < num_bytes:
-            try:
-                self._buf.extend(next(self._chunks))
-            except StopIteration:
-                break
-        data = bytes(self._buf[:num_bytes])
-        self._buf = self._buf[num_bytes:]
-        return data
+        def __init__(self, chunks: Iterator[bytes]) -> None:
+            self._chunks = chunks
+            self._buf = bytearray()
+
+        def read(self, num_bytes: int) -> bytes:
+            while len(self._buf) < num_bytes:
+                try:
+                    self._buf.extend(next(self._chunks))
+                except StopIteration:
+                    break
+            data = bytes(self._buf[:num_bytes])
+            self._buf = self._buf[num_bytes:]
+            return data
+
+    return _ChunkSource
 
 
 def _unit_interval(config: dict, field: str, default: float) -> float:
@@ -51,6 +58,16 @@ def _unit_interval(config: dict, field: str, default: float) -> float:
 
 class ElevenLabsModule(TTSModule):
     def __init__(self, config: dict) -> None:
+        try:
+            import miniaudio
+            from elevenlabs import ElevenLabs
+            from elevenlabs.types import VoiceSettings
+        except ImportError as exc:
+            raise ConfigError(
+                "The 'elevenlabs' module requires the elevenlabs extra: "
+                "pip install tts-engine[elevenlabs]"
+            ) from exc
+
         api_key = self._resolve_api_key(config)
 
         voice_id = config.get("voice_id")
@@ -65,6 +82,9 @@ class ElevenLabsModule(TTSModule):
         self._model: str = model
         self._stability: float = _unit_interval(config, "stability", 0.5)
         self._similarity_boost: float = _unit_interval(config, "similarity_boost", 0.75)
+        self._miniaudio = miniaudio
+        self._voice_settings_cls = VoiceSettings
+        self._chunk_source_cls = _make_chunk_source_class(miniaudio)
         self._client = ElevenLabs(api_key=api_key)
 
     @property
@@ -119,7 +139,7 @@ class ElevenLabsModule(TTSModule):
                         voice_id=self._voice_id,
                         model_id=self._model,
                         output_format="mp3_44100_128",
-                        voice_settings=VoiceSettings(
+                        voice_settings=self._voice_settings_cls(
                             stability=self._stability,
                             similarity_boost=self._similarity_boost,
                         ),
@@ -127,9 +147,9 @@ class ElevenLabsModule(TTSModule):
                     if chunk
                 )
                 pcm_iter = iter(
-                    miniaudio.stream_any(
-                        _ChunkSource(raw_chunks),
-                        output_format=miniaudio.SampleFormat.SIGNED16,
+                    self._miniaudio.stream_any(
+                        self._chunk_source_cls(raw_chunks),
+                        output_format=self._miniaudio.SampleFormat.SIGNED16,
                         nchannels=1,
                         sample_rate=44100,
                     )

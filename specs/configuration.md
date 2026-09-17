@@ -1,6 +1,9 @@
 ---
 code:
-  - config.example.json
+  - examples/config.elevenlabs.json
+  - examples/config.pocket.json
+  - examples/config.tone.json
+  - examples/config.audiofile.json
   - src/tts_engine/config.py
 tests:
   - tests/test_config.py
@@ -14,7 +17,7 @@ tests:
 
 The MCP server is started with `--config <path>` pointing to a JSON object. There is no default path — the argument is required. The entry point parses it with `MCPServerConfig.from_json_file(path)`. Library callers can load the same file the same way and take `.engine`, or build the engine config directly from an in-memory `engine` block with `TTSEngineConfig.from_dict(engine_block)` (see "Constructors" below).
 
-`config.example.json` in the repo root documents all fields with placeholder values and must be kept in sync with this spec.
+The `examples/` directory holds one complete config per module (`examples/config.<type>.json`, e.g. `config.elevenlabs.json`, `config.pocket.json`, `config.tone.json`, `config.audiofile.json`) with placeholder values, and must be kept in sync with this spec and the module specs. There is deliberately no single `config.example.json`: no module is the default (see [project.md](project.md), "Dependency strategy for TTS backends").
 
 ## Top-level structure
 
@@ -42,9 +45,11 @@ Both public config dataclasses expose the **same symmetric trio**, layered file 
 
 | Constructor | Input | Notes |
 |---|---|---|
-| `from_dict(data)` | a parsed dict | validates and builds |
-| `from_json(text)` | a JSON string | parses, then delegates to `from_dict` |
-| `from_json_file(path)` | a file path | reads the file, then delegates to `from_json`'s parse — an invalid-JSON error names the path |
+| `from_dict(data, *, base_dir=None)` | a parsed dict | validates and builds |
+| `from_json(text, *, base_dir=None)` | a JSON string | parses, then delegates to `from_dict` |
+| `from_json_file(path)` | a file path | reads the file, then delegates to `from_json`'s parse with `base_dir` set to the file's directory — an invalid-JSON error names the path |
+
+**`base_dir`** is the directory relative file paths inside the config resolve against (the same idea as wica's `AgentConfig`/`WicaConfig` loaders). A dict or a JSON string has no location of its own, so `from_dict`/`from_json` take it as an optional keyword (`str | Path | None`); `from_json_file` supplies it from the config file's own directory, so a config file's relative paths are bound to where the file lives, not to the process working directory. With `base_dir=None`, relative paths are left as given and resolve against the working directory when used. How it reaches the module is described under "`engine.module` block" below.
 
 - `MCPServerConfig.*` parse the **top-level** `{engine, server}` object (the `--config` file). `from_dict` requires `engine` (delegated to `TTSEngineConfig.from_dict`) and defaults `server`.
 - `TTSEngineConfig.*` parse an **`engine` block on its own** — an object of `module` + `player`, *not* wrapped under an `"engine"` key. Use these when a library caller keeps an engine config in its own dict/string/file.
@@ -81,7 +86,7 @@ The sanctioned in-memory constructor: it takes the raw `engine` block (the objec
 engine_cfg = TTSEngineConfig.from_dict({"module": {"type": "elevenlabs", ...}, "player": {"device": null}})
 ```
 
-The `module` block is carried through verbatim as a raw dict; **no environment variables are read** at this stage (the module resolves its own `api_key`/`api_key_env` later, at engine construction), so a config naming only an unset `api_key_env` still constructs. Use this to build an engine config from an in-memory dict — e.g. a host app composing several engine configs — without writing a temp file or duplicating validation.
+The `module` block is carried through as a raw dict, with exactly one loader-side adjustment: the reserved `base_dir` key is absolutized / filled in as described under "`engine.module` block". **No environment variables are read** at this stage (the module resolves its own `api_key`/`api_key_env` later, at engine construction), so a config naming only an unset `api_key_env` still constructs. Use this to build an engine config from an in-memory dict — e.g. a host app composing several engine configs — without writing a temp file or duplicating validation; pass `base_dir=` when that dict names relative files.
 
 ### `engine.module` block
 
@@ -89,10 +94,19 @@ Selects and configures the active TTS module.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `type` | string | yes | Module identifier (e.g. `"elevenlabs"`). Must match a key in the module registry. |
+| `type` | string | yes | Module identifier (e.g. `"elevenlabs"`, `"pocket"`, `"tone"`, `"audiofile"`). Must match a key in the module registry. |
+| `base_dir` | string | no | **Reserved key**, meaningful to every module: the directory that relative file paths in this block (a WAV file, a voice `.wav`) resolve against. Normally you omit it and the loader fills it in (below). |
 | *(other fields)* | any | depends | Module-specific configuration, parsed by the module itself. |
 
-Unknown fields beyond `type` are passed to the module constructor as-is; the module validates them. `TTSEngineConfig.module` carries this block through verbatim (a raw `dict`), matching the `TTSModule.__init__(config: dict)` contract in [tts-module-interface.md](tts-module-interface.md).
+`type` and `base_dir` are the only keys the config layer knows about; every other field is passed to the module constructor as-is and validated there. `TTSEngineConfig.module` carries the block through as a raw `dict`, matching the `TTSModule.__init__(config: dict)` contract in [tts-module-interface.md](tts-module-interface.md).
+
+**`base_dir` rules** (applied by `TTSEngineConfig.from_dict`, given the loader's own `base_dir` argument, so the same rules hold whichever constructor was used):
+
+1. If the block has a `base_dir`, it must be a non-empty string (`ConfigError` otherwise). If that value is a relative path **and** the loader has a `base_dir`, it is absolutized against the loader's: `str((loader_base_dir / value).resolve())`. If the loader has none, it is kept as given.
+2. If the block has no `base_dir` and the loader has one, the loader's is written into the block: `module["base_dir"] = str(loader_base_dir.resolve())`.
+3. If neither exists, the block stays without `base_dir`; modules then resolve relative paths against the working directory.
+
+This is a *locate* step only — no file is read or checked to exist here; each module opens its own files in its constructor. Modules read the key through `resolve_path(config, value)` in `modules/base.py` ([tts-module-interface.md](tts-module-interface.md), "Path resolution"), so no module re-implements the rule. The engine and `TTSEngine` are unaware of it.
 
 ### `engine.player` block → `PlayerConfig`
 
@@ -158,5 +172,6 @@ The `engine`-block rules below are enforced by `TTSEngineConfig.from_dict` and s
 - The top-level value and the `engine`, `engine.module`, `engine.player`, and `server` blocks must be JSON objects. Shape failures raise `ConfigError`, never raw `AttributeError`/`TypeError`.
 - The `engine` block is required and must contain a `module` block. Missing required blocks/fields raise `ConfigError` with a message identifying the missing key.
 - `engine.module.type` must be a non-empty string. Registry membership is validated later by `load_module` during `TTSEngine` construction, avoiding a config↔module import cycle and allowing callers to register custom modules before constructing the engine. Unknown values still raise `ConfigError` before an engine is created.
+- `engine.module.base_dir`, when present, must be a non-empty string. It is absolutized / filled in per the `base_dir` rules above; whether the directory exists is not checked here.
 - `engine.player.device` must be a string, an integer other than `bool`, or `null`.
 - `server.host` must be a non-empty string; `server.port` must be an integer other than `bool` in range 1–65535.

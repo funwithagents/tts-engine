@@ -24,7 +24,7 @@ All fields go under the `engine.module` block in `config.json` alongside `"type"
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `voice` | non-empty string | no | `"alba"` | A pocket-tts voice: a preset name (`alba`, `giovanni`, `lola`, …), a local `.wav` path, or a Hugging Face URL. Resolved once at construction via `get_state_for_audio_prompt`. |
+| `voice` | non-empty string | no | `"alba"` | A pocket-tts voice: a preset name (`alba`, `giovanni`, `lola`, …), a local `.wav` path, or a Hugging Face URL. Resolved once at construction via `get_state_for_audio_prompt`. A value ending in `.wav` that is not a URL is treated as a file path and resolved with `resolve_path(config, voice)` ([tts-module-interface.md](tts-module-interface.md), "Path resolution"), so a relative path is relative to the config file's directory (`base_dir`). |
 | `language` | non-empty string | no | — (model default `english`) | Language passed to `TTSModel.load_model(language=...)`: `english`, `german`, `italian`, `portuguese`, `spanish`, or `french_24l` (plain `french` raises — a 24-layer model is required). Omitted from the call when unset. |
 | `device` | string | no | `"auto"` | Compute device: `"auto"`, `"cpu"`, `"cuda"`, or `"mps"`. `"auto"` picks `cuda` when available, else `cpu`. `mps` is **not** auto-selected — it must be requested explicitly and is experimental (see the note below). |
 | `max_tokens` | integer > 0 | no | — (library default, 50) | Per-*text-chunk* token cap, passed to `generate_audio_stream(..., max_tokens=...)`. The model splits text into chunks internally and this bounds tokens per chunk (too low a value makes it skip words); the library default (50) is its tuned value, so this is omitted from the call when unset — set it higher only for unusually long unbroken chunks. |
@@ -35,7 +35,7 @@ There is **no** `api_key`/`api_key_env` (no key), and **no** quantization field 
 
 Validated at construction, raising `ConfigError` before the model is loaded:
 
-- `voice` — if present, a non-empty string (defaults to `"alba"` when absent).
+- `voice` — if present, a non-empty string (defaults to `"alba"` when absent). A local `.wav` path (ends with `.wav`, no `://`) is passed to the model as the absolute path `resolve_path` returns; presets and URLs are passed through untouched.
 - `language` — if present, a non-empty string.
 - `device` — if present, one of `"auto"`, `"cpu"`, `"cuda"`, `"mps"`.
 - `max_tokens` — if present, an integer `> 0`; booleans are rejected rather than treated as integers.

@@ -16,14 +16,7 @@ from tts_engine.mcp_server_cli import _LOG_FORMAT, main
 
 _CONFIG = {
     "engine": {
-        "module": {
-            "type": "elevenlabs",
-            "api_key_env": "ELEVENLABS_API_KEY",
-            "voice_id": "JBFqnCBsd6RMkjVDRZzb",
-            "model": "eleven_flash_v2_5",
-            "stability": 0.5,
-            "similarity_boost": 0.75,
-        },
+        "module": {"type": "tone"},
         "player": {"device": None},
     },
     # Distinctive, non-default values so the assertions can't pass by coincidence.

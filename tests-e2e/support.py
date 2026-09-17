@@ -5,9 +5,9 @@ gates so a test with no credentials/extra skips cleanly instead of failing, and
 the subprocess helpers the live tests share.
 
 Configs live here in code, asr-engine style: `default_module()` picks the single
-backend the module-agnostic tests drive, and `MODULES` is the per-backend table
-the parametrized conformance test iterates. Both share one source for the
-reference backend's config.
+module the module-agnostic tests drive (the `tone` fixture module, so they never
+skip), and `MODULES` is the per-module table the parametrized conformance test
+iterates, treating every provider symmetrically.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ import logging
 import os
 import socket
 import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -43,12 +44,14 @@ class CaptureSink:
         self.drains += 1
 
 
-# module type → the importable library whose packaging extra gates that backend.
-# Base backends (elevenlabs) are always installed and declare nothing here; a
-# local-model backend behind an extra (`pocket` needing the `pocket_tts`
-# library) lists it so `require_module` can skip when the extra is absent.
-# See specs/project.md, "Dependency strategy for TTS backends".
-_REQUIRED_IMPORT: dict[str, str] = {"pocket": "pocket_tts"}
+# module type → the importable library whose packaging extra gates that provider.
+# One row per provider extra, so `require_module` can skip when the extra is
+# absent; fixture modules (tone, audiofile) live in the base install and declare
+# nothing. See specs/project.md, "Dependency strategy for TTS backends".
+_REQUIRED_IMPORT: dict[str, str] = {
+    "elevenlabs": "elevenlabs",
+    "pocket": "pocket_tts",
+}
 
 
 def require_module(module_type: str, config: dict) -> None:
@@ -59,10 +62,11 @@ def require_module(module_type: str, config: dict) -> None:
     - an API backend without its key — `config["api_key_env"]` names an unset
       variable — skips (opt-in live tier; keys may live in ``~/.zshrc``, which a
       non-interactive shell doesn't source);
-    - a local-model backend whose packaging extra isn't installed — its
+    - a provider whose packaging extra isn't installed — its
       `_REQUIRED_IMPORT` library isn't importable — skips.
 
-    A keyless backend whose library is present is never skipped.
+    A keyless module whose library is present (or needs none, like the fixture
+    modules) is never skipped.
     """
     env_name = config.get("api_key_env")
     if env_name and not os.environ.get(env_name):
@@ -76,10 +80,9 @@ def require_module(module_type: str, config: dict) -> None:
         )
 
 
-# The reference backend's config, shared by `default_module()` and the
-# `elevenlabs` row of `MODULES` so there is one source of truth. It carries
-# `api_key_env` (the *name* of the env var holding the key), never the key
-# itself — the live tier is turned on by exporting that variable.
+# Config for the `elevenlabs` row of `MODULES`. It carries `api_key_env` (the
+# *name* of the env var holding the key), never the key itself — the row is
+# turned on by exporting that variable.
 _ELEVENLABS_CONFIG = {
     "api_key_env": "ELEVENLABS_API_KEY",
     "voice_id": "JBFqnCBsd6RMkjVDRZzb",
@@ -92,10 +95,12 @@ def default_module() -> tuple[str, dict]:
     transport in `test_mcp.py`; per-module conformance lives in `test_modules.py`
     and iterates `MODULES` instead).
 
-    The single place the default backend is chosen, so no module-agnostic test
-    hardcodes one. Skips (via `require_module`) when its key env var is unset.
+    The single place the default module is chosen, so no module-agnostic test
+    hardcodes one. It is the `tone` fixture module: no key, extra, or files, so
+    the transport test never skips. It is a test default only and says nothing
+    about which provider users should pick.
     """
-    module_type, config = "elevenlabs", _ELEVENLABS_CONFIG
+    module_type, config = "tone", {}
     require_module(module_type, config)
     return module_type, config
 
@@ -110,6 +115,19 @@ MODULES = [
     # Local-model backend: no api_key_env; gated on the `pocket` extra
     # (_REQUIRED_IMPORT) so it skips cleanly when torch/pocket-tts aren't installed.
     pytest.param("pocket", {"voice": "alba"}, id="pocket"),
+    # Fixture modules: no key, no extra — these rows never skip.
+    pytest.param("tone", {}, id="tone"),
+    pytest.param(
+        "audiofile",
+        {
+            "base_dir": str(Path(__file__).parent / "fixtures"),
+            "default_file": "default.wav",
+            "files": [
+                {"text": "Hello directly from the TTS engine", "file": "hello.wav"}
+            ],
+        },
+        id="audiofile",
+    ),
 ]
 
 

@@ -5,6 +5,7 @@ import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 
 class TTSError(Exception):
@@ -79,3 +80,19 @@ async def run_cancellable_worker(worker: Callable[[threading.Event], None]) -> N
         if not task.cancelled():
             task.exception()  # mark retrieved so asyncio doesn't log it at GC
         raise
+
+
+def resolve_path(config: dict, value: str) -> Path:
+    """Resolve a file path from a module config field.
+
+    Absolute paths are returned as-is. A relative path is joined onto
+    ``config["base_dir"]`` when present, else onto the current working
+    directory. This is a locate only: the file is not opened or checked.
+    """
+    path = Path(value)
+    if path.is_absolute():
+        return path
+    base_dir = config.get("base_dir")
+    if base_dir:
+        return Path(base_dir) / path
+    return Path.cwd() / path

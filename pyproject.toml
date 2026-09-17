@@ -10,23 +10,30 @@ requires-python = ">=3.11"
 dependencies = [
     "mcp[cli]",
     "uvicorn",
-    "elevenlabs",
     "sounddevice",
     "numpy",
-    "miniaudio",
 ]
 
 [project.scripts]
 tts-engine-mcp = "tts_engine.mcp_server_cli:main"
 
-# One extra per heavy/optional TTS backend; the base install stays framework +
-# ElevenLabs (see specs/project.md, "Dependency strategy for TTS backends").
-# Each backend module imports its library lazily and raises ConfigError with a
+# One extra per TTS provider. The base install is provider-agnostic and has no
+# default provider — only the framework and the tone/audiofile fixture modules
+# (see specs/project.md, "Dependency strategy for TTS backends"). Each provider
+# module imports its library lazily and raises ConfigError with a
 # "pip install tts-engine[<name>]" hint when the extra is absent.
 [project.optional-dependencies]
+# The official SDK plus miniaudio for the streaming MP3 -> PCM decode.
+elevenlabs = [
+    "elevenlabs",
+    "miniaudio",
+]
 # pocket-tts pulls in torch (~hundreds of MB) + a model download — see specs/pocket-module.md.
 pocket = [
     "pocket-tts>=3.1.0",
+]
+all = [
+    "tts-engine[elevenlabs,pocket]",
 ]
 
 [dependency-groups]
@@ -36,6 +43,10 @@ dev = [
     "pytest-mock",
     "ruff>=0.8.0",
     "pyright>=1.1.411",
+    # Light enough to keep in dev so the ElevenLabs unit tests run unchanged;
+    # pocket (torch) stays out and its unit tests fake the library.
+    "elevenlabs",
+    "miniaudio",
 ]
 
 [tool.pytest.ini_options]

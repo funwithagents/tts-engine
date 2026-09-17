@@ -2,6 +2,7 @@
 
 import array as _array
 import asyncio
+import sys
 import time
 from unittest.mock import MagicMock, patch
 
@@ -39,7 +40,14 @@ def test_empty_voice_id_raises():
         ElevenLabsModule({"type": "elevenlabs", "api_key": "k", "voice_id": ""})
 
 
-@patch("tts_engine.modules.elevenlabs.ElevenLabs")
+def test_missing_extra_raises_config_error(monkeypatch):
+    monkeypatch.setitem(sys.modules, "elevenlabs", None)  # -> ImportError
+    monkeypatch.setitem(sys.modules, "miniaudio", None)
+    with pytest.raises(ConfigError, match=r"tts-engine\[elevenlabs\]"):
+        ElevenLabsModule(VALID_CONFIG)
+
+
+@patch("elevenlabs.ElevenLabs")
 def test_api_key_from_env(mock_elevenlabs_cls, monkeypatch):
     monkeypatch.setenv("MY_TTS_KEY", "env-secret")
     config = {"type": "elevenlabs", "api_key_env": "MY_TTS_KEY", "voice_id": "v"}
@@ -47,7 +55,7 @@ def test_api_key_from_env(mock_elevenlabs_cls, monkeypatch):
     mock_elevenlabs_cls.assert_called_once_with(api_key="env-secret")
 
 
-@patch("tts_engine.modules.elevenlabs.ElevenLabs")
+@patch("elevenlabs.ElevenLabs")
 def test_literal_api_key_takes_precedence_over_env(mock_elevenlabs_cls, monkeypatch):
     monkeypatch.setenv("MY_TTS_KEY", "env-secret")
     config = {
@@ -81,8 +89,8 @@ async def _provider_stream_kwargs(mock_elevenlabs_cls, mock_stream_any, config) 
     return mock_client.text_to_speech.stream.call_args.kwargs
 
 
-@patch("tts_engine.modules.elevenlabs.miniaudio.stream_any")
-@patch("tts_engine.modules.elevenlabs.ElevenLabs")
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
 async def test_defaults_reach_the_provider_client(mock_elevenlabs_cls, mock_stream_any):
     kwargs = await _provider_stream_kwargs(
         mock_elevenlabs_cls, mock_stream_any, VALID_CONFIG
@@ -95,8 +103,8 @@ async def test_defaults_reach_the_provider_client(mock_elevenlabs_cls, mock_stre
     )
 
 
-@patch("tts_engine.modules.elevenlabs.miniaudio.stream_any")
-@patch("tts_engine.modules.elevenlabs.ElevenLabs")
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
 async def test_custom_values_reach_the_provider_client(
     mock_elevenlabs_cls, mock_stream_any
 ):
@@ -132,8 +140,8 @@ def test_invalid_field_raises_config_error(override, field):
         ElevenLabsModule({**VALID_CONFIG, **override})
 
 
-@patch("tts_engine.modules.elevenlabs.miniaudio.stream_any")
-@patch("tts_engine.modules.elevenlabs.ElevenLabs")
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
 def test_stream_calls_callback_with_decoded_pcm_bytes(
     mock_elevenlabs_cls, mock_stream_any
 ):
@@ -152,8 +160,8 @@ def test_stream_calls_callback_with_decoded_pcm_bytes(
     callback.assert_any_call(pcm_chunks[1].tobytes())
 
 
-@patch("tts_engine.modules.elevenlabs.miniaudio.stream_any")
-@patch("tts_engine.modules.elevenlabs.ElevenLabs")
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
 def test_stream_skips_empty_elevenlabs_chunks(mock_elevenlabs_cls, mock_stream_any):
     # Drain the _ChunkSource via read() to inspect what bytes reached miniaudio
     all_data = bytearray()
@@ -174,8 +182,8 @@ def test_stream_skips_empty_elevenlabs_chunks(mock_elevenlabs_cls, mock_stream_a
     assert bytes(all_data) == b"datamore"
 
 
-@patch("tts_engine.modules.elevenlabs.miniaudio.stream_any")
-@patch("tts_engine.modules.elevenlabs.ElevenLabs")
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
 def test_stream_wraps_elevenlabs_exception_in_tts_error(
     mock_elevenlabs_cls, mock_stream_any
 ):
@@ -191,8 +199,8 @@ def test_stream_wraps_elevenlabs_exception_in_tts_error(
         asyncio.run(module.stream("hello", TTSOptions(), MagicMock()))
 
 
-@patch("tts_engine.modules.elevenlabs.miniaudio.stream_any")
-@patch("tts_engine.modules.elevenlabs.ElevenLabs")
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
 def test_stream_does_not_mask_callback_errors(mock_elevenlabs_cls, mock_stream_any):
     mock_elevenlabs_cls.return_value.text_to_speech.stream.return_value = iter([b"x"])
     mock_stream_any.return_value = iter([_array.array("h", [1, 2])])
@@ -205,8 +213,8 @@ def test_stream_does_not_mask_callback_errors(mock_elevenlabs_cls, mock_stream_a
         asyncio.run(module.stream("hello", TTSOptions(), bad_callback))
 
 
-@patch("tts_engine.modules.elevenlabs.miniaudio.stream_any")
-@patch("tts_engine.modules.elevenlabs.ElevenLabs")
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
 async def test_cancel_stops_callbacks_before_stream_raises(
     mock_elevenlabs_cls, mock_stream_any
 ):

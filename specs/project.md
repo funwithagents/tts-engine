@@ -4,6 +4,7 @@ code:
   - src/tts_engine/mcp_server_cli.py
 tests:
   - tests/test_project_map.py
+  - tests/modules/test_lazy_imports.py
 ---
 
 # Project
@@ -23,12 +24,13 @@ Structure and tooling for the `tts-engine` project itself: Python version, depen
 - **Runtime dependencies:** see the table below.
 - **Linting/formatting:** `ruff`; `ruff check .` is the lint gate and `ruff format .` applies formatting (see [AGENTS.md](../AGENTS.md), "Commands").
 - **Type checking:** `pyright` (`standard` mode), a dev dependency run via `uv run pyright`. Config lives in `[tool.pyright]` in `pyproject.toml`, targeting `src`, `tests`, and `tests-e2e`, pinned to the `.venv`.
-- **Testing:** `pytest`, in two physically-separated tiers — a fast, deterministic, no-network default run (`tests/`, the only tier `testpaths` collects) and an opt-in live tier (`tests-e2e/`) that hits the real ElevenLabs API and audio hardware. Full strategy is specced in [testing.md](testing.md).
+- **Testing:** `pytest`, in two physically-separated tiers — a fast, deterministic, no-network default run (`tests/`, the only tier `testpaths` collects) and an opt-in live tier (`tests-e2e/`) that hits the real provider backends and audio hardware. Full strategy is specced in [testing.md](testing.md).
 - **Distribution name:** `tts-engine` (`[project].name`).
 - **Entry point:** `tts-engine-mcp = "tts_engine.mcp_server_cli:main"` (declared in `[project.scripts]`) — starts the MCP server. Both the script and the module (`mcp_server_cli.py`) are named for the interface they launch, since the library itself is used by import, not by a script; the module name leaves room for other clients/entry points later. The MCP entry point is specced in [mcp-server.md](mcp-server.md).
 - **Public API:** `src/tts_engine/__init__.py` re-exports `TTSEngine`, `TTSEngineConfig`, `MCPServerConfig`, `TTSTools`, and `AudioSink` (see [architecture.md](architecture.md), "Public API").
 - **Repo shape:**
   - `src/tts_engine/` — the package, one module per core concept (`engine.py`, `tools.py`, `mcp.py`, `audio.py`, `config.py`, `mcp_server_cli.py`) plus the `modules/` subpackage of TTS backends.
+  - `examples/` — one complete config file per module (`config.<type>.json`), so no module reads as the default; see [configuration.md](configuration.md).
   - `specs/` — pre-implementation design docs, one per concept (this folder), indexed by [_index.md](_index.md).
   - `plans/` — implementation plans turning settled specs into buildable steps, indexed by [_index.md](../plans/_index.md).
   - `tests/` at repo root, mirroring the `src/tts_engine/` module structure.
@@ -47,24 +49,32 @@ The project follows the standard library-vs-application split:
 
 ## Key dependencies
 
-The base install is the **engine framework plus the reference (ElevenLabs) provider** — everything needed to run the MCP server and synthesize out of the box. Heavy/optional TTS backends are *not* here; they live behind extras (next section).
+The base install is the **engine framework only** — the engine, tools, MCP server, audio player, and the two fixture modules (`tone`, `audiofile`). It is **provider-agnostic**: no real TTS backend is included, and none is the default. Every provider lives behind an extra (next section).
 
 | Package | Purpose |
 |---------|---------|
 | `mcp[cli]` | MCP Python SDK (FastMCP, StreamableHTTP transport) |
 | `uvicorn` | ASGI server for StreamableHTTP |
-| `elevenlabs` | Official ElevenLabs Python SDK |
 | `sounddevice` | PortAudio bindings for PCM playback |
-| `numpy` | PCM byte→array conversion for sounddevice |
-| `miniaudio` | Streaming MP3→PCM decode for the ElevenLabs module |
+| `numpy` | PCM byte→array conversion for sounddevice; sine generation for the `tone` module |
+
+Provider extras (`[project.optional-dependencies]`):
+
+| Extra | Packages | Module |
+|---|---|---|
+| `elevenlabs` | `elevenlabs` (official SDK), `miniaudio` (streaming MP3→PCM decode) | [elevenlabs-module.md](elevenlabs-module.md) |
+| `pocket` | `pocket-tts` (pulls in `torch`) | [pocket-module.md](pocket-module.md) |
+| `all` | `tts-engine[elevenlabs,pocket]` — every provider | — |
+
+The `dev` dependency group additionally lists `elevenlabs` and `miniaudio` (light, pure-Python) so the ElevenLabs unit tests run unchanged under `uv sync --dev`; `pocket`'s `torch` stays out of `dev` and its unit tests fake the library.
 
 ## Dependency strategy for TTS backends
 
-Modules pull in third-party libraries of wildly different weight — the ElevenLabs SDK is a few MB of pure Python, while local-model backends (Kokoro, ChatTTS, …) pull in `torch` (~1–2 GB). Bundling every backend into the base install would tax every API-only and MCP user with dependencies they never load. The decided approach:
+Modules pull in third-party libraries of wildly different weight — the ElevenLabs SDK is a few MB of pure Python, while local-model backends (Kokoro, ChatTTS, …) pull in `torch` (~1–2 GB). Bundling backends into the base install would tax every user with dependencies they never load, and shipping one of them in the base would make it the de-facto default provider, which this project deliberately avoids. The decided approach:
 
-- **One optional extra per heavy backend.** Declared in `[project.optional-dependencies]` (PEP 621 extras), not `[dependency-groups]`: extras are installable by consumers of the published package (`pip install tts-engine[kokoro]` / `uv sync --extra kokoro`), whereas dependency groups (like `dev`) are workflow-only and invisible downstream. A convenience `all` extra aggregates the backends.
-- **The base stays framework + ElevenLabs.** ElevenLabs is light and is the reference provider, so it stays a core dependency and `tts-engine-mcp` synthesizes out of the box. Only backends heavier than the framework itself go behind an extra. (If the base ever needs to be provider-agnostic, ElevenLabs — and its `miniaudio` decode dep — would move into an `elevenlabs` extra; not done now.)
-- **Backends import their library lazily, never at module-file top.** `modules/__init__.py` eagerly imports each module *class* to populate the registry, so a top-level `import torch`/`import kokoro` would make `import tts_engine` (and `load_module`) require that library installed. Each optional backend therefore imports its heavy dependency inside `__init__` (or first `stream()`), converting a missing extra into a clear `ConfigError`:
+- **One optional extra per provider, light or heavy.** Declared in `[project.optional-dependencies]` (PEP 621 extras), not `[dependency-groups]`: extras are installable by consumers of the published package (`pip install tts-engine[elevenlabs]` / `uv sync --extra pocket`), whereas dependency groups (like `dev`) are workflow-only and invisible downstream. The convenience `all` extra aggregates every provider.
+- **The base is provider-agnostic; no provider is the default.** `pip install tts-engine` gives the framework and the two fixture modules (`tone`, `audiofile`, see [tts-module-interface.md](tts-module-interface.md), "Module kinds"), which need nothing beyond the base. To hear real speech a user picks a provider and installs its extra; `tts-engine-mcp` with a provider `type` whose extra is absent fails at startup with the `pip install tts-engine[<type>]` hint. Docs, examples, and tests treat every provider symmetrically — ElevenLabs is *an* API-backed provider, not the reference one.
+- **Providers import their library lazily, never at module-file top.** `modules/__init__.py` eagerly imports each module *class* to populate the registry, so a top-level `import elevenlabs`/`import torch` would make `import tts_engine` (and `load_module`) require that library installed. Each provider therefore imports its dependency inside `__init__` (or first `stream()`), converting a missing extra into a clear `ConfigError`:
 
   ```python
   try:
@@ -76,7 +86,7 @@ Modules pull in third-party libraries of wildly different weight — the ElevenL
   ```
 
   The registry stays static and `load_module` keeps importing fine; construction fails — with an actionable message — only when you actually select a backend whose extra isn't installed.
-- **The default test tier stays installable without any backend extra.** Because backend files import lazily, `tests/` can unit-test a backend with its library faked, never pulling `torch`. Real-backend coverage lives in the opt-in `tests-e2e/` tier and skips cleanly when the extra (or model) is absent — the same availability-gated pattern as the `ELEVENLABS_API_KEY` skips (see [testing.md](testing.md)).
+- **The library imports cleanly without any extra.** A subprocess guard test (`tests/modules/test_lazy_imports.py`) poisons `elevenlabs`, `miniaudio`, `pocket_tts`, and `torch` in `sys.modules`, then proves `import tts_engine` and the registry still load and that constructing each provider raises the `ConfigError` hint. Real-provider coverage lives in the opt-in `tests-e2e/` tier and skips cleanly when the extra or the key is absent (see [testing.md](testing.md)); the fixture modules give that tier something that always runs.
 
 ## System dependencies
 

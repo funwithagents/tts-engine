@@ -162,6 +162,12 @@ def test_defaults_and_forwarding(monkeypatch, fresh_model):
     assert fresh_model.load_kwargs == {}
 
 
+def test_wav_voice_resolves_against_base_dir(monkeypatch, fresh_model):
+    _install_fakes(monkeypatch)
+    PocketModule({"type": "pocket", "voice": "me.wav", "base_dir": "/some/dir"})
+    assert fresh_model.voice == "/some/dir/me.wav"
+
+
 def test_language_and_max_tokens_forwarded(monkeypatch, fresh_model):
     _install_fakes(monkeypatch)
     module = PocketModule(

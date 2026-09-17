@@ -1,6 +1,6 @@
 # TTS Engine — Specifications Index
 
-`tts-engine` is a streaming text-to-speech **engine** you can use two ways: import it directly as a Python library (`TTSEngine(cfg.engine)` → `await engine.say(text)`), or run it as an **MCP server** that exposes a `say` tool. The engine synthesizes text through a pluggable TTS backend (the ElevenLabs API, or the local pocket-tts model) and plays the audio in real-time on the machine it runs on. The core idea is **streaming, low-latency playback** — audio is fed to the sound device chunk-by-chunk as it arrives from the provider, so sound starts before synthesis finishes — behind a clean module contract that keeps the provider swappable and the engine testable without audio hardware.
+`tts-engine` is a streaming text-to-speech **engine** you can use two ways: import it directly as a Python library (`TTSEngine(cfg.engine)` → `await engine.say(text)`), or run it as an **MCP server** that exposes a `say` tool. The engine synthesizes text through a pluggable TTS backend (a provider such as the ElevenLabs API or the local pocket-tts model, each an optional extra with no default; or a built-in fixture module for tests) and plays the audio in real-time on the machine it runs on. The core idea is **streaming, low-latency playback** — audio is fed to the sound device chunk-by-chunk as it arrives from the provider, so sound starts before synthesis finishes — behind a clean module contract that keeps the provider swappable and the engine testable without audio hardware.
 
 The repo is organized as three layers: the **`TTSEngine`** (the reusable core), the provider-agnostic **tools** (`TTSTools(engine).say(text)`), and the **MCP** server that exposes those tools. The MCP is one interface onto the engine, not the product.
 
@@ -12,16 +12,18 @@ Read the concept specs in order — each builds on the ones above it. `project.m
 
 | Spec | Description | Status |
 |---|---|---|
-| [project.md](project.md) | Project structure and tooling: Python version, packaging with uv, ruff/pyright, layout, library-first shape | Implemented |
-| [testing.md](testing.md) | Testing strategy: two-tier `tests/`/`tests-e2e/` split, functional-test philosophy, skip-without-credentials live tier, per-module live conformance | Implemented |
+| [project.md](project.md) | Project structure and tooling: Python version, packaging with uv, ruff/pyright, layout, library-first shape, provider-agnostic base + one extra per provider | Implemented |
+| [testing.md](testing.md) | Testing strategy: two-tier `tests/`/`tests-e2e/` split, functional-test philosophy, skip-without-credentials live tier, per-module live conformance, `tone` as the live default module | Implemented |
 | [overview.md](overview.md) | Goals, components, constraints, non-goals — library + MCP framing | Stable |
 | [architecture.md](architecture.md) | System diagram, layers (engine/tools/mcp), concurrency model, data flow, `TTSEngine(config)` construction, public API | Implemented |
-| [configuration.md](configuration.md) | Config file schema (`engine`/`server`), dataclasses, `MCPServerConfig`/`TTSEngineConfig` constructor trio, validation rules | Implemented |
+| [configuration.md](configuration.md) | Config file schema (`engine`/`server`), dataclasses, `MCPServerConfig`/`TTSEngineConfig` constructor trio with `base_dir`, reserved `module.base_dir` key, validation rules | Implemented |
 | [tools.md](tools.md) | The provider-agnostic tools layer: `TTSTools(engine).say(text)`, guards, return contract, agent-registrable bound methods | Implemented |
 | [mcp-server.md](mcp-server.md) | `say` tool, transport, lifecycle, error handling — thin wrappers over the tools layer | Implemented |
-| [tts-module-interface.md](tts-module-interface.md) | ABC, audio format contract (module-declared sample rate), local-model module pattern, registry, `TTSOptions` | Implemented |
-| [elevenlabs-module.md](elevenlabs-module.md) | Streaming PCM, config fields, SDK usage, error handling | Implemented |
-| [pocket-module.md](pocket-module.md) | Local-model backend (pocket-tts): `pocket` extra, lazy import, native 24 kHz, device auto-detect, float→int16 | Implemented |
+| [tts-module-interface.md](tts-module-interface.md) | ABC, audio format contract (module-declared sample rate), module kinds (provider / fixture), registry with no default, `resolve_path`, `TTSOptions` | Implemented |
+| [elevenlabs-module.md](elevenlabs-module.md) | API-backed provider: `elevenlabs` extra, lazy import, streaming MP3→PCM, config fields, error handling | Implemented |
+| [pocket-module.md](pocket-module.md) | Local-model provider (pocket-tts): `pocket` extra, lazy import, native 24 kHz, device auto-detect, float→int16, `base_dir` for a voice `.wav` | Implemented |
+| [tone-module.md](tone-module.md) | Fixture module: sine tone proportional to text length; no key, no extra, no files; the live tier's default module | Implemented |
+| [audiofile-module.md](audiofile-module.md) | Fixture module: text → WAV file list with a default file, 16-bit mono WAV validated at construction, paths relative to `base_dir` | Implemented |
 | [audio-player.md](audio-player.md) | `AudioPlayer`, sounddevice integration, stream lifecycle, per-module sample rate | Implemented |
 | [audio-sink.md](audio-sink.md) | `AudioSink` Protocol, constructor sink injection, `TTSEngine.sample_rate`, lazy sounddevice import | Implemented |
 

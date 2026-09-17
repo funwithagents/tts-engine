@@ -30,6 +30,7 @@ Implementation plans for TTS Engine — each plan turns a settled part of a spec
 | [MCPServerConfig + constructor trio](202609081319_mcp-config-and-constructor-trio.md) | Rename `AppConfig`→`MCPServerConfig`, drop `load_config`, add `from_dict`/`from_json`/`from_json_file` on both configs | Done |
 | [Close spec/code gaps](202609111500_close-spec-code-gaps.md) | Cooperative worker cancellation (both modules), ElevenLabs callback-error propagation + config validation, `AudioPlayer` start/drain safety, `server.host` validation, private-attr test cleanup | Done |
 | [ConfigError is a ValueError](202609111713_configerror-valueerror.md) | `ConfigError` subclasses `ValueError` so composing callers can catch one uniform bad-config type; contract test + spec bullet | Done |
+| [Fixture modules, `base_dir`, provider extras](202609171530_fixture-modules-and-provider-extras.md) | `base_dir` in the config loaders + `resolve_path`; `tone` and `audiofile` fixture modules; ElevenLabs behind an `elevenlabs` extra with lazy import; provider-agnostic base, no default provider; `examples/` configs; `tone` as the live default module | Done |
 
 ## Status legend
 

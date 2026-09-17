@@ -1880,21 +1880,30 @@ name = "tts-engine"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "elevenlabs" },
     { name = "mcp", extra = ["cli"] },
-    { name = "miniaudio" },
     { name = "numpy" },
     { name = "sounddevice" },
     { name = "uvicorn" },
 ]
 
 [package.optional-dependencies]
+all = [
+    { name = "elevenlabs" },
+    { name = "miniaudio" },
+    { name = "pocket-tts" },
+]
+elevenlabs = [
+    { name = "elevenlabs" },
+    { name = "miniaudio" },
+]
 pocket = [
     { name = "pocket-tts" },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "elevenlabs" },
+    { name = "miniaudio" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -1904,18 +1913,21 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "elevenlabs" },
+    { name = "elevenlabs", marker = "extra == 'elevenlabs'" },
     { name = "mcp", extras = ["cli"] },
-    { name = "miniaudio" },
+    { name = "miniaudio", marker = "extra == 'elevenlabs'" },
     { name = "numpy" },
     { name = "pocket-tts", marker = "extra == 'pocket'", specifier = ">=3.1.0" },
     { name = "sounddevice" },
+    { name = "tts-engine", extras = ["elevenlabs", "pocket"], marker = "extra == 'all'" },
     { name = "uvicorn" },
 ]
-provides-extras = ["pocket"]
+provides-extras = ["elevenlabs", "pocket", "all"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "elevenlabs" },
+    { name = "miniaudio" },
     { name = "pyright", specifier = ">=1.1.411" },
     { name = "pytest" },
     { name = "pytest-asyncio" },

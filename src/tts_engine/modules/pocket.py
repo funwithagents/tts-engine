@@ -16,6 +16,7 @@ from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    resolve_path,
     run_cancellable_worker,
 )
 
@@ -35,6 +36,9 @@ class PocketModule(TTSModule):
         voice = config.get("voice", "alba")
         if not isinstance(voice, str) or not voice:
             raise ConfigError("Pocket module 'voice' must be a non-empty string")
+        if voice.endswith(".wav") and "://" not in voice:
+            # A local voice file: relative to the config file (base_dir).
+            voice = str(resolve_path(config, voice))
 
         language = config.get("language")
         if language is not None and (not isinstance(language, str) or not language):

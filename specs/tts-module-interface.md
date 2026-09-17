@@ -78,12 +78,42 @@ class TTSModule(ABC):
 
 ```python
 REGISTRY: dict[str, type[TTSModule]] = {
-    "elevenlabs": ElevenLabsModule,
-    "pocket": PocketModule,
+    "elevenlabs": ElevenLabsModule,  # provider, behind the `elevenlabs` extra
+    "pocket": PocketModule,          # provider, behind the `pocket` extra
+    "tone": ToneModule,              # fixture, base install
+    "audiofile": AudioFileModule,    # fixture, base install
 }
 ```
 
-`load_module(tts_config: dict) -> TTSModule` reads `tts_config["type"]`, looks it up in `REGISTRY`, and constructs the module with the complete config dictionary, including `type`. Raises `ConfigError` for unknown types.
+`load_module(tts_config: dict) -> TTSModule` reads `tts_config["type"]`, looks it up in `REGISTRY`, and constructs the module with the complete config dictionary, including `type` (and `base_dir` when the loader filled it in — see [configuration.md](configuration.md)). Raises `ConfigError` for unknown types. The registry always lists every module, installed extra or not: selecting a provider whose extra is absent fails at *construction* with an actionable `ConfigError` (see "Dependencies" below), never at import.
+
+There is **no default module**. `type` is required, and no module is privileged in code, docs, or examples.
+
+## Module kinds
+
+| Kind | Modules | Installed by | Purpose |
+|---|---|---|---|
+| **Provider** (API-backed) | `elevenlabs` | the `elevenlabs` extra | Real speech from a cloud API |
+| **Provider** (local model) | `pocket` | the `pocket` extra | Real speech from an in-process model |
+| **Fixture** | `tone`, `audiofile` | base install | No synthesis; deterministic audio for tests, demos, and downstream integration suites |
+
+Fixture modules implement the full contract (declared rate, PCM format, cancellation) and are first-class members of the registry, but the documentation must never present them as TTS: users wanting speech install a provider extra. See [tone-module.md](tone-module.md) and [audiofile-module.md](audiofile-module.md).
+
+## Path resolution
+
+Some module fields name files (an `audiofile` WAV, a pocket voice `.wav`). Relative paths are meant to be relative to the config file, and the config loaders record that directory in the reserved `base_dir` module key ([configuration.md](configuration.md), "`engine.module` block"). `modules/base.py` exposes the one shared rule:
+
+```python
+def resolve_path(config: dict, value: str) -> Path:
+    """Resolve a file path from a module config field.
+
+    Absolute paths are returned as-is. A relative path is joined onto
+    ``config["base_dir"]`` when present, else onto the current working
+    directory. This is a locate only — the file is not opened or checked.
+    """
+```
+
+Every module resolves every path field through it, so no module re-implements the rule.
 
 ## Audio format contract
 
@@ -113,7 +143,11 @@ The API-backed pattern (ElevenLabs) is one shape; a second shape is a **local-mo
 - **Float → int16 conversion** happens in the module before the callback (clip to ±1.0, scale to the int16 range), since these libraries yield float waveforms.
 - **Cancellation and errors** follow the same rules as any module: stop calling `callback` before returning/raising, and wrap backend/inference failures in `TTSError`.
 
-Concrete config fields and dependencies for a specific local-model module are specced alongside its code when it lands, following this contract. Because these backends pull in heavy libraries (`torch` etc.), each ships behind its own packaging **extra** and imports that library lazily — see [project.md](project.md), "Dependency strategy for TTS backends".
+Concrete config fields and dependencies for a specific local-model module are specced alongside its code when it lands, following this contract.
+
+## Dependencies
+
+Every **provider** module — API-backed or local-model — ships behind its own packaging **extra** and imports its library lazily inside `__init__` (never at file top, because `modules/__init__.py` imports every module class to build the registry). A missing extra becomes `ConfigError("The '<type>' module requires the <type> extra: pip install tts-engine[<type>]")` at construction. Fixture modules live in the base install and need nothing beyond the standard library and `numpy`. See [project.md](project.md), "Dependency strategy for TTS backends".
 
 ## Error handling
 
