@@ -32,6 +32,7 @@ Implementation plans for TTS Engine — each plan turns a settled part of a spec
 | [ConfigError is a ValueError](202609111713_configerror-valueerror.md) | `ConfigError` subclasses `ValueError` so composing callers can catch one uniform bad-config type; contract test + spec bullet | Done |
 | [Fixture modules, `base_dir`, provider extras](202609171530_fixture-modules-and-provider-extras.md) | `base_dir` in the config loaders + `resolve_path`; `tone` and `audiofile` fixture modules; ElevenLabs behind an `elevenlabs` extra with lazy import; provider-agnostic base, no default provider; `examples/` configs; `tone` as the live default module | Done |
 | [MCP server behind an `mcp` extra](202609171845_mcp-extra.md) | Move `mcp`/`uvicorn` from base dependencies to an `mcp` extra (`all` = every extra, `dev` keeps them); `tts-engine-mcp` imports the stack in `main` and exits with the install hint; subprocess guard test | Done |
+| [Pin `mcp<2` and narrow the missing-extra check](202609171915_mcp-v1-pin-and-extra-check.md) | `mcp<2` in the extra and `dev` (a fresh resolve picks 2.x, which removed `mcp.server.fastmcp`); install hint only when `mcp`/`uvicorn` itself is missing, submodule errors re-raised | Done |
 
 ## Status legend
 

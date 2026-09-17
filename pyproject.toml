@@ -32,8 +32,9 @@ pocket = [
 ]
 # The MCP server (tts-engine-mcp). The plain SDK, not mcp[cli]: the cli extra
 # only serves the SDK's own `mcp dev` tooling. uvicorn is imported directly.
+# <2: mcp 2.x renamed FastMCP (mcp.server.fastmcp is gone).
 mcp = [
-    "mcp",
+    "mcp<2",
     "uvicorn",
 ]
 all = [
@@ -52,7 +53,7 @@ dev = [
     "elevenlabs",
     "miniaudio",
     # The MCP stack, so tests/test_mcp*.py and tests-e2e/test_mcp.py run unchanged.
-    "mcp",
+    "mcp<2",
     "uvicorn",
 ]
 

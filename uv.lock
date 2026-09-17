@@ -1914,7 +1914,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "elevenlabs", marker = "extra == 'elevenlabs'" },
-    { name = "mcp", marker = "extra == 'mcp'" },
+    { name = "mcp", marker = "extra == 'mcp'", specifier = "<2" },
     { name = "miniaudio", marker = "extra == 'elevenlabs'" },
     { name = "numpy" },
     { name = "pocket-tts", marker = "extra == 'pocket'", specifier = ">=3.1.0" },
@@ -1927,7 +1927,7 @@ provides-extras = ["elevenlabs", "pocket", "mcp", "all"]
 [package.metadata.requires-dev]
 dev = [
     { name = "elevenlabs" },
-    { name = "mcp" },
+    { name = "mcp", specifier = "<2" },
     { name = "miniaudio" },
     { name = "pyright", specifier = ">=1.1.411" },
     { name = "pytest" },

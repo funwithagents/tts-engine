@@ -8,6 +8,7 @@ between the layers.
 """
 
 import json
+import sys
 
 import pytest
 
@@ -73,3 +74,25 @@ def test_main_requires_config(mocker):
     mocker.patch("sys.argv", ["tts-engine-mcp"])
     with pytest.raises(SystemExit):
         main()
+
+
+@pytest.mark.parametrize(
+    "missing",
+    [
+        # A broken server module is a bug, not a missing extra.
+        "tts_engine.mcp",
+        # mcp installed but without FastMCP (e.g. mcp 2.x): a version problem.
+        "mcp.server.fastmcp",
+    ],
+)
+def test_import_errors_other_than_the_extra_are_reraised(config_path, mocker, missing):
+    mocker.patch("sys.argv", ["tts-engine-mcp", "--config", str(config_path)])
+    mocker.patch.dict(sys.modules)
+    # Force a fresh import of the server module so the poisoned module is reached.
+    sys.modules.pop("tts_engine.mcp", None)
+    sys.modules[missing] = None  # type: ignore[assignment]
+
+    with pytest.raises(ModuleNotFoundError) as exc_info:
+        main()
+
+    assert exc_info.value.name == missing

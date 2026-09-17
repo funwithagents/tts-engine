@@ -18,10 +18,10 @@ The MCP server (`mcp.py`) exposes the engine's tools over StreamableHTTP. It is 
 
 ## Installation
 
-The MCP server ships behind the **`mcp` extra** — `pip install tts-engine[mcp]` / `uv sync --extra mcp` — which declares `mcp` (the SDK, without its `cli` extra) and `uvicorn`. Neither is a base dependency: a library caller or an agent embedding `TTSTools` never installs the server stack (see [project.md](project.md), "Dependency strategy for transports"). A deployment combines it with a provider extra, e.g. `tts-engine[mcp,elevenlabs]`; the `tone` fixture module needs no provider extra.
+The MCP server ships behind the **`mcp` extra** — `pip install tts-engine[mcp]` / `uv sync --extra mcp` — which declares `mcp<2` (the SDK, without its `cli` extra; 2.x renamed `FastMCP`) and `uvicorn`. Neither is a base dependency: a library caller or an agent embedding `TTSTools` never installs the server stack (see [project.md](project.md), "Dependency strategy for transports"). A deployment combines it with a provider extra, e.g. `tts-engine[mcp,elevenlabs]`; the `tone` fixture module needs no provider extra.
 
 - `mcp.py` imports the SDK at the top of the file; it is only reachable by explicit submodule import, so without the extra `import tts_engine.mcp` raises a plain `ModuleNotFoundError`.
-- `mcp_server_cli.py` has no top-level `mcp`/`uvicorn` import, because the `tts-engine-mcp` console script is installed even without the extra. `main` parses arguments, then imports `uvicorn` and `create_server`; if the missing module is `mcp`, `uvicorn`, or one of their submodules, it exits with status 1 and `tts-engine-mcp requires the mcp extra: pip install tts-engine[mcp]` on stderr. Any other import error is re-raised unchanged.
+- `mcp_server_cli.py` has no top-level `mcp`/`uvicorn` import, because the `tts-engine-mcp` console script is installed even without the extra. `main` parses arguments, then imports `uvicorn` and `create_server`; if the missing module is exactly `mcp` or `uvicorn`, it exits with status 1 and `tts-engine-mcp requires the mcp extra: pip install tts-engine[mcp]` on stderr. Any other import error is re-raised unchanged — including a missing submodule such as `mcp.server.fastmcp`, which means an incompatible `mcp` version is installed, not a missing extra.
 - `MCPServerConfig` lives in `config.py` with no MCP imports, so it stays available (and re-exported from `tts_engine`) without the extra.
 
 ## Transport

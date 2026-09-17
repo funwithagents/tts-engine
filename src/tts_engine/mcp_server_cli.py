@@ -33,13 +33,15 @@ def main() -> None:
 
     # The console script is installed even without the mcp extra, so the MCP
     # stack is imported here: a missing extra becomes an install hint, not a
-    # traceback. Any other import error is a real bug and is re-raised.
+    # traceback. Only a missing top-level package means the extra is absent; a
+    # missing submodule (e.g. an incompatible mcp version) or any other import
+    # error is a real problem and is re-raised.
     try:
         import uvicorn
 
         from tts_engine.mcp import create_server
     except ModuleNotFoundError as exc:
-        if (exc.name or "").split(".")[0] not in _MCP_EXTRA_MODULES:
+        if exc.name not in _MCP_EXTRA_MODULES:
             raise
         raise SystemExit(_MCP_EXTRA_HINT) from exc
 
