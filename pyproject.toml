@@ -48,13 +48,13 @@ dev = [
     "pytest-mock",
     "ruff>=0.8.0",
     "pyright>=1.1.411",
-    # Light enough to keep in dev so the ElevenLabs unit tests run unchanged;
-    # pocket (torch) stays out and its unit tests fake the library.
-    "elevenlabs",
-    "miniaudio",
-    # The MCP stack, so tests/test_mcp*.py and tests-e2e/test_mcp.py run unchanged.
-    "mcp<2",
-    "uvicorn",
+    # Every extra, via the `all` aggregate rather than a hand-maintained copy of
+    # its members: a plain `uv sync --dev` then runs the whole suite — the unit
+    # tests that mock a real provider library and every live row in tests-e2e/ —
+    # with nothing skipped for a missing extra. Adding a provider extra to
+    # `all` reaches the dev environment for free. The cost is torch in every
+    # dev sync; consumers still install one provider at a time.
+    "tts-engine[all]",
 ]
 
 [tool.pytest.ini_options]

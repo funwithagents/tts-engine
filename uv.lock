@@ -1900,15 +1900,12 @@ pocket = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "elevenlabs" },
-    { name = "mcp" },
-    { name = "miniaudio" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-mock" },
     { name = "ruff" },
-    { name = "uvicorn" },
+    { name = "tts-engine", extra = ["all"] },
 ]
 
 [package.metadata]
@@ -1926,15 +1923,12 @@ provides-extras = ["elevenlabs", "pocket", "mcp", "all"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "elevenlabs" },
-    { name = "mcp", specifier = "<2" },
-    { name = "miniaudio" },
     { name = "pyright", specifier = ">=1.1.411" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-mock" },
     { name = "ruff", specifier = ">=0.8.0" },
-    { name = "uvicorn" },
+    { name = "tts-engine", extras = ["all"] },
 ]
 
 [[package]]

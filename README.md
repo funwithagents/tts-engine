@@ -13,8 +13,10 @@ This project requires Python 3.11+ and uses [`uv`](https://docs.astral.sh/uv/) f
 ```bash
 git clone https://github.com/funwithagents/tts-engine.git
 cd tts-engine
-uv sync
+uv sync --no-dev
 ```
+
+`--no-dev` is what keeps that install minimal: `uv sync` includes the `dev` group by default, and `dev` depends on `tts-engine[all]`, so a bare `uv sync` here builds the full contributor environment — every extra, `torch` included (see [Development](#development)).
 
 Default local playback uses `sounddevice`, which requires PortAudio. On Ubuntu:
 
@@ -25,10 +27,10 @@ sudo apt-get install libportaudio2
 The base installation contains the engine, tools, audio player, and the `tone`/`audiofile` fixture modules, but no speech provider and no server. Install the provider you want as an extra, and add the `mcp` extra to run the MCP server:
 
 ```bash
-uv sync --extra pocket       # local pocket-tts model (pulls in torch)
-uv sync --extra elevenlabs   # ElevenLabs cloud API
-uv sync --extra mcp          # MCP server (tts-engine-mcp)
-uv sync --all-extras         # every extra
+uv sync --no-dev --extra pocket       # local pocket-tts model (pulls in torch)
+uv sync --no-dev --extra elevenlabs   # ElevenLabs cloud API
+uv sync --no-dev --extra mcp          # MCP server (tts-engine-mcp)
+uv sync --no-dev --all-extras         # every extra
 
 # For an installed package:
 pip install "tts-engine[pocket]"
@@ -41,7 +43,7 @@ Selecting a provider whose extra is not installed fails at engine construction w
 
 ## Quick start
 
-Choose a provider first and install its extra (see [TTS modules](#tts-modules)). This example uses the local pocket-tts provider, which needs no API key (`uv sync --extra pocket`). Construct an engine configuration and speak:
+Choose a provider first and install its extra (see [TTS modules](#tts-modules)). This example uses the local pocket-tts provider, which needs no API key (`uv sync --no-dev --extra pocket`). Construct an engine configuration and speak:
 
 ```python
 import asyncio
@@ -400,4 +402,4 @@ uv run pyright
 uv run pytest
 ```
 
-The `dev` group includes the ElevenLabs libraries so its unit tests run; add `--extra pocket` or `--all-extras` to type-check and live-test the pocket module. The default test run is fast and does not use the network. Live tests against real providers and audio hardware are under `tests-e2e/` and must be invoked explicitly. Their `tone` and `audiofile` rows need no key or extra and never skip.
+The `dev` group depends on `tts-engine[all]`, so `uv sync --dev` installs every extra (including `pocket`, which pulls in `torch`) and the whole suite runs with nothing skipped for a missing extra. The default test run is fast and does not use the network. Live tests against real providers and audio hardware are under `tests-e2e/` and must be invoked explicitly. Their `tone` and `audiofile` rows need no key or extra and never skip.
