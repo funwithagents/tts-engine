@@ -34,8 +34,8 @@ def config_path(tmp_path):
 def test_main_wires_config_into_server(config_path, mocker):
     basic_config = mocker.patch("tts_engine.mcp_server_cli.logging.basicConfig")
     engine_cls = mocker.patch("tts_engine.mcp_server_cli.TTSEngine")
-    create_server = mocker.patch("tts_engine.mcp_server_cli.create_server")
-    uvicorn_run = mocker.patch("tts_engine.mcp_server_cli.uvicorn.run")
+    create_server = mocker.patch("tts_engine.mcp.create_server")
+    uvicorn_run = mocker.patch("uvicorn.run")
     mocker.patch(
         "sys.argv",
         ["tts-engine-mcp", "--config", str(config_path), "--log-level", "WARNING"],
@@ -60,8 +60,8 @@ def test_main_wires_config_into_server(config_path, mocker):
 def test_log_level_defaults_to_info(config_path, mocker):
     basic_config = mocker.patch("tts_engine.mcp_server_cli.logging.basicConfig")
     mocker.patch("tts_engine.mcp_server_cli.TTSEngine")
-    mocker.patch("tts_engine.mcp_server_cli.create_server")
-    mocker.patch("tts_engine.mcp_server_cli.uvicorn.run")
+    mocker.patch("tts_engine.mcp.create_server")
+    mocker.patch("uvicorn.run")
     mocker.patch("sys.argv", ["tts-engine-mcp", "--config", str(config_path)])
 
     main()

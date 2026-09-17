@@ -2,7 +2,7 @@
 
 ## What this project is
 
-A streaming text-to-speech **engine**, usable two ways: imported directly as a Python library (`TTSEngine(cfg.engine)` → `await engine.say(text)`), or run as an **MCP server** that exposes a `say` tool. It accepts text input, synthesizes speech through a pluggable TTS module (a provider installed as an extra — ElevenLabs or pocket-tts — or a built-in fixture module for tests), and plays the audio in real-time on the machine it runs on using streaming playback. The repo is three layers — the reusable `TTSEngine`, provider-agnostic **tools** over it, and the **MCP** that exposes those tools — so the MCP is one interface, not the product.
+A streaming text-to-speech **engine**, usable two ways: imported directly as a Python library (`TTSEngine(cfg.engine)` → `await engine.say(text)`), or run as an **MCP server** (installed through the `mcp` extra) that exposes a `say` tool. It accepts text input, synthesizes speech through a pluggable TTS module (a provider installed as an extra — ElevenLabs or pocket-tts — or a built-in fixture module for tests), and plays the audio in real-time on the machine it runs on using streaming playback. The repo is three layers — the reusable `TTSEngine`, provider-agnostic **tools** over it, and the **MCP** that exposes those tools — so the MCP is one interface, not the product.
 
 - **Language**: Python, project managed with `uv`
 - **MCP SDK**: official Python SDK (`modelcontextprotocol/python-sdk`)
@@ -15,6 +15,7 @@ A streaming text-to-speech **engine**, usable two ways: imported directly as a P
 - **Callback-based streaming**: the module layer accepts a `callback: Callable[[bytes], None]` for each audio chunk — this decouples the module from the playback mechanism and makes the engine testable without audio hardware.
 - **MP3 from ElevenLabs, decoded in-process**: the ElevenLabs module requests `mp3_44100_128` and decodes each chunk to signed-16 PCM mono via `miniaudio` before the callback, so `AudioPlayer` always receives PCM.
 - **No default provider**: the base install is provider-agnostic; every provider is an extra (`elevenlabs`, `pocket`, `all`) whose library is imported lazily in the module's `__init__` (a missing extra → `ConfigError` with a `pip install tts-engine[<name>]` hint); `tone` and `audiofile` are fixture modules for tests and demos, never presented as TTS.
+- **MCP server behind an extra**: the base install carries no server stack; `mcp` and `uvicorn` sit behind the `mcp` extra (`all` = every extra; the `dev` group includes them). `mcp_server_cli.py` imports them inside `main`, so `tts-engine-mcp` without the extra exits with a `pip install tts-engine[mcp]` hint.
 - **`base_dir` for relative paths**: `base_dir` is a reserved `engine.module` key — the directory relative file paths resolve against. `from_json_file` fills it with the config file's directory (`from_dict`/`from_json` take a `base_dir=` keyword); modules read it only through `resolve_path(config, value)` in `modules/base.py`.
 - **`say` tool only (v1)**: no `synthesize`/file output, no `list_voices`, no MCP resources.
 - **Pluggable modules**: the `engine.module` config block uses `type` to select the module; all other fields under `engine.module` are module-specific. Only one module is active at a time.
@@ -43,8 +44,8 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | [audio.py](src/tts_engine/audio.py) | `AudioSink` Protocol + `AudioPlayer` — sounddevice streaming playback (default sink) | [audio-player.md](specs/audio-player.md), [audio-sink.md](specs/audio-sink.md) |
 | [engine.py](src/tts_engine/engine.py) | `TTSEngine` — builds module + sink (default player) from `TTSEngineConfig`, `say()`, `sample_rate` | [architecture.md](specs/architecture.md), [audio-sink.md](specs/audio-sink.md) |
 | [tools.py](src/tts_engine/tools.py) | `TTSTools` — engine-bound, provider/transport-agnostic tools (`say`) | [tools.md](specs/tools.md) |
-| [mcp.py](src/tts_engine/mcp.py) | MCP server, `say` tool (thin wrapper over tools), StreamableHTTP | [mcp-server.md](specs/mcp-server.md) |
-| [mcp_server_cli.py](src/tts_engine/mcp_server_cli.py) | MCP server entry point: argparse → config → engine → MCP server; configures logging via `basicConfig` | [mcp-server.md](specs/mcp-server.md) |
+| [mcp.py](src/tts_engine/mcp.py) | MCP server, `say` tool (thin wrapper over tools), StreamableHTTP (behind the `mcp` extra) | [mcp-server.md](specs/mcp-server.md) |
+| [mcp_server_cli.py](src/tts_engine/mcp_server_cli.py) | MCP server entry point: argparse → mcp-extra check → config → engine → MCP server; configures logging via `basicConfig` | [mcp-server.md](specs/mcp-server.md) |
 | `modules/` | Module subpackage: `base.py` (`TTSModule` ABC + `TTSOptions` + `TTSError` + `resolve_path`), `__init__.py` (`REGISTRY` + `load_module()`), `elevenlabs.py` (ElevenLabs streaming provider behind the `elevenlabs` extra, MP3 → PCM), `pocket.py` (local-model pocket-tts provider behind the `pocket` extra, float → PCM), `tone.py` (fixture: sine tone), `audiofile.py` (fixture: text → WAV files) | [tts-module-interface.md](specs/tts-module-interface.md), [elevenlabs-module.md](specs/elevenlabs-module.md), [pocket-module.md](specs/pocket-module.md), [tone-module.md](specs/tone-module.md), [audiofile-module.md](specs/audiofile-module.md) |
 | `__init__.py` | Public API surface — re-exports `TTSEngine`, `TTSEngineConfig`, `MCPServerConfig`, `TTSTools`, `AudioSink`; package glue, exempt from the map check | — |
 
@@ -75,9 +76,10 @@ Specs and plans each carry a `**Status:**` line (near the top of the file, mirro
 ## Entry points
 
 ```bash
-uv sync --dev                                # Materialize the environment (no provider extra)
+uv sync --dev                                # Materialize the environment (no provider extra; dev includes the MCP stack)
 uv sync --dev --extra elevenlabs             #   … plus one provider (or --extra pocket)
-uv sync --dev --all-extras                   #   … plus every provider
+uv sync --dev --all-extras                   #   … plus every extra
+uv sync --extra mcp                          # Consumer-style MCP install (no dev group)
 uv run tts-engine-mcp --config examples/config.tone.json   # Start the MCP server
 uv run pytest                                # Unit tests only (default tier — no API key needed)
 ELEVENLABS_API_KEY=sk_... uv run pytest tests-e2e/   # Opt-in e2e tests (skip unless the key is set)

@@ -4,7 +4,7 @@ A streaming text-to-speech engine for Python. Choose a TTS module, construct a `
 
 Audio is synthesized and consumed chunk by chunk, minimizing the delay before playback begins. Speech comes from a provider module you install as an extra: the ElevenLabs cloud API or the local pocket-tts model. There is no default provider. Two built-in fixture modules, `tone` and `audiofile`, stand in for a provider in tests and demos. By default, audio plays on the machine running the engine; applications can instead provide their own audio sink to capture or route the PCM stream.
 
-Agent-friendly tools and an MCP server are included as optional interfaces over the same engine.
+Agent-friendly tools are included as an optional interface over the same engine, and an MCP server is available through the `mcp` extra.
 
 ## Installation
 
@@ -22,16 +22,18 @@ Default local playback uses `sounddevice`, which requires PortAudio. On Ubuntu:
 sudo apt-get install libportaudio2
 ```
 
-The base installation is provider-agnostic: it contains the engine, tools, MCP server, audio player, and the `tone`/`audiofile` fixture modules, but no speech provider. Install the provider you want as an extra:
+The base installation contains the engine, tools, audio player, and the `tone`/`audiofile` fixture modules, but no speech provider and no server. Install the provider you want as an extra, and add the `mcp` extra to run the MCP server:
 
 ```bash
 uv sync --extra pocket       # local pocket-tts model (pulls in torch)
 uv sync --extra elevenlabs   # ElevenLabs cloud API
-uv sync --all-extras         # every provider
+uv sync --extra mcp          # MCP server (tts-engine-mcp)
+uv sync --all-extras         # every extra
 
 # For an installed package:
 pip install "tts-engine[pocket]"
 pip install "tts-engine[elevenlabs]"
+pip install "tts-engine[mcp,pocket]"
 pip install "tts-engine[all]"
 ```
 
@@ -316,7 +318,9 @@ Call `engine.say()` directly when you want the raw exception-raising engine cont
 
 ### Run the MCP server
 
-The MCP server exposes `TTSTools.say` over StreamableHTTP. Its configuration wraps the same engine block documented above with an optional `server` block:
+The MCP server exposes `TTSTools.say` over StreamableHTTP. It needs the `mcp` extra (`uv sync --extra mcp`, or `pip install "tts-engine[mcp]"`) plus the extra for your provider. Without it, `tts-engine-mcp` exits with `tts-engine-mcp requires the mcp extra: pip install tts-engine[mcp]`.
+
+Its configuration wraps the same engine block documented above with an optional `server` block:
 
 ```json
 {
@@ -352,7 +356,7 @@ The `server` block defaults to `127.0.0.1:8000` when omitted. Connect an MCP cli
 uv run tts-engine-mcp --config config.json --log-level DEBUG
 ```
 
-Library code can also reuse the engine block from an MCP server configuration:
+Library code can also reuse the engine block from an MCP server configuration. `MCPServerConfig` does not need the `mcp` extra:
 
 ```python
 from tts_engine import MCPServerConfig, TTSEngine

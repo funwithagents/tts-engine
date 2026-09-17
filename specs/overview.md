@@ -21,7 +21,7 @@ The MCP is one interface onto the engine, not the whole product. The engine, the
 
 - Provide a clean, importable `TTSEngine` built from a single `TTSEngineConfig` (module + player)
 - Expose the engine's capabilities as provider-agnostic **tools** (`say`), reusable independently of any transport
-- Ship an **MCP server** that exposes those tools over StreamableHTTP, deployable on a local network
+- Ship an **MCP server** that exposes those tools over StreamableHTTP, deployable on a local network — installed through its own `mcp` extra, so the engine and tools carry no server dependencies
 - Stream audio from the provider to the audio device with minimal latency (playback starts before the full audio is received)
 - Support pluggable TTS backends — API-backed (ElevenLabs) and local-model (pocket-tts) — behind one module contract, each behind its own extra, with **no default provider**
 - Stay runnable end to end with no provider installed, through fixture modules (`tone`, `audiofile`) meant for tests and demos, never presented as TTS

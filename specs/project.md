@@ -5,6 +5,7 @@ code:
 tests:
   - tests/test_project_map.py
   - tests/modules/test_lazy_imports.py
+  - tests/test_no_mcp_import.py
 ---
 
 # Project
@@ -17,7 +18,7 @@ Structure and tooling for the `tts-engine` project itself: Python version, depen
 
 ## Decided
 
-- **Identity:** `tts-engine` is a **library first** — a reusable `TTSEngine` — that also ships an MCP server as one interface onto it (see [overview.md](overview.md), [architecture.md](architecture.md)). The package is importable (`import tts_engine`) and the MCP is a console-script entry point.
+- **Identity:** `tts-engine` is a **library first** — a reusable `TTSEngine` — that also ships an MCP server as one interface onto it (see [overview.md](overview.md), [architecture.md](architecture.md)). The package is importable (`import tts_engine`) and the MCP is a console-script entry point. The base install carries only what the engine needs; each provider and each transport is an optional extra (see "Key dependencies").
 - **Python version:** 3.11+ minimum (used for `str | None` unions, `tomllib`, match statements).
 - **Package layout:** `src/` layout — `src/tts_engine/...` — not flat, to avoid accidentally importing an uninstalled package from the repo root.
 - **Dependency/venv management:** `uv`. Dev tooling lives in the `dev` dependency group (`uv sync --dev`), not in runtime `dependencies`.
@@ -26,7 +27,7 @@ Structure and tooling for the `tts-engine` project itself: Python version, depen
 - **Type checking:** `pyright` (`standard` mode), a dev dependency run via `uv run pyright`. Config lives in `[tool.pyright]` in `pyproject.toml`, targeting `src`, `tests`, and `tests-e2e`, pinned to the `.venv`.
 - **Testing:** `pytest`, in two physically-separated tiers — a fast, deterministic, no-network default run (`tests/`, the only tier `testpaths` collects) and an opt-in live tier (`tests-e2e/`) that hits the real provider backends and audio hardware. Full strategy is specced in [testing.md](testing.md).
 - **Distribution name:** `tts-engine` (`[project].name`).
-- **Entry point:** `tts-engine-mcp = "tts_engine.mcp_server_cli:main"` (declared in `[project.scripts]`) — starts the MCP server. Both the script and the module (`mcp_server_cli.py`) are named for the interface they launch, since the library itself is used by import, not by a script; the module name leaves room for other clients/entry points later. The MCP entry point is specced in [mcp-server.md](mcp-server.md).
+- **Entry point:** `tts-engine-mcp = "tts_engine.mcp_server_cli:main"` (declared in `[project.scripts]`) — starts the MCP server. Extras cannot gate a console script, so it is installed with the base package, but it runs only with the `mcp` extra; without it the script exits with the install hint (see "Dependency strategy for transports"). Both the script and the module (`mcp_server_cli.py`) are named for the interface they launch, since the library itself is used by import, not by a script; the module name leaves room for other clients/entry points later. The MCP entry point is specced in [mcp-server.md](mcp-server.md).
 - **Public API:** `src/tts_engine/__init__.py` re-exports `TTSEngine`, `TTSEngineConfig`, `MCPServerConfig`, `TTSTools`, and `AudioSink` (see [architecture.md](architecture.md), "Public API").
 - **Repo shape:**
   - `src/tts_engine/` — the package, one module per core concept (`engine.py`, `tools.py`, `mcp.py`, `audio.py`, `config.py`, `mcp_server_cli.py`) plus the `modules/` subpackage of TTS backends.
@@ -38,7 +39,7 @@ Structure and tooling for the `tts-engine` project itself: Python version, depen
 
 ## Entry point & plumbing
 
-- `src/tts_engine/mcp_server_cli.py` — the `tts-engine-mcp` console script (`main`): parses `--config` and `--log-level` (default `INFO`), calls `MCPServerConfig.from_json_file`, configures logging via `logging.basicConfig(level=args.log_level, ...)`, builds the engine via `TTSEngine(cfg.engine)`, creates the MCP server, and starts uvicorn. Its runtime behaviour (transport, lifecycle) is specced in [mcp-server.md](mcp-server.md).
+- `src/tts_engine/mcp_server_cli.py` — the `tts-engine-mcp` console script (`main`): parses `--config` and `--log-level` (default `INFO`), imports the MCP stack (`uvicorn`, `tts_engine.mcp`) inside `main` — exiting with the `pip install tts-engine[mcp]` hint when the `mcp` extra is absent — calls `MCPServerConfig.from_json_file`, configures logging via `logging.basicConfig(level=args.log_level, ...)`, builds the engine via `TTSEngine(cfg.engine)`, creates the MCP server, and starts uvicorn. Its runtime behaviour (transport, lifecycle) is specced in [mcp-server.md](mcp-server.md).
 
 ## Logging
 
@@ -49,24 +50,25 @@ The project follows the standard library-vs-application split:
 
 ## Key dependencies
 
-The base install is the **engine framework only** — the engine, tools, MCP server, audio player, and the two fixture modules (`tone`, `audiofile`). It is **provider-agnostic**: no real TTS backend is included, and none is the default. Every provider lives behind an extra (next section).
+The base install is the **engine only** — the engine, tools, config, audio player, and the two fixture modules (`tone`, `audiofile`). It is **provider-agnostic** (no real TTS backend is included, and none is the default) and **transport-agnostic** (no server stack is included). Every provider and every transport lives behind an extra (next sections).
 
 | Package | Purpose |
 |---------|---------|
-| `mcp[cli]` | MCP Python SDK (FastMCP, StreamableHTTP transport) |
-| `uvicorn` | ASGI server for StreamableHTTP |
 | `sounddevice` | PortAudio bindings for PCM playback |
 | `numpy` | PCM byte→array conversion for sounddevice; sine generation for the `tone` module |
 
-Provider extras (`[project.optional-dependencies]`):
+Extras (`[project.optional-dependencies]`):
 
-| Extra | Packages | Module |
-|---|---|---|
-| `elevenlabs` | `elevenlabs` (official SDK), `miniaudio` (streaming MP3→PCM decode) | [elevenlabs-module.md](elevenlabs-module.md) |
-| `pocket` | `pocket-tts` (pulls in `torch`) | [pocket-module.md](pocket-module.md) |
-| `all` | `tts-engine[elevenlabs,pocket]` — every provider | — |
+| Extra | Kind | Packages | Spec |
+|---|---|---|---|
+| `elevenlabs` | Provider | `elevenlabs` (official SDK), `miniaudio` (streaming MP3→PCM decode) | [elevenlabs-module.md](elevenlabs-module.md) |
+| `pocket` | Provider | `pocket-tts` (pulls in `torch`) | [pocket-module.md](pocket-module.md) |
+| `mcp` | Transport | `mcp` (MCP Python SDK: FastMCP, StreamableHTTP transport), `uvicorn` (ASGI server) | [mcp-server.md](mcp-server.md) |
+| `all` | — | `tts-engine[elevenlabs,pocket,mcp]` — every extra | — |
 
-The `dev` dependency group additionally lists `elevenlabs` and `miniaudio` (light, pure-Python) so the ElevenLabs unit tests run unchanged under `uv sync --dev`; `pocket`'s `torch` stays out of `dev` and its unit tests fake the library.
+`mcp` is the plain SDK, not `mcp[cli]`: the `cli` extra only adds `typer`/`python-dotenv` for the SDK's own `mcp dev`/`mcp install` tooling, which this project does not use. `uvicorn` is listed explicitly even though the SDK depends on it, because `mcp_server_cli.py` imports it directly.
+
+The `dev` dependency group additionally lists `elevenlabs` and `miniaudio` (light, pure-Python) so the ElevenLabs unit tests run unchanged under `uv sync --dev`, and `mcp` and `uvicorn` so the MCP unit tests and the live MCP test run unchanged too; `pocket`'s `torch` stays out of `dev` and its unit tests fake the library.
 
 ## Dependency strategy for TTS backends
 
@@ -87,6 +89,16 @@ Modules pull in third-party libraries of wildly different weight — the ElevenL
 
   The registry stays static and `load_module` keeps importing fine; construction fails — with an actionable message — only when you actually select a backend whose extra isn't installed.
 - **The library imports cleanly without any extra.** A subprocess guard test (`tests/modules/test_lazy_imports.py`) poisons `elevenlabs`, `miniaudio`, `pocket_tts`, and `torch` in `sys.modules`, then proves `import tts_engine` and the registry still load and that constructing each provider raises the `ConfigError` hint. Real-provider coverage lives in the opt-in `tests-e2e/` tier and skips cleanly when the extra or the key is absent (see [testing.md](testing.md)); the fixture modules give that tier something that always runs.
+
+## Dependency strategy for transports
+
+A transport is an interface onto the engine, not the engine itself (see [overview.md](overview.md)), and it brings its own server stack: the MCP SDK pulls in `pydantic`, `starlette`, `httpx`, `sse-starlette`, `jsonschema`, `pyjwt`, and `uvicorn`. A library caller or an agent embedding `TTSTools` needs none of that, and those packages (notably `pydantic` and `starlette`) often have to match versions the host application already pins. So transports follow the same rule as providers:
+
+- **One optional extra per transport.** `mcp` today; a future transport gets its own (the HTTP server draft adds an `http` extra, see [_http-server.md](_http-server.md)). Installing the MCP server is `pip install tts-engine[mcp]` / `uv sync --extra mcp`; a deployment combines a transport with a provider, e.g. `tts-engine[mcp,elevenlabs]`.
+- **Only the transport's own files import its stack.** `mcp.py` and `mcp_server_cli.py` are the only modules that import `mcp` or `uvicorn`; nothing on the `import tts_engine` path reaches them. Transport *configs* stay in the base: `MCPServerConfig` is a plain dataclass in `config.py`, so it stays importable and re-exported from `tts_engine` without the extra — a library caller can still read the engine block out of an MCP config file.
+- **`mcp.py` imports its SDK at the top.** It is the transport itself, reachable only by explicit submodule import (`tts_engine.mcp` is not re-exported), so a plain `ModuleNotFoundError` is acceptable there.
+- **The console script owns the install hint.** `tts-engine-mcp` is always installed, so `mcp_server_cli.py` keeps no top-level `mcp`/`uvicorn` import. `main` parses arguments first (so `--help` and a missing `--config` behave normally), then imports `uvicorn` and `tts_engine.mcp.create_server`. A `ModuleNotFoundError` whose missing module is `mcp`, `uvicorn`, or one of their submodules (`exc.name` root in `{"mcp", "uvicorn"}`) becomes `SystemExit("tts-engine-mcp requires the mcp extra: pip install tts-engine[mcp]")` — exit status 1, message on stderr, no traceback. Any other import error is re-raised unchanged, so a real bug inside `tts_engine.mcp` is not mislabelled as a missing extra.
+- **Guarded by a subprocess test.** `tests/test_no_mcp_import.py` (alongside `tests/test_no_audio_import.py`) poisons `mcp` and `uvicorn` in `sys.modules`, then proves that `import tts_engine`, `MCPServerConfig.from_dict`, and `TTSTools(TTSEngine(config, sink=...)).say(...)` on the `tone` module all work, and that `tts_engine.mcp_server_cli.main()` exits with the `tts-engine[mcp]` hint.
 
 ## System dependencies
 

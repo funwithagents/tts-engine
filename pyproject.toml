@@ -8,8 +8,6 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "mcp[cli]",
-    "uvicorn",
     "sounddevice",
     "numpy",
 ]
@@ -17,11 +15,11 @@ dependencies = [
 [project.scripts]
 tts-engine-mcp = "tts_engine.mcp_server_cli:main"
 
-# One extra per TTS provider. The base install is provider-agnostic and has no
-# default provider — only the framework and the tone/audiofile fixture modules
-# (see specs/project.md, "Dependency strategy for TTS backends"). Each provider
-# module imports its library lazily and raises ConfigError with a
-# "pip install tts-engine[<name>]" hint when the extra is absent.
+# One extra per TTS provider and one per transport. The base install is the
+# engine only — no default provider, no server stack — plus the tone/audiofile
+# fixture modules (see specs/project.md, "Dependency strategy for TTS backends"
+# and "Dependency strategy for transports"). A missing extra surfaces as a
+# "pip install tts-engine[<name>]" hint.
 [project.optional-dependencies]
 # The official SDK plus miniaudio for the streaming MP3 -> PCM decode.
 elevenlabs = [
@@ -32,8 +30,14 @@ elevenlabs = [
 pocket = [
     "pocket-tts>=3.1.0",
 ]
+# The MCP server (tts-engine-mcp). The plain SDK, not mcp[cli]: the cli extra
+# only serves the SDK's own `mcp dev` tooling. uvicorn is imported directly.
+mcp = [
+    "mcp",
+    "uvicorn",
+]
 all = [
-    "tts-engine[elevenlabs,pocket]",
+    "tts-engine[elevenlabs,pocket,mcp]",
 ]
 
 [dependency-groups]
@@ -47,6 +51,9 @@ dev = [
     # pocket (torch) stays out and its unit tests fake the library.
     "elevenlabs",
     "miniaudio",
+    # The MCP stack, so tests/test_mcp*.py and tests-e2e/test_mcp.py run unchanged.
+    "mcp",
+    "uvicorn",
 ]
 
 [tool.pytest.ini_options]

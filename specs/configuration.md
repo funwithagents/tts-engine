@@ -30,7 +30,7 @@ The `examples/` directory holds one complete config per module (`examples/config
 
 `engine` is required. `server` is optional (it has defaults) and used only by the MCP entry point; a pure library caller may omit it. There is no logging block — the log level is an operational concern of the entry point, set via the MCP server's `--log-level` flag, not the config file (see [project.md](project.md), "Logging").
 
-This top-level object is the MCP server's config, so it is modeled as `MCPServerConfig` (not a generic "app" config — the whole point of the layering is that the MCP is one interface, not the product). A pure library caller never touches it; it uses `TTSEngineConfig` directly.
+This top-level object is the MCP server's config, so it is modeled as `MCPServerConfig` (not a generic "app" config — the whole point of the layering is that the MCP is one interface, not the product). A pure library caller never touches it; it uses `TTSEngineConfig` directly. `config.py` imports nothing from the MCP stack, so `MCPServerConfig` is available without the `mcp` extra (see [project.md](project.md), "Dependency strategy for transports").
 
 ```python
 @dataclass
