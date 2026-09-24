@@ -1,0 +1,21 @@
+{
+  "engine": {
+    "module": {
+      "type": "gradium",
+      "api_key_env": "GRADIUM_API_KEY",
+      "voice_id": "91EdXxJDbWICDBgz",
+      "model": "default",
+      "sample_rate": 48000,
+      "temp": 0.7,
+      "cfg_coef": 2.0,
+      "padding_bonus": 0.0
+    },
+    "player": {
+      "device": null
+    }
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000
+  }
+}

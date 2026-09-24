@@ -30,6 +30,10 @@ elevenlabs = [
 pocket = [
     "pocket-tts>=3.1.0",
 ]
+# The official async SDK (aiohttp WebSocket); raw PCM output, so no codec — see specs/gradium-module.md.
+gradium = [
+    "gradium>=0.6",
+]
 # The MCP server (tts-engine-mcp). The plain SDK, not mcp[cli]: the cli extra
 # only serves the SDK's own `mcp dev` tooling. uvicorn is imported directly.
 # <2: mcp 2.x renamed FastMCP (mcp.server.fastmcp is gone).
@@ -38,7 +42,7 @@ mcp = [
     "uvicorn",
 ]
 all = [
-    "tts-engine[elevenlabs,pocket,mcp]",
+    "tts-engine[elevenlabs,pocket,gradium,mcp]",
 ]
 
 [dependency-groups]

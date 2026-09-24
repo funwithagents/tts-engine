@@ -51,6 +51,7 @@ class CaptureSink:
 _REQUIRED_IMPORT: dict[str, str] = {
     "elevenlabs": "elevenlabs",
     "pocket": "pocket_tts",
+    "gradium": "gradium",
 }
 
 
@@ -90,6 +91,14 @@ _ELEVENLABS_CONFIG = {
 }
 
 
+# Config for the `gradium` row of `MODULES` — same shape as the ElevenLabs row:
+# `api_key_env` names the variable, never the key. "Alex" from the flagship catalog.
+_GRADIUM_CONFIG = {
+    "api_key_env": "GRADIUM_API_KEY",
+    "voice_id": "91EdXxJDbWICDBgz",
+}
+
+
 def default_module() -> tuple[str, dict]:
     """Module type + config for the module-agnostic live tests (the MCP
     transport in `test_mcp.py`; per-module conformance lives in `test_modules.py`
@@ -115,6 +124,7 @@ MODULES = [
     # Local-model backend: no api_key_env; gated on the `pocket` extra
     # (_REQUIRED_IMPORT) so it skips cleanly when torch/pocket-tts aren't installed.
     pytest.param("pocket", {"voice": "alba"}, id="pocket"),
+    pytest.param("gradium", _GRADIUM_CONFIG, id="gradium"),
     # Fixture modules: no key, no extra — these rows never skip.
     pytest.param("tone", {}, id="tone"),
     pytest.param(

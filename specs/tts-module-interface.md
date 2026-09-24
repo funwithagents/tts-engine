@@ -79,9 +79,10 @@ class TTSModule(ABC):
 ```python
 REGISTRY: dict[str, type[TTSModule]] = {
     "elevenlabs": ElevenLabsModule,  # provider, behind the `elevenlabs` extra
-    "pocket": PocketModule,          # provider, behind the `pocket` extra
-    "tone": ToneModule,              # fixture, base install
-    "audiofile": AudioFileModule,    # fixture, base install
+    "pocket": PocketModule,  # provider, behind the `pocket` extra
+    "gradium": GradiumModule,  # provider, behind the `gradium` extra
+    "tone": ToneModule,  # fixture, base install
+    "audiofile": AudioFileModule,  # fixture, base install
 }
 ```
 
@@ -93,7 +94,7 @@ There is **no default module**. `type` is required, and no module is privileged 
 
 | Kind | Modules | Installed by | Purpose |
 |---|---|---|---|
-| **Provider** (API-backed) | `elevenlabs` | the `elevenlabs` extra | Real speech from a cloud API |
+| **Provider** (API-backed) | `elevenlabs`, `gradium` | the `elevenlabs` / `gradium` extra | Real speech from a cloud API |
 | **Provider** (local model) | `pocket` | the `pocket` extra | Real speech from an in-process model |
 | **Fixture** | `tone`, `audiofile` | base install | No synthesis; deterministic audio for tests, demos, and downstream integration suites |
 
@@ -144,6 +145,10 @@ The API-backed pattern (ElevenLabs) is one shape; a second shape is a **local-mo
 - **Cancellation and errors** follow the same rules as any module: stop calling `callback` before returning/raising, and wrap backend/inference failures in `TTSError`.
 
 Concrete config fields and dependencies for a specific local-model module are specced alongside its code when it lands, following this contract.
+
+## Async-SDK modules
+
+A third shape is an API-backed module whose SDK is **async-only** (an aiohttp/websockets client with `async for` chunk iteration, e.g. Gradium). It cannot simply drive `callback` from the engine's event loop: the default sink's `feed` blocks on the sound device, which would stall every other coroutine for the length of the playback. Such a module therefore runs the same cancellable worker as everyone else and opens a **private event loop inside it** — `asyncio.run(consume(...))` as the body handed to `run_cancellable_worker` — consuming the SDK stream and invoking `callback` from that thread. The consumer polls `stop` between chunks and leaves the SDK's context manager on cancel so the connection closes promptly. The reference implementation is [gradium-module.md](gradium-module.md), "Threading model".
 
 ## Dependencies
 

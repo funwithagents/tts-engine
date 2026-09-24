@@ -17,18 +17,33 @@ _SCRIPT = textwrap.dedent(
 
     # Make any import of a provider library raise ImportError — as in a base
     # install with no extras.
-    for name in ("elevenlabs", "elevenlabs.types", "miniaudio", "pocket_tts", "torch"):
+    for name in (
+        "elevenlabs",
+        "elevenlabs.types",
+        "miniaudio",
+        "pocket_tts",
+        "torch",
+        "gradium",
+        "aiohttp",
+    ):
         sys.modules[name] = None
 
     import tts_engine  # must not import any provider library
     from tts_engine.config import ConfigError
     from tts_engine.modules import REGISTRY
 
-    assert set(REGISTRY) == {"elevenlabs", "pocket", "tone", "audiofile"}, REGISTRY
+    assert set(REGISTRY) == {
+        "elevenlabs",
+        "pocket",
+        "gradium",
+        "tone",
+        "audiofile",
+    }, REGISTRY
 
     for module_type, config in (
         ("elevenlabs", {"type": "elevenlabs", "api_key": "k", "voice_id": "v"}),
         ("pocket", {"type": "pocket"}),
+        ("gradium", {"type": "gradium", "api_key": "k", "voice_id": "v"}),
     ):
         try:
             REGISTRY[module_type](config)

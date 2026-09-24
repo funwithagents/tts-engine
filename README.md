@@ -2,7 +2,7 @@
 
 A streaming text-to-speech engine for Python. Choose a TTS module, construct a `TTSEngine`, and call `await engine.say(text)`.
 
-Audio is synthesized and consumed chunk by chunk, minimizing the delay before playback begins. Speech comes from a provider module you install as an extra: the ElevenLabs cloud API or the local pocket-tts model. There is no default provider. Two built-in fixture modules, `tone` and `audiofile`, stand in for a provider in tests and demos. By default, audio plays on the machine running the engine; applications can instead provide their own audio sink to capture or route the PCM stream.
+Audio is synthesized and consumed chunk by chunk, minimizing the delay before playback begins. Speech comes from a provider module you install as an extra: the ElevenLabs or Gradium cloud APIs, or the local pocket-tts model. There is no default provider. Two built-in fixture modules, `tone` and `audiofile`, stand in for a provider in tests and demos. By default, audio plays on the machine running the engine; applications can instead provide their own audio sink to capture or route the PCM stream.
 
 Agent-friendly tools are included as an optional interface over the same engine, and an MCP server is available through the `mcp` extra.
 
@@ -29,12 +29,14 @@ The base installation contains the engine, tools, audio player, and the `tone`/`
 ```bash
 uv sync --no-dev --extra pocket       # local pocket-tts model (pulls in torch)
 uv sync --no-dev --extra elevenlabs   # ElevenLabs cloud API
+uv sync --no-dev --extra gradium      # Gradium cloud API
 uv sync --no-dev --extra mcp          # MCP server (tts-engine-mcp)
 uv sync --no-dev --all-extras         # every extra
 
 # For an installed package:
 pip install "tts-engine[pocket]"
 pip install "tts-engine[elevenlabs]"
+pip install "tts-engine[gradium]"
 pip install "tts-engine[mcp,pocket]"
 pip install "tts-engine[all]"
 ```
@@ -98,7 +100,7 @@ The module declares its output sample rate, and the engine configures the defaul
 
 Pass that object directly to a loader; do not add an outer `"engine"` key. A larger application can store it under any key it chooses, while the optional MCP server format specifically stores it under `"engine"`.
 
-The [`examples/`](examples/) directory holds one complete MCP-server config per module (`config.pocket.json`, `config.elevenlabs.json`, `config.tone.json`, `config.audiofile.json`). No single example is the default.
+The [`examples/`](examples/) directory holds one complete MCP-server config per module (`config.pocket.json`, `config.elevenlabs.json`, `config.gradium.json`, `config.tone.json`, `config.audiofile.json`). No single example is the default.
 
 | Source | Constructor | Expected shape |
 |---|---|---|
@@ -139,6 +141,7 @@ A module is a swappable synthesis backend. Its `type` selects an entry from the 
 |---|---|---|---|---|
 | `pocket` | Provider | Local, in-process model | `tts-engine[pocket]` | None |
 | `elevenlabs` | Provider | ElevenLabs cloud API | `tts-engine[elevenlabs]` | API key |
+| `gradium` | Provider | Gradium cloud API | `tts-engine[gradium]` | API key |
 | `tone` | Fixture | Sine tone, no synthesis | Base installation | None |
 | `audiofile` | Fixture | Pre-recorded WAV files, no synthesis | Base installation | None |
 
@@ -213,6 +216,46 @@ Prefer referencing an environment variable so secrets do not appear in configura
 | `similarity_boost` | no | `0.75` | Similarity boost from 0.0 to 1.0. |
 
 The module emits mono PCM at 44,100 Hz.
+
+### `gradium`
+
+The Gradium module streams raw PCM from the [Gradium](https://gradium.ai) API over a WebSocket, so no decoding happens in process. Install it with the `gradium` extra:
+
+```bash
+uv sync --extra gradium
+# For an installed package:
+pip install "tts-engine[gradium]"
+```
+
+Prefer referencing an environment variable so secrets do not appear in configuration files:
+
+```json
+{
+  "module": {
+    "type": "gradium",
+    "api_key_env": "GRADIUM_API_KEY",
+    "voice_id": "91EdXxJDbWICDBgz",
+    "model": "default",
+    "sample_rate": 48000
+  }
+}
+```
+
+| Field | Required | Default | Description |
+|---|---|---|---|
+| `api_key_env` | one of `api_key_env` or `api_key` | — | Name of the environment variable holding the API key. Recommended for file-based configuration. |
+| `api_key` | one of `api_key_env` or `api_key` | — | Literal API key. A non-empty literal key takes precedence over `api_key_env`. |
+| `voice_id` | yes | — | Gradium voice ID, from the flagship catalog or a custom voice. |
+| `model` | no | `default` | Model alias: `default` or `gradium-tts-beta`. |
+| `sample_rate` | no | `48000` | Output rate: `8000`, `16000`, `24000`, `44100`, or `48000`. `48000` is native; other rates are resampled by the API. |
+| `temp` | no | API default (0.7) | Sampling temperature from 0.0 to 1.4. |
+| `cfg_coef` | no | API default (2.0) | Voice similarity from 1.0 to 4.0. |
+| `padding_bonus` | no | API default (0.0) | Speech speed from -4.0 to 4.0; negative is faster. |
+| `rewrite_rules` | no | the voice's language | Text-rewriting rules applied before synthesis; `none` disables them. |
+| `pronunciation_id` | no | — | Pronunciation dictionary ID. |
+| `base_url` | no | SDK default | API base URL, for a regional or self-hosted endpoint. |
+
+The module emits mono PCM at the configured `sample_rate`. Voice-setting fields are sent only when set, so the API's own defaults apply otherwise.
 
 ### `tone`
 
@@ -377,7 +420,7 @@ engine = TTSEngine(mcp_config.engine)
 
 ### A provider module requires its extra
 
-A `ConfigError` such as `The 'pocket' module requires the pocket extra` means that provider's libraries are not installed. Run `uv sync --extra <name>` (or `pip install "tts-engine[<name>]"`), e.g. `--extra pocket` or `--extra elevenlabs`.
+A `ConfigError` such as `The 'pocket' module requires the pocket extra` means that provider's libraries are not installed. Run `uv sync --extra <name>` (or `pip install "tts-engine[<name>]"`), e.g. `--extra pocket`, `--extra elevenlabs`, or `--extra gradium`.
 
 ### pocket-tts
 
@@ -389,6 +432,12 @@ A `ConfigError` such as `The 'pocket' module requires the pocket extra` means th
 
 - Verify that the environment variable named by `api_key_env` is set in the process running the engine.
 - Verify that `voice_id` exists and is available to the configured ElevenLabs account.
+
+### Gradium
+
+- Verify that the environment variable named by `api_key_env` is set in the process running the engine.
+- Verify that `voice_id` exists and is available to the configured Gradium account.
+- A `TTSError` reporting a sample-rate mismatch means the API answered at a rate other than the configured `sample_rate`; check the value against the supported list.
 
 ## Development
 

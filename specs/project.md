@@ -63,8 +63,9 @@ Extras (`[project.optional-dependencies]`):
 |---|---|---|---|
 | `elevenlabs` | Provider | `elevenlabs` (official SDK), `miniaudio` (streaming MP3→PCM decode) | [elevenlabs-module.md](elevenlabs-module.md) |
 | `pocket` | Provider | `pocket-tts` (pulls in `torch`) | [pocket-module.md](pocket-module.md) |
+| `gradium` | Provider | `gradium` (official async SDK; pulls in `aiohttp`) | [gradium-module.md](gradium-module.md) |
 | `mcp` | Transport | `mcp<2` (MCP Python SDK: FastMCP, StreamableHTTP transport), `uvicorn` (ASGI server) | [mcp-server.md](mcp-server.md) |
-| `all` | — | `tts-engine[elevenlabs,pocket,mcp]` — every extra | — |
+| `all` | — | `tts-engine[elevenlabs,pocket,gradium,mcp]` — every extra | — |
 
 `mcp` is pinned below 2: mcp 2.x renamed `FastMCP` (`mcp.server.fastmcp` is gone), which `mcp.py` imports, and an unpinned fresh install resolves 2.x. It is the plain SDK, not `mcp[cli]`: the `cli` extra only adds `typer`/`python-dotenv` for the SDK's own `mcp dev`/`mcp install` tooling, which this project does not use. `uvicorn` is listed explicitly even though the SDK depends on it, because `mcp_server_cli.py` imports it directly.
 
@@ -88,7 +89,7 @@ Modules pull in third-party libraries of wildly different weight — the ElevenL
   ```
 
   The registry stays static and `load_module` keeps importing fine; construction fails — with an actionable message — only when you actually select a backend whose extra isn't installed.
-- **The library imports cleanly without any extra.** A subprocess guard test (`tests/modules/test_lazy_imports.py`) poisons `elevenlabs`, `miniaudio`, `pocket_tts`, and `torch` in `sys.modules`, then proves `import tts_engine` and the registry still load and that constructing each provider raises the `ConfigError` hint. Real-provider coverage lives in the opt-in `tests-e2e/` tier and skips cleanly when the extra or the key is absent (see [testing.md](testing.md)); the fixture modules give that tier something that always runs.
+- **The library imports cleanly without any extra.** A subprocess guard test (`tests/modules/test_lazy_imports.py`) poisons `elevenlabs`, `miniaudio`, `pocket_tts`, `torch`, `gradium`, and `aiohttp` in `sys.modules`, then proves `import tts_engine` and the registry still load and that constructing each provider raises the `ConfigError` hint. Real-provider coverage lives in the opt-in `tests-e2e/` tier and skips cleanly when the extra or the key is absent (see [testing.md](testing.md)); the fixture modules give that tier something that always runs.
 
 ## Dependency strategy for transports
 
