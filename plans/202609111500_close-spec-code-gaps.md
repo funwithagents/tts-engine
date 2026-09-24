@@ -2,7 +2,7 @@
 
 **Status:** Done
 
-Implements behavior that [elevenlabs-module.md](../specs/elevenlabs-module.md), [tts-module-interface.md](../specs/tts-module-interface.md), [audio-player.md](../specs/audio-player.md), [configuration.md](../specs/configuration.md), and [architecture.md](../specs/architecture.md) already describe but the code never got (a repo audit on 2026-09-11 found the specs were reconciled in prose in commit `7d486f1` without matching code). Five behavioral gaps plus one test-hygiene fix:
+Implements behavior that [elevenlabs-module.md](../specs/modules/elevenlabs.md), [tts-module-interface.md](../specs/tts-module-interface.md), [audio-player.md](../specs/audio-player.md), [configuration.md](../specs/configuration.md), and [architecture.md](../specs/architecture.md) already describe but the code never got (a repo audit on 2026-09-11 found the specs were reconciled in prose in commit `7d486f1` without matching code). Five behavioral gaps plus one test-hygiene fix:
 
 | # | Gap | Spec that promises it | Where the code falls short today |
 |---|---|---|---|

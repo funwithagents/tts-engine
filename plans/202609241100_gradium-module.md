@@ -2,7 +2,7 @@
 
 **Status:** Done
 
-Implements [specs/gradium-module.md](../specs/gradium-module.md) in full: the `gradium` provider module behind a `gradium` extra, registered, with an example config, faked-SDK unit tests and a live `MODULES` row. It deliberately leaves out incremental text input and connection reuse (the spec's deferrals).
+Implements [specs/gradium-module.md](../specs/modules/gradium.md) in full: the `gradium` provider module behind a `gradium` extra, registered, with an example config, faked-SDK unit tests and a live `MODULES` row. It deliberately leaves out incremental text input and connection reuse (the spec's deferrals).
 
 ## Scope
 

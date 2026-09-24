@@ -1,6 +1,7 @@
 ---
 code:
-  - src/tts_engine/modules/gradium.py
+  - src/tts_engine/modules/gradium/__init__.py
+  - src/tts_engine/modules/gradium/module.py
   - src/tts_engine/modules/__init__.py
   - pyproject.toml
 tests:
@@ -17,11 +18,11 @@ tests:
 
 `gradium` implements `TTSModule` using the [Gradium](https://gradium.ai) streaming TTS API through the official `gradium` Python SDK. It requests **raw PCM** from the API (signed 16-bit mono, at the module's declared rate), so unlike ElevenLabs there is no codec and no decoding step — chunks go from the WebSocket to `callback` as-is. It is one API-backed provider among others — not the default and not the base install — and ships behind the `gradium` packaging extra (see "Dependencies").
 
-What sets it apart from the other providers is the SDK's shape: it is **async-only** (aiohttp WebSocket), where the ElevenLabs SDK is a synchronous iterator and pocket-tts a synchronous generator. This spec fixes the third module shape — an **async-SDK provider** — for how such a backend meets the threading and cancellation rules of [tts-module-interface.md](tts-module-interface.md) (see "Threading model").
+What sets it apart from the other providers is the SDK's shape: it is **async-only** (aiohttp WebSocket), where the ElevenLabs SDK is a synchronous iterator and pocket-tts a synchronous generator. This spec fixes the third module shape — an **async-SDK provider** — for how such a backend meets the threading and cancellation rules of [tts-module-interface.md](../tts-module-interface.md) (see "Threading model").
 
 ## Config fields
 
-All fields go under the `engine.module` block in `config.json` alongside `"type": "gradium"` (see [configuration.md](configuration.md)).
+All fields go under the `engine.module` block in `config.json` alongside `"type": "gradium"` (see [configuration.md](../configuration.md)).
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -39,7 +40,7 @@ All fields go under the `engine.module` block in `config.json` alongside `"type"
 
 ### API key resolution
 
-Identical to ElevenLabs ([elevenlabs-module.md](elevenlabs-module.md), "API key resolution"): a non-empty literal `api_key` wins; otherwise, if `api_key_env` is set, the key is read from that environment variable. Non-string values raise `ConfigError`. If `api_key_env` names a variable that is unset or empty, construction raises `ConfigError` identifying the variable. If neither yields a key, construction raises `ConfigError`. The resolved key is always passed explicitly to `GradiumClient(api_key=...)`: the SDK's own fallback to `GRADIUM_API_KEY` is never relied on, so the module's key rules are the only ones in force and a config that names no key fails here, not inside the SDK.
+Identical to ElevenLabs ([elevenlabs-module.md](elevenlabs.md), "API key resolution"): a non-empty literal `api_key` wins; otherwise, if `api_key_env` is set, the key is read from that environment variable. Non-string values raise `ConfigError`. If `api_key_env` names a variable that is unset or empty, construction raises `ConfigError` identifying the variable. If neither yields a key, construction raises `ConfigError`. The resolved key is always passed explicitly to `GradiumClient(api_key=...)`: the SDK's own fallback to `GRADIUM_API_KEY` is never relied on, so the module's key rules are the only ones in force and a config that names no key fails here, not inside the SDK.
 
 ### Validation
 
@@ -84,7 +85,7 @@ The setup is sent and the server's `ready` message awaited on entry (`wait_for_r
 
 ### Output format and sample rate
 
-`output_format` is always `pcm_<sample_rate>` (e.g. `pcm_48000`), which Gradium serves as signed 16-bit little-endian mono PCM at exactly that rate, in 80 ms chunks. This satisfies the audio format contract ([tts-module-interface.md](tts-module-interface.md)) with **no conversion in the module**: no decode (unlike ElevenLabs's MP3) and no float → int16 (unlike pocket). `sample_rate` returns the configured value — declared, fixed for the module's lifetime, and read once by the engine to open the player.
+`output_format` is always `pcm_<sample_rate>` (e.g. `pcm_48000`), which Gradium serves as signed 16-bit little-endian mono PCM at exactly that rate, in 80 ms chunks. This satisfies the audio format contract ([tts-module-interface.md](../tts-module-interface.md)) with **no conversion in the module**: no decode (unlike ElevenLabs's MP3) and no float → int16 (unlike pocket). `sample_rate` returns the configured value — declared, fixed for the module's lifetime, and read once by the engine to open the player.
 
 ### Threading model (async-SDK provider)
 
@@ -102,13 +103,13 @@ async def stream(self, text, options, callback):
 
 ### Cancellation
 
-Cooperative via `run_cancellable_worker` ([tts-module-interface.md](tts-module-interface.md), "Cancellation"): the consumer polls `stop` between messages and `break`s out of the `async for` when it is set. Leaving the `async with` block then runs `Tts.__aexit__`, which closes the WebSocket and the aiohttp session at once — the server drops the request, and `asyncio.run` returns as soon as that completes, so the thread exits promptly and the coroutine re-raises `CancelledError` only after callbacks have stopped.
+Cooperative via `run_cancellable_worker` ([tts-module-interface.md](../tts-module-interface.md), "Cancellation"): the consumer polls `stop` between messages and `break`s out of the `async for` when it is set. Leaving the `async with` block then runs `Tts.__aexit__`, which closes the WebSocket and the aiohttp session at once — the server drops the request, and `asyncio.run` returns as soon as that completes, so the thread exits promptly and the coroutine re-raises `CancelledError` only after callbacks have stopped.
 
 ### Dependencies and lazy import
 
-Requires the `gradium` extra: `pip install tts-engine[gradium]` / `uv sync --extra gradium`, declared in `[project.optional-dependencies]` as `gradium = ["gradium>=0.6"]` and added to the `all` aggregate (which reaches the `dev` group for free — [project.md](project.md), "Key dependencies"). The SDK is pure Python and pulls in only `aiohttp` (plus `numpy`, already a base dependency): a light extra, the same order as ElevenLabs's.
+Requires the `gradium` extra: `pip install tts-engine[gradium]` / `uv sync --extra gradium`, declared in `[project.optional-dependencies]` as `gradium = ["gradium>=0.6"]` and added to the `all` aggregate (which reaches the `dev` group for free — [project.md](../project.md), "Key dependencies"). The SDK is pure Python and pulls in only `aiohttp` (plus `numpy`, already a base dependency): a light extra, the same order as ElevenLabs's.
 
-`modules/__init__.py` imports every module *class* eagerly to build `REGISTRY`, so `gradium.py` must **not** import `gradium` at file top. The import happens inside `__init__`, turning a missing extra into an actionable `ConfigError`:
+`modules/__init__.py` imports every module *class* eagerly to build `REGISTRY`, so `gradium/module.py` must **not** import `gradium` at file top. The import happens inside `__init__`, turning a missing extra into an actionable `ConfigError`:
 
 ```python
 try:
@@ -130,12 +131,12 @@ except ImportError as exc:
 
 ## Module ID
 
-Registered in `REGISTRY` as `"gradium"` ([modules/__init__.py](../src/tts_engine/modules/__init__.py)).
+Registered in `REGISTRY` as `"gradium"` ([modules/__init__.py](../../src/tts_engine/modules/__init__.py)).
 
 ## Testing
 
 - **Unit (`tests/modules/test_gradium.py`)** — the `gradium` SDK is **faked** (a stub `GradiumClient` whose `tts_realtime` returns a scripted async context manager / async iterator), so no socket is ever opened and the fast tier runs without the extra. Covers: `ConfigError` on a missing extra, on a missing/empty key, and on each invalid field (parametrized); key resolution (`api_key_env`, literal precedence, unset variable); `sample_rate` reflecting the config; the setup kwargs reaching the SDK (`output_format=pcm_<rate>`, `model_name`, `voice_id`, `json_config` present only when a voice setting is set, `pronunciation_id`/`base_url` only when set); `stream` feeding audio bytes to the callback unchanged and skipping non-audio messages; the `ready` rate mismatch raising `TTSError`; SDK errors wrapped in `TTSError` while callback errors propagate unchanged; and cancellation stopping callbacks before `stream()` raises. Follows the ElevenLabs unit-test shape (mock the library, assert observable behavior via the arguments sent to the client).
-- **Live (`tests-e2e/test_modules.py`)** — one `MODULES` row (`gradium`, `api_key_env: "GRADIUM_API_KEY"`, the Alex voice) plus `_REQUIRED_IMPORT["gradium"] = "gradium"` in `support.py`, so both per-module scenarios run against the real API and **skip cleanly** when the key or the extra is absent (see [testing.md](testing.md), "Live tier").
+- **Live (`tests-e2e/test_modules.py`)** — one `MODULES` row (`gradium`, `api_key_env: "GRADIUM_API_KEY"`, the Alex voice) plus `_REQUIRED_IMPORT["gradium"] = "gradium"` in `support.py`, so both per-module scenarios run against the real API and **skip cleanly** when the key or the extra is absent (see [testing.md](../testing.md), "Live tier").
 
 ## Validated against `gradium==0.6.4`
 

@@ -300,7 +300,7 @@ Paths are absolute or relative to `base_dir` (the config file's directory when l
 
 To add another synthesis backend:
 
-1. Create a class extending `TTSModule` from [`src/tts_engine/modules/base.py`](src/tts_engine/modules/base.py). A provider with third-party dependencies should put them behind its own packaging extra and import them inside `__init__`, raising `ConfigError` when they are missing. Resolve file-path fields with `resolve_path(config, value)`.
+1. Create a package `src/tts_engine/modules/<name>/` (one folder per backend) with the class extending `TTSModule` from [`src/tts_engine/modules/base.py`](src/tts_engine/modules/base.py) in `module.py`, re-exported from its `__init__.py`. A provider with third-party dependencies should put them behind its own packaging extra and import them inside `__init__`, raising `ConfigError` when they are missing. Resolve file-path fields with `resolve_path(config, value)`.
 2. Implement `sample_rate` and `async stream(text, options, callback)`. The callback receives signed 16-bit little-endian mono PCM chunks.
 3. Register the class under a type name in [`src/tts_engine/modules/__init__.py`](src/tts_engine/modules/__init__.py).
 4. Select it with `{"module": {"type": "your-module", ...}}` in the engine configuration.

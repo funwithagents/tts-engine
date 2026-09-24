@@ -1,6 +1,7 @@
 ---
 code:
-  - src/tts_engine/modules/pocket.py
+  - src/tts_engine/modules/pocket/__init__.py
+  - src/tts_engine/modules/pocket/module.py
   - src/tts_engine/modules/__init__.py
   - pyproject.toml
 tests:
@@ -14,17 +15,17 @@ tests:
 
 ## Overview
 
-`pocket` implements `TTSModule` using [kyutai-labs/pocket-tts](https://github.com/kyutai-labs/pocket-tts) — a small (~100M-parameter) **local** TTS model that runs inference in-process on CPU or GPU. It is the reference **local-model** backend, following the pattern in [tts-module-interface.md](tts-module-interface.md) ("Local-model modules"): the model library is wrapped directly (not the `huggingface/speech-to-speech` handler), inference runs off the event loop, and float waveforms are converted to signed-16-bit PCM before the callback.
+`pocket` implements `TTSModule` using [kyutai-labs/pocket-tts](https://github.com/kyutai-labs/pocket-tts) — a small (~100M-parameter) **local** TTS model that runs inference in-process on CPU or GPU. It is the reference **local-model** backend, following the pattern in [tts-module-interface.md](../tts-module-interface.md) ("Local-model modules"): the model library is wrapped directly (not the `huggingface/speech-to-speech` handler), inference runs off the event loop, and float waveforms are converted to signed-16-bit PCM before the callback.
 
-Unlike ElevenLabs it needs **no API key** and makes **no network call at synthesis time** — but it pulls in `torch` and downloads model weights, so it ships behind a packaging **extra** and imports its library lazily (see "Dependencies" below and [project.md](project.md), "Dependency strategy for TTS backends").
+Unlike ElevenLabs it needs **no API key** and makes **no network call at synthesis time** — but it pulls in `torch` and downloads model weights, so it ships behind a packaging **extra** and imports its library lazily (see "Dependencies" below and [project.md](../project.md), "Dependency strategy for TTS backends").
 
 ## Config fields
 
-All fields go under the `engine.module` block in `config.json` alongside `"type": "pocket"` (see [configuration.md](configuration.md)).
+All fields go under the `engine.module` block in `config.json` alongside `"type": "pocket"` (see [configuration.md](../configuration.md)).
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `voice` | non-empty string | no | `"alba"` | A pocket-tts voice: a preset name (`alba`, `giovanni`, `lola`, …), a local `.wav` path, or a Hugging Face URL. Resolved once at construction via `get_state_for_audio_prompt`. A value ending in `.wav` that is not a URL is treated as a file path and resolved with `resolve_path(config, voice)` ([tts-module-interface.md](tts-module-interface.md), "Path resolution"), so a relative path is relative to the config file's directory (`base_dir`). |
+| `voice` | non-empty string | no | `"alba"` | A pocket-tts voice: a preset name (`alba`, `giovanni`, `lola`, …), a local `.wav` path, or a Hugging Face URL. Resolved once at construction via `get_state_for_audio_prompt`. A value ending in `.wav` that is not a URL is treated as a file path and resolved with `resolve_path(config, voice)` ([tts-module-interface.md](../tts-module-interface.md), "Path resolution"), so a relative path is relative to the config file's directory (`base_dir`). |
 | `language` | non-empty string | no | — (model default `english`) | Language passed to `TTSModel.load_model(language=...)`: `english`, `german`, `italian`, `portuguese`, `spanish`, or `french_24l` (plain `french` raises — a 24-layer model is required). Omitted from the call when unset. |
 | `device` | string | no | `"auto"` | Compute device: `"auto"`, `"cpu"`, `"cuda"`, or `"mps"`. `"auto"` picks `cuda` when available, else `cpu`. `mps` is **not** auto-selected — it must be requested explicitly and is experimental (see the note below). |
 | `max_tokens` | integer > 0 | no | — (library default, 50) | Per-*text-chunk* token cap, passed to `generate_audio_stream(..., max_tokens=...)`. The model splits text into chunks internally and this bounds tokens per chunk (too low a value makes it skip words); the library default (50) is its tuned value, so this is omitted from the call when unset — set it higher only for unusually long unbroken chunks. |
@@ -46,7 +47,7 @@ Validated at construction, raising `ConfigError` before the model is loaded:
 
 Requires the `pocket` extra: `pip install tts-engine[pocket]` / `uv sync --extra pocket`, declared in `[project.optional-dependencies]` as `pocket = ["pocket-tts>=<pinned>"]`. `pocket-tts` pulls in `torch>=2.5` (hundreds of MB to ~2 GB) plus a model download (~100M params) — far heavier than the framework, which is exactly why it is optional rather than a base dependency.
 
-`modules/__init__.py` imports every module *class* eagerly to build `REGISTRY`, so `pocket.py` must **not** `import torch`/`import pocket_tts` at file top — that would make `import tts_engine` and `load_module` require the extra. Instead the import happens inside `__init__`, turning a missing extra into an actionable `ConfigError`:
+`modules/__init__.py` imports every module *class* eagerly to build `REGISTRY`, so `pocket/module.py` must **not** `import torch`/`import pocket_tts` at file top — that would make `import tts_engine` and `load_module` require the extra. Instead the import happens inside `__init__`, turning a missing extra into an actionable `ConfigError`:
 
 ```python
 try:
@@ -74,7 +75,7 @@ Model download/load is blocking and takes ~10 s on first run (weights are fetche
 
 ### Sample rate
 
-`sample_rate` returns the model's **native** rate (`model.sample_rate`, typically 24000 Hz) — declared, fixed for the module's lifetime. **No resampling**: per the audio-format contract ([tts-module-interface.md](tts-module-interface.md)), the engine opens the player at this rate, so the module feeds the model's native PCM straight through. (This is the deliberate difference from the `huggingface/speech-to-speech` handler, which resamples to 16 kHz for its own pipeline.)
+`sample_rate` returns the model's **native** rate (`model.sample_rate`, typically 24000 Hz) — declared, fixed for the module's lifetime. **No resampling**: per the audio-format contract ([tts-module-interface.md](../tts-module-interface.md)), the engine opens the player at this rate, so the module feeds the model's native PCM straight through. (This is the deliberate difference from the `huggingface/speech-to-speech` handler, which resamples to 16 kHz for its own pipeline.)
 
 ### Streaming and format conversion
 
@@ -114,17 +115,17 @@ async def stream(self, text, options, callback):
 
 - Any exception from the model/inference is caught and re-raised as `TTSError(f"pocket-tts synthesis failed: {exc}")`, chained via `raise ... from exc` — same discipline as ElevenLabs.
 - A missing extra surfaces as `ConfigError` at construction (see above), not `TTSError`.
-- Exceptions raised by `callback` are downstream playback failures: they propagate unchanged and must not be relabeled as synthesis failures — `callback` is invoked outside the `try` that wraps the generator's `next(...)`, so its exceptions escape the provider boundary (mirroring the ElevenLabs note in [elevenlabs-module.md](elevenlabs-module.md)).
+- Exceptions raised by `callback` are downstream playback failures: they propagate unchanged and must not be relabeled as synthesis failures — `callback` is invoked outside the `try` that wraps the generator's `next(...)`, so its exceptions escape the provider boundary (mirroring the ElevenLabs note in [elevenlabs-module.md](elevenlabs.md)).
 - The generate-and-feed loop runs inside a single `asyncio.to_thread` worker, the same threading model as the ElevenLabs module.
 
 ## Module ID
 
-Registered in `REGISTRY` as `"pocket"` ([modules/__init__.py](../src/tts_engine/modules/__init__.py)).
+Registered in `REGISTRY` as `"pocket"` ([modules/__init__.py](../../src/tts_engine/modules/__init__.py)).
 
 ## Testing
 
-- **Unit (`tests/modules/test_pocket.py`)** — the `pocket_tts` library is **faked** (a stub `TTSModel` injected via `sys.modules`/`monkeypatch`), never importing `torch`, so the fast tier stays runnable without the `pocket` extra and never waits on a model load — even though `uv sync --dev` now installs the extra (see [project.md](project.md), "Key dependencies"). Covers: `ConfigError` on a missing extra (import failure) and on invalid `device`/`max_tokens`/`voice`; `device` auto-detection; `sample_rate` reflecting the (faked) model's rate; and `stream` converting fake float chunks to whole-int16 PCM and wrapping backend errors in `TTSError`. Follows the ElevenLabs unit-test shape (mock the library, assert observable behavior).
-- **Live (`tests-e2e/test_modules.py`)** — one `MODULES` row (`pocket`, no `api_key_env`) plus `_REQUIRED_IMPORT["pocket"] = "pocket_tts"` in `support.py`, so both per-module scenarios (`test_module_say_produces_pcm`, `test_module_say_completes`) run against the real model and **skip cleanly** when the extra isn't installed (see [testing.md](testing.md), "Live tier"). Asserts robust properties only (PCM produced, drained once, playback completes), never audio content.
+- **Unit (`tests/modules/test_pocket.py`)** — the `pocket_tts` library is **faked** (a stub `TTSModel` injected via `sys.modules`/`monkeypatch`), never importing `torch`, so the fast tier stays runnable without the `pocket` extra and never waits on a model load — even though `uv sync --dev` now installs the extra (see [project.md](../project.md), "Key dependencies"). Covers: `ConfigError` on a missing extra (import failure) and on invalid `device`/`max_tokens`/`voice`; `device` auto-detection; `sample_rate` reflecting the (faked) model's rate; and `stream` converting fake float chunks to whole-int16 PCM and wrapping backend errors in `TTSError`. Follows the ElevenLabs unit-test shape (mock the library, assert observable behavior).
+- **Live (`tests-e2e/test_modules.py`)** — one `MODULES` row (`pocket`, no `api_key_env`) plus `_REQUIRED_IMPORT["pocket"] = "pocket_tts"` in `support.py`, so both per-module scenarios (`test_module_say_produces_pcm`, `test_module_say_completes`) run against the real model and **skip cleanly** when the extra isn't installed (see [testing.md](../testing.md), "Live tier"). Asserts robust properties only (PCM produced, drained once, playback completes), never audio content.
 
 ## Validated against `pocket-tts==3.1.0`
 

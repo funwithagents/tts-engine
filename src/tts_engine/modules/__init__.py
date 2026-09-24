@@ -1,4 +1,11 @@
-"""TTS module registry and load_module()."""
+"""TTS module registry and load_module().
+
+Each backend is a package of its own under ``modules/`` (``elevenlabs/``,
+``pocket/``, ``gradium/``, ``tone/``, ``audiofile/``), its ``TTSModule`` subclass
+in ``module.py`` and re-exported from the package ``__init__``; the registry
+imports every class eagerly, so providers import their library lazily inside
+``__init__`` (see specs/tts-module-interface.md, "Module registry").
+"""
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.audiofile import AudioFileModule

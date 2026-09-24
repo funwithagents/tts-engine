@@ -12,11 +12,11 @@ Where things live. This is a coarse, module-level map — for the full file inve
 
 | Path | What's there |
 |---|---|
-| `src/tts_engine/` | The library itself — one module per core concept (see below), plus the `modules/` backend subpackage |
+| `src/tts_engine/` | The library itself — one module per core concept (see below); pluggable TTS backends in `modules/` — the registry and `base.py` at its root, then **one package per backend** (`modules/elevenlabs/`, `modules/pocket/`, `modules/gradium/`, `modules/tone/`, `modules/audiofile/`) |
 | `examples/` | One complete config per module (`config.<type>.json`, no secrets, none the default) |
-| `specs/` | Pre-implementation design docs, one per concept, each with a `**Status:**` — indexed by [specs/_index.md](specs/_index.md) |
+| `specs/` | Pre-implementation design docs, one per concept, each with a `**Status:**` — indexed by [specs/_index.md](specs/_index.md). Per-backend specs live in `specs/modules/` (one `<backend>.md` each, mirroring `src/tts_engine/modules/<backend>/`); the contract they all implement stays at the top level ([tts-module-interface.md](specs/tts-module-interface.md)) |
 | `plans/` | Implementation plans (`YYYYMMDDHHmm_` prefixed) turning settled specs into buildable steps — indexed by [plans/_index.md](plans/_index.md) |
-| `tests/` | Fast, deterministic, no-network tests; mirrors the `src/tts_engine/` module structure — the only tier the default `pytest` collects |
+| `tests/` | Fast, deterministic, no-network tests; mirrors the `src/tts_engine/` module structure — the only tier the default `pytest` collects; `tests/modules/` stays flat — one `test_<backend>.py` per backend, not a folder per backend |
 | `tests-e2e/` | Opt-in tests against the real backends and audio hardware, not collected by default — strategy and skip rules in [specs/testing.md](specs/testing.md) |
 
 ### `src/tts_engine/` modules
@@ -29,7 +29,7 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | [tools.py](src/tts_engine/tools.py) | `TTSTools` — engine-bound, transport-agnostic tools (`say`) | [tools.md](specs/tools.md) |
 | [mcp.py](src/tts_engine/mcp.py) | MCP server over StreamableHTTP, thin wrapper over the tools (behind the `mcp` extra) | [mcp-server.md](specs/mcp-server.md) |
 | [mcp_server_cli.py](src/tts_engine/mcp_server_cli.py) | `tts-engine-mcp` entry point: args → config → engine → server; the one place logging is configured | [mcp-server.md](specs/mcp-server.md), [project.md](specs/project.md) |
-| `modules/` | TTS backends: `base.py` (`TTSModule` ABC, `TTSOptions`, `TTSError`, `resolve_path`), `__init__.py` (`REGISTRY`, `load_module`), one file per backend — providers `elevenlabs.py`, `pocket.py`, `gradium.py` (each behind an extra) and fixtures `tone.py`, `audiofile.py` | [tts-module-interface.md](specs/tts-module-interface.md), plus one `<name>-module.md` spec per backend |
+| `modules/` | TTS backends: `base.py` (`TTSModule` ABC, `TTSOptions`, `TTSError`, `resolve_path`), `__init__.py` (`REGISTRY`, `load_module`), then one package per backend, its class in `<backend>/module.py` and re-exported from `<backend>/__init__.py` — providers `elevenlabs/`, `pocket/`, `gradium/` (each behind an extra) and fixtures `tone/`, `audiofile/` | [tts-module-interface.md](specs/tts-module-interface.md), plus one `specs/modules/<backend>.md` spec per backend |
 | `__init__.py` | Public API surface — re-exports `TTSEngine`, `TTSEngineConfig`, `MCPServerConfig`, `TTSTools`, `AudioSink`; package glue, exempt from the map check | — |
 
 **Keep this map current:** when you add, rename, or remove a top-level `src/tts_engine/` module or a root directory, update the map in the same change — same discipline as keeping spec/plan statuses honest (below). `tests/test_project_map.py` enforces that every top-level `src/tts_engine/*.py` concept module appears here and vice-versa, and that the spec frontmatter (below) stays honest too.
@@ -79,9 +79,9 @@ Never `echo`/print a key itself; when checking whether one is set, redact the va
 
 ## Adding a new TTS module
 
-1. Create `src/tts_engine/modules/<name>.py` implementing `TTSModule` from `modules/base.py`. A provider goes behind its own packaging extra and imports its library lazily inside `__init__` ([project.md](specs/project.md), "Dependency strategy for TTS backends"); resolve file-path fields with `resolve_path`.
-2. Register it in `modules/__init__.py`: `REGISTRY["<name>"] = <ClassName>`.
-3. Write `specs/<name>-module.md` (config fields, audio format), add it to [specs/_index.md](specs/_index.md), and add `examples/config.<name>.json`.
+1. Create a package `src/tts_engine/modules/<name>/` — **one folder per backend**, never a loose file next to `base.py`. Put the `TTSModule` subclass (from `modules/base.py`) in `<name>/module.py` and re-export it from `<name>/__init__.py`. A provider goes behind its own packaging extra and imports its library lazily inside `__init__` ([project.md](specs/project.md), "Dependency strategy for TTS backends"); resolve file-path fields with `resolve_path`.
+2. Register it in `modules/__init__.py`: `from tts_engine.modules.<name> import <ClassName>` and `REGISTRY["<name>"] = <ClassName>`.
+3. Write `specs/modules/<name>.md` (config fields, audio format), add it to [specs/_index.md](specs/_index.md), and add `examples/config.<name>.json`.
 4. Add a `pytest.param` row to the `MODULES` table in `tests-e2e/support.py` (plus a `_REQUIRED_IMPORT` entry if the backend sits behind an extra) so it gets live conformance coverage.
 
 ## Conventions

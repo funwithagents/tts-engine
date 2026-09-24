@@ -126,10 +126,10 @@ Steps 3–7 above, entered directly: application code calls `TTSTools(engine).sa
 | `tools.py` | `TTSTools`: engine-bound, provider/transport-agnostic operations (`say`); input guards; `TTSError` → string |
 | `engine.py` | Builds the module from `TTSEngineConfig`; uses an injected `AudioSink` or builds the default `AudioPlayer` (at the module's `sample_rate`); `say()`; `sample_rate` property; no protocol knowledge |
 | `modules/base.py` | Defines `TTSModule` ABC and shared dataclasses (`TTSOptions`) |
-| `modules/elevenlabs.py` | ElevenLabs API interaction, MP3→PCM decoding via miniaudio (behind the `elevenlabs` extra, lazy import), config parsing |
-| `modules/pocket.py` | Local pocket-tts inference (behind the `pocket` extra, lazy import), float→int16 conversion, config parsing |
-| `modules/tone.py` | Fixture module: sine tone proportional to text length, no dependencies beyond numpy |
-| `modules/audiofile.py` | Fixture module: text → WAV file mapping with a default file, paths relative to `base_dir` |
+| `modules/elevenlabs/module.py` | ElevenLabs API interaction, MP3→PCM decoding via miniaudio (behind the `elevenlabs` extra, lazy import), config parsing |
+| `modules/pocket/module.py` | Local pocket-tts inference (behind the `pocket` extra, lazy import), float→int16 conversion, config parsing |
+| `modules/tone/module.py` | Fixture module: sine tone proportional to text length, no dependencies beyond numpy |
+| `modules/audiofile/module.py` | Fixture module: text → WAV file mapping with a default file, paths relative to `base_dir` |
 | `audio.py` | Defines the `AudioSink` Protocol; `AudioPlayer` (its default impl): `sounddevice` output stream management, lazily imported; provider-agnostic consumer of the fixed PCM format contract |
 | `config.py` | Parse and validate config; produce typed config dataclasses (`MCPServerConfig`, `TTSEngineConfig`, …), each with a `from_dict`/`from_json`/`from_json_file` constructor trio |
 | `mcp_server_cli.py` | Argument parsing (`--config`, `--log-level`); imports the MCP stack inside `main`, exiting with the `pip install tts-engine[mcp]` hint when the extra is absent; `MCPServerConfig.from_json_file` → `TTSEngine(cfg.engine)` → MCP server; `logging.basicConfig(level=args.log_level)`; starts uvicorn |

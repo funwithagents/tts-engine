@@ -6,6 +6,8 @@ The repo is organized as three layers: the **`TTSEngine`** (the reusable core), 
 
 Each spec opens with a YAML **frontmatter** block declaring the `code:` and `tests:` files it governs (the spec → code/tests map the drift checks use); see [AGENTS.md](../AGENTS.md) ("Spec frontmatter"). New specs start from [_spec-template.md](_spec-template.md).
 
+Per-backend TTS module specs live in [`modules/`](modules/), one file per backend, mirroring `src/tts_engine/modules/<backend>/`. The contract they implement, [tts-module-interface.md](tts-module-interface.md), stays here.
+
 ## Specs
 
 Read the concept specs in order — each builds on the ones above it. `project.md` and `testing.md` are project-wide (tooling and test strategy) and can be read any time.
@@ -20,11 +22,11 @@ Read the concept specs in order — each builds on the ones above it. `project.m
 | [tools.md](tools.md) | The provider-agnostic tools layer: `TTSTools(engine).say(text)`, guards, return contract, agent-registrable bound methods | Implemented |
 | [mcp-server.md](mcp-server.md) | `mcp` extra + install hint, `say` tool, transport, lifecycle, error handling — thin wrappers over the tools layer | Implemented |
 | [tts-module-interface.md](tts-module-interface.md) | ABC, audio format contract (module-declared sample rate), module kinds (provider / fixture), registry with no default, `resolve_path`, `TTSOptions` | Implemented |
-| [elevenlabs-module.md](elevenlabs-module.md) | API-backed provider: `elevenlabs` extra, lazy import, streaming MP3→PCM, config fields, error handling | Implemented |
-| [pocket-module.md](pocket-module.md) | Local-model provider (pocket-tts): `pocket` extra, lazy import, native 24 kHz, device auto-detect, float→int16, `base_dir` for a voice `.wav` | Implemented |
-| [gradium-module.md](gradium-module.md) | API-backed provider with an async SDK: `gradium` extra, lazy import, raw `pcm_<rate>` output (no decode), configurable sample rate, voice settings, private event loop in the cancellable worker | Implemented |
-| [tone-module.md](tone-module.md) | Fixture module: sine tone proportional to text length; no key, no extra, no files; the live tier's default module | Implemented |
-| [audiofile-module.md](audiofile-module.md) | Fixture module: text → WAV file list with a default file, 16-bit mono WAV validated at construction, paths relative to `base_dir` | Implemented |
+| [elevenlabs-module.md](modules/elevenlabs.md) | API-backed provider: `elevenlabs` extra, lazy import, streaming MP3→PCM, config fields, error handling | Implemented |
+| [pocket-module.md](modules/pocket.md) | Local-model provider (pocket-tts): `pocket` extra, lazy import, native 24 kHz, device auto-detect, float→int16, `base_dir` for a voice `.wav` | Implemented |
+| [gradium-module.md](modules/gradium.md) | API-backed provider with an async SDK: `gradium` extra, lazy import, raw `pcm_<rate>` output (no decode), configurable sample rate, voice settings, private event loop in the cancellable worker | Implemented |
+| [tone-module.md](modules/tone.md) | Fixture module: sine tone proportional to text length; no key, no extra, no files; the live tier's default module | Implemented |
+| [audiofile-module.md](modules/audiofile.md) | Fixture module: text → WAV file list with a default file, 16-bit mono WAV validated at construction, paths relative to `base_dir` | Implemented |
 | [audio-player.md](audio-player.md) | `AudioPlayer`, sounddevice integration, stream lifecycle, per-module sample rate | Implemented |
 | [audio-sink.md](audio-sink.md) | `AudioSink` Protocol, constructor sink injection, `TTSEngine.sample_rate`, lazy sounddevice import | Implemented |
 

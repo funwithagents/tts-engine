@@ -6,7 +6,7 @@ a clear `ConfigError`.
 
 The SDK is async-only (an aiohttp WebSocket), so the cancellable worker thread
 runs a private event loop of its own and drives `callback` from there — the
-engine's loop never sees the blocking sink. See specs/gradium-module.md,
+engine's loop never sees the blocking sink. See specs/modules/gradium.md,
 "Threading model".
 """
 

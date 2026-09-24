@@ -26,11 +26,11 @@ elevenlabs = [
     "elevenlabs",
     "miniaudio",
 ]
-# pocket-tts pulls in torch (~hundreds of MB) + a model download — see specs/pocket-module.md.
+# pocket-tts pulls in torch (~hundreds of MB) + a model download — see specs/modules/pocket.md.
 pocket = [
     "pocket-tts>=3.1.0",
 ]
-# The official async SDK (aiohttp WebSocket); raw PCM output, so no codec — see specs/gradium-module.md.
+# The official async SDK (aiohttp WebSocket); raw PCM output, so no codec — see specs/modules/gradium.md.
 gradium = [
     "gradium>=0.6",
 ]

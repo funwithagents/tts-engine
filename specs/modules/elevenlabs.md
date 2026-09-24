@@ -1,6 +1,7 @@
 ---
 code:
-  - src/tts_engine/modules/elevenlabs.py
+  - src/tts_engine/modules/elevenlabs/__init__.py
+  - src/tts_engine/modules/elevenlabs/module.py
 tests:
   - tests/modules/test_elevenlabs.py
   - tests/modules/test_lazy_imports.py
@@ -17,7 +18,7 @@ tests:
 
 ## Config fields
 
-All fields go under the `engine.module` block in `config.json` alongside `"type": "elevenlabs"` (see [configuration.md](configuration.md)).
+All fields go under the `engine.module` block in `config.json` alongside `"type": "elevenlabs"` (see [configuration.md](../configuration.md)).
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -76,13 +77,13 @@ async def stream(self, text, options, callback):
     await run_cancellable_worker(_blocking_stream)
 ```
 
-The ElevenLabs SDK streaming method is synchronous (returns an iterator). The entire decode-and-feed loop is wrapped in `asyncio.to_thread` to avoid blocking the event loop. Cancellation is cooperative via `run_cancellable_worker` (see [tts-module-interface.md](tts-module-interface.md), "Cancellation"): the worker polls the stop flag between decoded chunks, and the coroutine waits for the thread to finish before propagating `CancelledError`, so no callback can occur after `stream()` exits.
+The ElevenLabs SDK streaming method is synchronous (returns an iterator). The entire decode-and-feed loop is wrapped in `asyncio.to_thread` to avoid blocking the event loop. Cancellation is cooperative via `run_cancellable_worker` (see [tts-module-interface.md](../tts-module-interface.md), "Cancellation"): the worker polls the stop flag between decoded chunks, and the coroutine waits for the thread to finish before propagating `CancelledError`, so no callback can occur after `stream()` exits.
 
 ### Dependencies and lazy import
 
-Requires the `elevenlabs` extra: `pip install tts-engine[elevenlabs]` / `uv sync --extra elevenlabs`, declared in `[project.optional-dependencies]` as `elevenlabs = ["elevenlabs", "miniaudio"]` — the official SDK plus `miniaudio` for the MP3 → PCM streaming decode. Neither is a base dependency (see [project.md](project.md), "Dependency strategy for TTS backends").
+Requires the `elevenlabs` extra: `pip install tts-engine[elevenlabs]` / `uv sync --extra elevenlabs`, declared in `[project.optional-dependencies]` as `elevenlabs = ["elevenlabs", "miniaudio"]` — the official SDK plus `miniaudio` for the MP3 → PCM streaming decode. Neither is a base dependency (see [project.md](../project.md), "Dependency strategy for TTS backends").
 
-`modules/__init__.py` imports every module *class* eagerly to build `REGISTRY`, so `elevenlabs.py` must **not** import `elevenlabs` or `miniaudio` at file top. Both imports happen inside `__init__`, turning a missing extra into an actionable `ConfigError` before any config field is read:
+`modules/__init__.py` imports every module *class* eagerly to build `REGISTRY`, so `elevenlabs/module.py` must **not** import `elevenlabs` or `miniaudio` at file top. Both imports happen inside `__init__`, turning a missing extra into an actionable `ConfigError` before any config field is read:
 
 ```python
 try:

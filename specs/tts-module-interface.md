@@ -74,6 +74,8 @@ class TTSModule(ABC):
 
 ## Module registry
 
+Each backend is a **package of its own** under `src/tts_engine/modules/` — `elevenlabs/`, `pocket/`, `gradium/`, `tone/`, `audiofile/` — never a loose file next to `base.py`. The `TTSModule` subclass lives in `<backend>/module.py` and the package `__init__.py` re-exports it, so `from tts_engine.modules.<backend> import <Class>` is the import path everywhere (registry, tests, callers). Each backend is specced by `specs/modules/<backend>.md`.
+
 `modules/__init__.py` maintains a `REGISTRY` dict mapping type strings to module classes:
 
 ```python
@@ -98,7 +100,7 @@ There is **no default module**. `type` is required, and no module is privileged 
 | **Provider** (local model) | `pocket` | the `pocket` extra | Real speech from an in-process model |
 | **Fixture** | `tone`, `audiofile` | base install | No synthesis; deterministic audio for tests, demos, and downstream integration suites |
 
-Fixture modules implement the full contract (declared rate, PCM format, cancellation) and are first-class members of the registry, but the documentation must never present them as TTS: users wanting speech install a provider extra. See [tone-module.md](tone-module.md) and [audiofile-module.md](audiofile-module.md).
+Fixture modules implement the full contract (declared rate, PCM format, cancellation) and are first-class members of the registry, but the documentation must never present them as TTS: users wanting speech install a provider extra. See [tone-module.md](modules/tone.md) and [audiofile-module.md](modules/audiofile.md).
 
 ## Path resolution
 
@@ -148,11 +150,11 @@ Concrete config fields and dependencies for a specific local-model module are sp
 
 ## Async-SDK modules
 
-A third shape is an API-backed module whose SDK is **async-only** (an aiohttp/websockets client with `async for` chunk iteration, e.g. Gradium). It cannot simply drive `callback` from the engine's event loop: the default sink's `feed` blocks on the sound device, which would stall every other coroutine for the length of the playback. Such a module therefore runs the same cancellable worker as everyone else and opens a **private event loop inside it** — `asyncio.run(consume(...))` as the body handed to `run_cancellable_worker` — consuming the SDK stream and invoking `callback` from that thread. The consumer polls `stop` between chunks and leaves the SDK's context manager on cancel so the connection closes promptly. The reference implementation is [gradium-module.md](gradium-module.md), "Threading model".
+A third shape is an API-backed module whose SDK is **async-only** (an aiohttp/websockets client with `async for` chunk iteration, e.g. Gradium). It cannot simply drive `callback` from the engine's event loop: the default sink's `feed` blocks on the sound device, which would stall every other coroutine for the length of the playback. Such a module therefore runs the same cancellable worker as everyone else and opens a **private event loop inside it** — `asyncio.run(consume(...))` as the body handed to `run_cancellable_worker` — consuming the SDK stream and invoking `callback` from that thread. The consumer polls `stop` between chunks and leaves the SDK's context manager on cancel so the connection closes promptly. The reference implementation is [gradium-module.md](modules/gradium.md), "Threading model".
 
 ## Dependencies
 
-Every **provider** module — API-backed or local-model — ships behind its own packaging **extra** and imports its library lazily inside `__init__` (never at file top, because `modules/__init__.py` imports every module class to build the registry). A missing extra becomes `ConfigError("The '<type>' module requires the <type> extra: pip install tts-engine[<type>]")` at construction. Fixture modules live in the base install and need nothing beyond the standard library and `numpy`. See [project.md](project.md), "Dependency strategy for TTS backends".
+Every **provider** module — API-backed or local-model — ships behind its own packaging **extra** and imports its library lazily inside `__init__` (never at the top of `<backend>/module.py` or its package `__init__.py`, because `modules/__init__.py` imports every module class to build the registry). A missing extra becomes `ConfigError("The '<type>' module requires the <type> extra: pip install tts-engine[<type>]")` at construction. Fixture modules live in the base install and need nothing beyond the standard library and `numpy`. See [project.md](project.md), "Dependency strategy for TTS backends".
 
 ## Error handling
 
