@@ -34,7 +34,7 @@ Implementation plans for TTS Engine — each plan turns a settled part of a spec
 | [MCP server behind an `mcp` extra](202609171845_mcp-extra.md) | Move `mcp`/`uvicorn` from base dependencies to an `mcp` extra (`all` = every extra, `dev` keeps them); `tts-engine-mcp` imports the stack in `main` and exits with the install hint; subprocess guard test | Done |
 | [Pin `mcp<2` and narrow the missing-extra check](202609171915_mcp-v1-pin-and-extra-check.md) | `mcp<2` in the extra and `dev` (a fresh resolve picks 2.x, which removed `mcp.server.fastmcp`); install hint only when `mcp`/`uvicorn` itself is missing, submodule errors re-raised | Done |
 | [Gradium module](202609241100_gradium-module.md) | API-backed `gradium` backend on the async SDK: `gradium` extra, lazy import, raw `pcm_<rate>` output, configurable sample rate + voice settings, private event loop inside the cancellable worker, faked-SDK unit tests + live `MODULES` row | Done |
-| [CI on GitHub runners](202610131500_ci-on-github-runners.md) | `.github/workflows/ci.yml`: static gate, fast tier on Linux/macOS/Windows, live tier on Linux against a PulseAudio null sink; torch from the CPU index on Linux | In progress |
+| [CI on GitHub runners](202610131500_ci-on-github-runners.md) | `.github/workflows/ci.yml`: static gate, fast tier on Linux/macOS/Windows, live tier on Linux against a PulseAudio null sink; torch from the CPU index on Linux | Done |
 
 ## Status legend
 
