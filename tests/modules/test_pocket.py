@@ -9,6 +9,7 @@ import asyncio
 import sys
 import time
 import types
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -165,7 +166,8 @@ def test_defaults_and_forwarding(monkeypatch, fresh_model):
 def test_wav_voice_resolves_against_base_dir(monkeypatch, fresh_model):
     _install_fakes(monkeypatch)
     PocketModule({"type": "pocket", "voice": "me.wav", "base_dir": "/some/dir"})
-    assert fresh_model.voice == "/some/dir/me.wav"
+    # Platform-native separators: resolve_path joins with pathlib.
+    assert fresh_model.voice == str(Path("/some/dir") / "me.wav")
 
 
 def test_language_and_max_tokens_forwarded(monkeypatch, fresh_model):
