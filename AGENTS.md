@@ -18,6 +18,7 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | `plans/` | Implementation plans (`YYYYMMDDHHmm_` prefixed) turning settled specs into buildable steps — indexed by [plans/_index.md](plans/_index.md) |
 | `tests/` | Fast, deterministic, no-network tests; mirrors the `src/tts_engine/` module structure — the only tier the default `pytest` collects; `tests/modules/` stays flat — one `test_<backend>.py` per backend, not a folder per backend |
 | `tests-e2e/` | Opt-in tests against the real backends and audio hardware, not collected by default — strategy and skip rules in [specs/testing.md](specs/testing.md) |
+| `.github/workflows/` | CI: one `ci.yml` — static gate, fast tier on Linux (x86_64, arm64)/macOS/Windows, live tier on Linux — specced in [specs/ci.md](specs/ci.md) |
 
 ### `src/tts_engine/` modules
 
@@ -69,6 +70,8 @@ Two physically separated tiers; what a good test asserts, the smell checklist an
 zsh -ic 'source ~/.zshrc >/dev/null 2>&1; uv run pytest tests-e2e'
 ```
 
+CI runs both tiers on every pull request and push to `main` — the fast tier on Linux (x86_64 and arm64), macOS and Windows, the live tier on Linux — see [specs/ci.md](specs/ci.md).
+
 Never `echo`/print a key itself; when checking whether one is set, redact the value (e.g. `env | grep ELEVENLABS_API_KEY | sed -E 's/=.*/=<set>/'`).
 
 ## Implementation plans
@@ -98,7 +101,7 @@ After any code change, run linting, type checking, and tests, and fix any failur
 uv sync --dev                                # Full contributor environment (dev depends on tts-engine[all]: every extra, torch included)
 uv sync --no-dev --extra pocket              # Consumer-style install (or --extra elevenlabs / --extra mcp); --no-dev is required, uv includes dev by default
 uv run ruff check .
-uv run ruff format .
+uv run ruff format src tests tests-e2e       # Code dirs only: `ruff format .` also reflows Python blocks in Markdown plans
 uv run pyright
 uv run pytest                                # Unit tier only
 uv run pytest tests-e2e/                     # Opt-in live tier (see Testing for the key-sourcing invocation)

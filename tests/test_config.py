@@ -6,6 +6,7 @@ parses an `engine` block (module + player) on its own.
 """
 
 import json
+import re
 
 import pytest
 
@@ -117,7 +118,7 @@ def test_module_type_empty(tmp_path):
 def test_invalid_json_file_names_path(tmp_path):
     p = tmp_path / "config.json"
     p.write_text("{not valid json")
-    with pytest.raises(ConfigError, match=str(p)):
+    with pytest.raises(ConfigError, match=re.escape(str(p))):
         MCPServerConfig.from_json_file(str(p))
 
 
@@ -187,7 +188,7 @@ def test_engine_from_json_and_file_match(tmp_path):
 def test_engine_from_json_file_invalid_json_names_path(tmp_path):
     p = tmp_path / "engine.json"
     p.write_text("{nope")
-    with pytest.raises(ConfigError, match=str(p)):
+    with pytest.raises(ConfigError, match=re.escape(str(p))):
         TTSEngineConfig.from_json_file(str(p))
 
 
