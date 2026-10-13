@@ -14,9 +14,9 @@ Read the concept specs in order — each builds on the ones above it. `project.m
 
 | Spec | Description | Status |
 |---|---|---|
-| [project.md](project.md) | Project structure and tooling: Python version, packaging with uv, ruff/pyright, layout, library-first shape, provider- and transport-agnostic base + one extra per provider and per transport (`mcp`), supported platforms, CPU torch index on Linux | Implemented |
+| [project.md](project.md) | Project structure and tooling: Python version, packaging with uv, ruff/pyright, layout, library-first shape, provider- and transport-agnostic base + one extra per provider and per transport (`mcp`), supported platforms (Linux x86_64/arm64, macOS, Windows; Intel macOS partial), CPU torch index on Linux | Updated |
 | [testing.md](testing.md) | Testing strategy: two-tier `tests/`/`tests-e2e/` split, functional-test philosophy, skip-without-credentials live tier, per-module live conformance, `tone` as the live default module | Implemented |
-| [ci.md](ci.md) | Continuous integration on GitHub's hosted runners: static gate, fast tier on Linux/macOS/Windows, live tier on Linux against a PulseAudio null sink, optional provider-key secrets, expected skips | Implemented |
+| [ci.md](ci.md) | Continuous integration on GitHub's hosted runners: static gate, fast tier on Linux x86_64/arm64, macOS and Windows, live tier on Linux against a PulseAudio null sink, optional provider-key secrets, expected skips | Updated |
 | [overview.md](overview.md) | Goals, components, constraints, non-goals — library + MCP framing | Stable |
 | [architecture.md](architecture.md) | System diagram, layers (engine/tools/mcp), concurrency model, data flow, `TTSEngine(config)` construction, public API | Implemented |
 | [configuration.md](configuration.md) | Config file schema (`engine`/`server`), dataclasses, `MCPServerConfig`/`TTSEngineConfig` constructor trio with `base_dir`, reserved `module.base_dir` key, validation rules | Implemented |

@@ -1,8 +1,8 @@
 # Continuous integration — specs/ci.md.
 #
 # Both test tiers on GitHub's hosted runners, on every pull request and push to main,
-# five jobs side by side: `check` (lint, format, types) on Linux; `fast-tier` once per
-# supported platform — Linux, macOS, Windows — since the fast tier needs no network, no
+# six jobs side by side: `check` (lint, format, types) on Linux; `fast-tier` once per
+# supported platform — Linux (x86_64 and arm64), macOS, Windows — since the fast tier needs no network, no
 # credentials and no sound device, and is where a platform's wheels, paths and
 # subprocesses meet a machine of that platform; and `e2e` (the live tier) on Linux, the
 # one runner with a dependable virtual sound device (a PulseAudio null sink). None waits
@@ -54,12 +54,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
-      # One entry per supported platform; one platform's failure leaves the others
-      # running. sounddevice's wheels bundle PortAudio on macOS and Windows, so only
-      # Linux installs it (the AudioPlayer tests import sounddevice for real).
+      # One entry per supported platform — Linux on x86_64 and arm64; one platform's
+      # failure leaves the others running. sounddevice's wheels bundle PortAudio on
+      # macOS and Windows, so only Linux installs it (the AudioPlayer tests import
+      # sounddevice for real). On arm64 miniaudio (the elevenlabs extra) has no wheel
+      # and builds from its sdist during the sync. Intel macOS is not an entry: torch
+      # ships no x86_64 macOS wheel, so the dev group cannot sync there (specs/ci.md).
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-15, windows-2025]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, windows-2025]
     steps:
       - uses: actions/checkout@v7
       - name: System packages

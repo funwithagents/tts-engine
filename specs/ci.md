@@ -7,7 +7,7 @@ tests:
 
 # Continuous integration
 
-**Status:** Implemented
+**Status:** Updated
 
 ## Purpose
 
@@ -17,8 +17,9 @@ Both test tiers run on GitHub's hosted runners for every pull request and every 
 
 ### The runners
 
-- **GitHub-hosted runners, pinned images.** `ubuntu-24.04`, `macos-15` and `windows-2025`, each pinned by name rather than `*-latest`, so the system packages the jobs were validated against move only when a pin is bumped on purpose. No self-hosted runner; the repo is public, so every runner is free.
-- **The fast tier on every supported platform — Linux, macOS, Windows.** The library is pure Python over `sounddevice` and `numpy`, with no platform branch in `src/` ([project.md](project.md), "Platforms"); the fast tier needs no network, no credentials and no sound device ([testing.md](testing.md)), so it runs unchanged on the three runners. Each entry is where that platform's own paths meet a machine of the platform: the lock's wheels (torch from PyPI on macOS and Windows, from the CPU index on Linux — "Dependencies" below), path handling (`resolve_path`, drive letters, CRLF checkouts), and the subprocess guard tests. A failure on one platform is a bug to fix, not a reason to drop the platform.
+- **GitHub-hosted runners, pinned images.** `ubuntu-24.04` (x86_64), `ubuntu-24.04-arm` (arm64), `macos-15` (arm64) and `windows-2025` (x86_64), each pinned by name rather than `*-latest`, so the system packages the jobs were validated against move only when a pin is bumped on purpose. No self-hosted runner; the repo is public, so every runner is free.
+- **The fast tier on every supported platform — Linux (x86_64 and arm64), macOS, Windows.** The library is pure Python over `sounddevice` and `numpy`, with no platform branch in `src/` ([project.md](project.md), "Platforms"); the fast tier needs no network, no credentials and no sound device ([testing.md](testing.md)), so it runs unchanged on the four runners. Each entry is where that platform's own paths meet a machine of the platform: the lock's wheels (torch from PyPI on macOS and Windows, from the CPU index on Linux — "Dependencies" below; on arm64 Linux `miniaudio`, which ships no arm64 wheel, built from its sdist during the sync), path handling (`resolve_path`, drive letters, CRLF checkouts), and the subprocess guard tests. A failure on one platform is a bug to fix, not a reason to drop the platform. Linux arm64 is an entry because it is where the library lands in a container on Apple Silicon or on an arm server, and the free arm runner makes it one matrix line.
+- **No Intel macOS entry.** torch publishes no x86_64 macOS wheel, so the `dev` group (every extra, `pocket` included) cannot sync on an Intel Mac; the partial support stated in [project.md](project.md), "Platforms" — the base and the non-`pocket` extras — runs the same Python the `macos-15` entry tests. Carving `pocket` out of the dev group for a platform at the end of Apple's support is not worth the complexity.
 - **The live tier on Linux only.** Of everything the live tier drives, only the default `AudioPlayer` sink differs by platform (PortAudio's host API: ALSA/PulseAudio, Core Audio, WASAPI); the providers, the MCP transport and the `CaptureSink` path behave identically everywhere, and the `pocket` module's `"auto"` device never selects `mps` ([modules/pocket.md](modules/pocket.md)), so macOS takes no torch path of its own. A Linux runner gets a dependable output device from a PulseAudio null sink; a hosted macOS or Windows runner offers no such device reliably, so a live job there would mostly prove the runner's audio stack. macOS — the development machine — runs the live tier locally ([AGENTS.md](../AGENTS.md), "Testing"); Windows' live path is untested by CI and stated as such.
 - **One Python, 3.11** — the floor of `requires-python`. Local development runs the version `.python-version` names (3.13), so between them both ends of the supported range are exercised. The workflow sets it through `astral-sh/setup-uv`'s `python-version`, which overrides `.python-version` for every `uv` command in the job.
 
@@ -36,10 +37,10 @@ One file, `.github/workflows/ci.yml`. It triggers on `pull_request`, on `push` t
 | Job | Runner | What |
 |---|---|---|
 | `check` | `ubuntu-24.04` | `uv sync --locked`, then `ruff check .`, `ruff format --check src tests tests-e2e`, `pyright` — the static gate |
-| `fast-tier` | matrix: `ubuntu-24.04`, `macos-15`, `windows-2025` | `libportaudio2` (Linux only), `uv sync --locked`, `uv run pytest` — the fast tier, `fail-fast: false` so one platform's failure leaves the others running |
+| `fast-tier` | matrix: `ubuntu-24.04`, `ubuntu-24.04-arm`, `macos-15`, `windows-2025` | `libportaudio2` (Linux only), `uv sync --locked`, `uv run pytest` — the fast tier, `fail-fast: false` so one platform's failure leaves the others running |
 | `e2e` | `ubuntu-24.04` | `libportaudio2`, PulseAudio and its ALSA plugin; a null sink as the default device; `uv sync --locked`; `uv run pytest tests-e2e -rs` |
 
-The five jobs run side by side, each on its own runner, and none waits on another: a run takes as long as its slowest job. Each job carries a `timeout-minutes` well under GitHub's default, so a hung synthesis or server fails in minutes, not hours.
+The six jobs run side by side, each on its own runner, and none waits on another: a run takes as long as its slowest job. Each job carries a `timeout-minutes` well under GitHub's default, so a hung synthesis or server fails in minutes, not hours.
 
 - **The format check covers the code directories only.** `ruff format .` also rewrites the Python blocks inside Markdown files (the plans), so the gate — and the local command in [AGENTS.md](../AGENTS.md) — is `ruff format src tests tests-e2e`.
 - **The fast tier runs as locally**: plain `uv run pytest`, whose `testpaths` is `tests/`. The tier carries no platform list and no platform skips.
@@ -61,7 +62,7 @@ On a runner with no sound hardware, `AudioPlayer` would find no output device an
 
 `pocket`, `tone`, `audiofile` and the MCP test never skip in CI: their extras come with the `dev` group and they need no key.
 
-- **Required status checks on `main`** — `check`, the three `fast-tier` entries and `e2e` — are a repository setting on GitHub, outside the repo.
+- **Required status checks on `main`** — `check`, the four `fast-tier` entries and `e2e` — are a repository setting on GitHub, outside the repo.
 
 ## Relationship to the other specs
 

@@ -10,7 +10,7 @@ tests:
 
 # Project
 
-**Status:** Implemented
+**Status:** Updated
 
 ## Purpose
 
@@ -106,7 +106,10 @@ A transport is an interface onto the engine, not the engine itself (see [overvie
 
 ## Platforms
 
-Linux, macOS and Windows. The library is pure Python over `sounddevice` and `numpy`, with no platform branch in `src/`; paths go through `pathlib` (`resolve_path`). The fast tier runs on all three in CI; the live tier runs in CI on Linux only and locally on macOS, the development machine — so Windows playback through `AudioPlayer` is supported but not exercised by CI (see [ci.md](ci.md), "The runners").
+Linux (x86_64 and arm64), macOS (Apple Silicon) and Windows (x86_64). The library is pure Python over `sounddevice` and `numpy`, with no platform branch in `src/`; paths go through `pathlib` (`resolve_path`). The fast tier runs on all four in CI; the live tier runs in CI on Linux x86_64 only and locally on macOS, the development machine — so Windows playback through `AudioPlayer` is supported but not exercised by CI (see [ci.md](ci.md), "The runners").
+
+- **Linux arm64** (Graviton, Raspberry Pi, Docker on Apple Silicon): every extra installs, but `miniaudio` (the `elevenlabs` extra) ships no arm64 wheel and builds from its sdist, so the host needs a C compiler. torch has arm64 wheels on both PyPI and the CPU index.
+- **Intel macOS: partial.** The base install and the `elevenlabs`, `gradium` and `mcp` extras install from wheels and run the same Python CI tests on Apple Silicon; the `pocket` extra does not install, because PyTorch publishes no x86_64 macOS wheel after torch 2.2 ([modules/pocket.md](modules/pocket.md)). As a consequence `uv sync --dev` — whose `tts-engine[all]` includes `pocket` — does not work there, so Intel macOS is a consumer platform, not a contributor one, and has no CI entry. Intel Macs are at the end of Apple's support (macOS 26 is their last release), so the dev group is not carved up for them.
 
 ## System dependencies
 

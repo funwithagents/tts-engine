@@ -47,6 +47,8 @@ Validated at construction, raising `ConfigError` before the model is loaded:
 
 Requires the `pocket` extra: `pip install tts-engine[pocket]` / `uv sync --extra pocket`, declared in `[project.optional-dependencies]` as `pocket = ["pocket-tts>=<pinned>"]`. `pocket-tts` pulls in `torch>=2.5` (hundreds of MB to ~2 GB) plus a model download (~100M params) — far heavier than the framework, which is exactly why it is optional rather than a base dependency.
 
+**Not on Intel macOS.** PyTorch publishes no x86_64 macOS wheel after torch 2.2, far below the version `pocket-tts` needs, so the `pocket` extra does not install on an Intel Mac — the resolver fails at install time, before the lazy-import hint could apply. Every other platform the project supports has a torch wheel: macOS arm64, Windows x86_64, and Linux x86_64 and arm64 (from PyTorch's CPU index in this repo's own environment — see [project.md](../project.md), "Platforms").
+
 `modules/__init__.py` imports every module *class* eagerly to build `REGISTRY`, so `pocket/module.py` must **not** `import torch`/`import pocket_tts` at file top — that would make `import tts_engine` and `load_module` require the extra. Instead the import happens inside `__init__`, turning a missing extra into an actionable `ConfigError`:
 
 ```python
