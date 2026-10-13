@@ -8,6 +8,7 @@ Implements `specs/ci.md` (all sections) and `specs/project.md` ("Platforms", "Ke
 
 - `.github/workflows/ci.yml` — new: `check`, `fast-tier` (3-OS matrix), `e2e` (Linux, null sink, Hugging Face cache, optional key secrets)
 - `pyproject.toml`, `uv.lock` — `[[tool.uv.index]]` `pytorch-cpu` + `[tool.uv.sources]` `torch` on Linux; `torch` named in the `dev` group; relocked (the NVIDIA wheels leave the lock)
+- `tests/test_config.py`, `tests/modules/test_pocket.py` — surfaced by the first Windows run: a path passed unescaped to `pytest.raises(match=...)`, and a hardcoded POSIX separator; made platform-neutral
 - `specs/ci.md` — new spec; `specs/project.md`, `specs/testing.md`, `specs/_index.md` — platforms, CPU index, CI section, closed "CI wiring" open question
 - `AGENTS.md` — `.github/workflows/` map row, CI line under Testing, format command scoped to the code dirs
 
