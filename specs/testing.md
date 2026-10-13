@@ -73,6 +73,10 @@ A live test needs real credentials, and it must **skip — never fail** — when
 - **`pytest`** is the runner (`asyncio_mode = "auto"` for the async server/engine tests); **`ruff`** lints and formats; **`pyright`** (`standard` mode) type-checks. Lint, type check, and tests must all pass before work is considered done (see [AGENTS.md](../AGENTS.md), "Verification"/"Commands").
 - **`pyright` covers test code too:** its `include` is `src`, `tests`, and `tests-e2e`, so tests are type-checked alongside the library rather than being a blind spot.
 
+## Continuous integration
+
+Both tiers run on GitHub's hosted runners on every pull request and push to `main`: the fast tier on Linux, macOS and Windows, the live tier on Linux against a PulseAudio null sink, with the provider keys as optional repository secrets. The jobs, runners and expected skips are specced in [ci.md](ci.md).
+
 ## Open questions
 
-1. **CI wiring.** Nothing here sets up continuous integration. The default `tests/` tier is CI-ready (deterministic, no credentials), and the e2e tier skips cleanly when credentials are absent — but actually running either on a hosted runner is unbuilt. Today all testing is a local, manual command.
+None currently.

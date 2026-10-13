@@ -10,7 +10,7 @@ tests:
 
 # Project
 
-**Status:** Implemented
+**Status:** Updated
 
 ## Purpose
 
@@ -19,7 +19,7 @@ Structure and tooling for the `tts-engine` project itself: Python version, depen
 ## Decided
 
 - **Identity:** `tts-engine` is a **library first** — a reusable `TTSEngine` — that also ships an MCP server as one interface onto it (see [overview.md](overview.md), [architecture.md](architecture.md)). The package is importable (`import tts_engine`) and the MCP is a console-script entry point. The base install carries only what the engine needs; each provider and each transport is an optional extra (see "Key dependencies").
-- **Python version:** 3.11+ minimum (used for `str | None` unions, `tomllib`, match statements).
+- **Python version:** 3.11+ minimum (used for `str | None` unions, `tomllib`, match statements). CI runs the floor, 3.11; local development runs what `.python-version` names (see [ci.md](ci.md)).
 - **Package layout:** `src/` layout — `src/tts_engine/...` — not flat, to avoid accidentally importing an uninstalled package from the repo root.
 - **Dependency/venv management:** `uv`. Dev tooling lives in the `dev` dependency group (`uv sync --dev`), not in runtime `dependencies`.
 - **Runtime dependencies:** see the table below.
@@ -36,6 +36,7 @@ Structure and tooling for the `tts-engine` project itself: Python version, depen
   - `plans/` — implementation plans turning settled specs into buildable steps, indexed by [_index.md](../plans/_index.md).
   - `tests/` at repo root, mirroring the `src/tts_engine/` module structure.
   - `tests-e2e/` at repo root, for the live tier above — not collected by the default `pytest` run.
+  - `.github/workflows/ci.yml` — the CI workflow, specced in [ci.md](ci.md).
 
 ## Entry point & plumbing
 
@@ -71,6 +72,8 @@ Extras (`[project.optional-dependencies]`):
 
 The `dev` dependency group additionally depends on **`tts-engine[all]`** — the project itself with every extra, not a hand-maintained copy of the extras' members. So a plain `uv sync --dev` gives a contributor the whole suite: the unit tests that mock a real provider library (ElevenLabs), the MCP unit tests and live MCP test, and every live row in `tests-e2e/` with nothing skipped for a missing extra. Adding a provider extra to `all` reaches the dev environment for free. The cost is that every dev sync pulls `torch`; that weight is the *contributor's* to pay, not the consumer's, who still installs one provider at a time (see "Dependency strategy for TTS backends" below). The corollary: uv includes the `dev` group by default, so **`uv sync --no-dev`** is what a provider-minimal install in this repo takes — a bare `uv sync --extra <name>` materializes the full dev environment, torch included. Unit tests keep faking provider libraries regardless of what `dev` installs — a fast-tier test must assert behavior, not depend on a model download.
 
+**torch from PyTorch's CPU index on Linux.** PyPI's Linux torch wheel is the CUDA build, which drags gigabytes of NVIDIA libraries into every Linux dev sync — CI's included — for a GPU no runner has. `pyproject.toml` declares a `[[tool.uv.index]]` named `pytorch-cpu` (`https://download.pytorch.org/whl/cpu`, `explicit = true`) and a `[tool.uv.sources]` entry pinning `torch` to it under `sys_platform == 'linux'`; `torch` is named in the `dev` group next to `tts-engine[all]`, although `pocket-tts` brings it, because a uv source applies only to a dependency the project declares itself. macOS and Windows keep resolving from PyPI, whose wheels are CPU-only. A uv source is not inherited by a consumer, so a downstream Linux project installing the `pocket` extra gets PyPI's torch unless it declares the index itself.
+
 ## Dependency strategy for TTS backends
 
 Modules pull in third-party libraries of wildly different weight — the ElevenLabs SDK is a few MB of pure Python, while local-model backends (Kokoro, ChatTTS, …) pull in `torch` (~1–2 GB). Bundling backends into the base install would tax every user with dependencies they never load, and shipping one of them in the base would make it the de-facto default provider, which this project deliberately avoids. The decided approach:
@@ -101,9 +104,13 @@ A transport is an interface onto the engine, not the engine itself (see [overvie
 - **The console script owns the install hint.** `tts-engine-mcp` is always installed, so `mcp_server_cli.py` keeps no top-level `mcp`/`uvicorn` import. `main` parses arguments first (so `--help` and a missing `--config` behave normally), then imports `uvicorn` and `tts_engine.mcp.create_server`. A `ModuleNotFoundError` whose missing module is exactly `mcp` or `uvicorn` (`exc.name in {"mcp", "uvicorn"}`) becomes `SystemExit("tts-engine-mcp requires the mcp extra: pip install tts-engine[mcp]")` — exit status 1, message on stderr, no traceback. Any other import error is re-raised unchanged, including a missing *submodule* such as `mcp.server.fastmcp` (an incompatible `mcp` version, not a missing extra) — so neither a real bug inside `tts_engine.mcp` nor a version mismatch is mislabelled as a missing extra.
 - **Guarded by a subprocess test.** `tests/test_no_mcp_import.py` (alongside `tests/test_no_audio_import.py`) poisons `mcp` and `uvicorn` in `sys.modules`, then proves that `import tts_engine`, `MCPServerConfig.from_dict`, and `TTSTools(TTSEngine(config, sink=...)).say(...)` on the `tone` module all work, and that `tts_engine.mcp_server_cli.main()` exits with the `tts-engine[mcp]` hint.
 
+## Platforms
+
+Linux, macOS and Windows. The library is pure Python over `sounddevice` and `numpy`, with no platform branch in `src/`; paths go through `pathlib` (`resolve_path`). The fast tier runs on all three in CI; the live tier runs in CI on Linux only and locally on macOS, the development machine — so Windows playback through `AudioPlayer` is supported but not exercised by CI (see [ci.md](ci.md), "The runners").
+
 ## System dependencies
 
-`sounddevice` wraps PortAudio, which is a system library: `sudo apt-get install libportaudio2` on Ubuntu.
+`sounddevice` wraps PortAudio, which is a system library on Linux: `sudo apt-get install libportaudio2` on Ubuntu. The `sounddevice` wheels bundle PortAudio on macOS and Windows, so nothing is needed there.
 
 ## Open questions
 
