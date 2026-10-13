@@ -1,6 +1,6 @@
 # CI on GitHub's hosted runners
 
-**Status:** In progress
+**Status:** Done
 
 Implements `specs/ci.md` (all sections) and `specs/project.md` ("Platforms", "Key dependencies" — the CPU torch index, "System dependencies"). It adds the CI workflow — the static gate, the fast tier on Linux (x86_64 and arm64), macOS and Windows and the live tier on Linux against a PulseAudio null sink — and makes the Linux torch the CPU build so a runner's sync stays small. It leaves out a live job on macOS or Windows, an Intel macOS entry, setting the provider-key repository secrets, and the required-status-check repository setting (both GitHub settings, outside the repo).
 
