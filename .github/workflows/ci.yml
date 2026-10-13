@@ -1,0 +1,118 @@
+# Continuous integration — specs/ci.md.
+#
+# Both test tiers on GitHub's hosted runners, on every pull request and push to main,
+# five jobs side by side: `check` (lint, format, types) on Linux; `fast-tier` once per
+# supported platform — Linux, macOS, Windows — since the fast tier needs no network, no
+# credentials and no sound device, and is where a platform's wheels, paths and
+# subprocesses meet a machine of that platform; and `e2e` (the live tier) on Linux, the
+# one runner with a dependable virtual sound device (a PulseAudio null sink). None waits
+# on another. Every extra installs through the dev group; on Linux torch comes from
+# PyTorch's CPU index. No secret is needed: the cloud-provider rows skip without their
+# key, and the spec's expected-skips table says which.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The floor of requires-python; setup-uv exports it as UV_PYTHON, which overrides
+  # .python-version (the local dev version) for every uv command (specs/ci.md).
+  PYTHON_VERSION: "3.11"
+  APT_OPTS: --no-install-recommends -o Acquire::http::Timeout=30 -o Acquire::Retries=3
+
+jobs:
+  check:
+    name: lint, format, types
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Sync (dev group, every extra, against the lock)
+        run: uv sync --locked
+      - name: Lint
+        run: uv run ruff check .
+      - name: Format check (code directories only — `ruff format .` reflows Markdown)
+        run: uv run ruff format --check src tests tests-e2e
+      - name: Type check
+        run: uv run pyright
+
+  fast-tier:
+    name: fast tier (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      # One entry per supported platform; one platform's failure leaves the others
+      # running. sounddevice's wheels bundle PortAudio on macOS and Windows, so only
+      # Linux installs it (the AudioPlayer tests import sounddevice for real).
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    steps:
+      - uses: actions/checkout@v7
+      - name: System packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y $APT_OPTS libportaudio2
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Sync (dev group, every extra, against the lock)
+        run: uv sync --locked
+      - name: Fast tier
+        run: uv run pytest
+
+  e2e:
+    name: live tier (ubuntu-24.04)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: System packages (PortAudio, PulseAudio and its ALSA plugin)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y $APT_OPTS libportaudio2 pulseaudio pulseaudio-utils libasound2-plugins
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Sync (dev group, every extra, against the lock)
+        run: uv sync --locked
+      - name: Hugging Face cache (pocket-tts weights and voice)
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          restore-keys: hf-${{ runner.os }}-
+      - name: Sound device (PulseAudio null sink as ALSA's default — what PortAudio opens)
+        run: |
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=ci sink_properties=device.description=ci
+          pactl set-default-sink ci
+          printf 'pcm.!default { type pulse }\nctl.!default { type pulse }\n' > ~/.asoundrc
+          pactl info
+          uv run python -c "import sounddevice as sd; print(sd.query_devices()); print('default output:', sd.default.device)"
+      - name: Live tier
+        # The cloud TTS keys, when the repository holds them as secrets: those rows run;
+        # absent (or on a fork's pull request, which never receives a secret) the
+        # variables are empty and the rows skip (specs/ci.md "Secrets and expected skips").
+        env:
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          GRADIUM_API_KEY: ${{ secrets.GRADIUM_API_KEY }}
+        run: uv run pytest tests-e2e -rs -o log_cli=true --log-cli-level=WARNING

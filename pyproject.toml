@@ -59,7 +59,24 @@ dev = [
     # `all` reaches the dev environment for free. The cost is torch in every
     # dev sync; consumers still install one provider at a time.
     "tts-engine[all]",
+    # Named here (pocket-tts already brings it) only so the `torch` source below
+    # applies: a uv source governs a dependency the project declares itself.
+    "torch",
 ]
+
+[[tool.uv.index]]
+# PyPI's Linux torch wheel is the CUDA build and drags gigabytes of NVIDIA
+# libraries no CI runner uses; on Linux torch resolves from PyTorch's CPU index
+# instead. `explicit`: only packages pinned to it below come from here. macOS
+# and Windows keep PyPI's wheels, CPU-only already. A uv source is not inherited
+# downstream, so a consumer wanting the CPU build declares the index itself.
+# See specs/ci.md and specs/project.md, "Key dependencies".
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
 
 [tool.pytest.ini_options]
 # Only the fast, deterministic tier is collected by default; tests-e2e/ is opt-in.
