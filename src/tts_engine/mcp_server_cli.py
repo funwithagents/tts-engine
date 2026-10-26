@@ -55,7 +55,7 @@ def main() -> None:
     )
 
     engine = TTSEngine(cfg.engine)
-    mcp_app = create_server(engine)
+    mcp_app = create_server(engine, host=cfg.server.host, port=cfg.server.port)
 
     uvicorn.run(
         mcp_app.streamable_http_app(),

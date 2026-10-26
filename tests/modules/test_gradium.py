@@ -94,6 +94,18 @@ class ReactiveFakeTts(FakeTts):
         return item
 
 
+class SilentFakeTts(FakeTts):
+    """A fake that sends its scripted messages, then stays silent — awaiting
+    forever instead of ending the stream — like a server still synthesizing."""
+
+    async def __anext__(self):
+        try:
+            return await super().__anext__()
+        except StopAsyncIteration:
+            await asyncio.Event().wait()
+            raise
+
+
 @pytest.fixture
 def fake_gradium(monkeypatch):
     """Install a fake `gradium` package; returns a recorder of what reached it."""
@@ -102,6 +114,7 @@ def fake_gradium(monkeypatch):
     recorder.ready = {"type": "ready", "sample_rate": 48000, "request_id": "r1"}
     recorder.tts = None
     recorder.reactive = False
+    recorder.silent = False
 
     class FakeClient:
         def __init__(self, **kwargs):
@@ -109,7 +122,11 @@ def fake_gradium(monkeypatch):
 
         def tts_realtime(self, **kwargs):
             recorder.setup_kwargs = kwargs
-            cls = ReactiveFakeTts if recorder.reactive else FakeTts
+            cls = FakeTts
+            if recorder.reactive:
+                cls = ReactiveFakeTts
+            elif recorder.silent:
+                cls = SilentFakeTts
             recorder.tts = cls(iter(recorder.messages), recorder.ready)
             return recorder.tts
 
@@ -177,6 +194,7 @@ def test_base_url_reaches_the_client_only_when_set(fake_gradium):
         ({"model": ""}, "model"),
         ({"model": 7}, "model"),
         ({"sample_rate": 22050}, "sample_rate"),
+        ({"sample_rate": 48000.0}, "sample_rate"),
         ({"sample_rate": "48000"}, "sample_rate"),
         ({"sample_rate": True}, "sample_rate"),
         ({"temp": 1.5}, "temp"),
@@ -359,6 +377,26 @@ def _signal(loop: asyncio.AbstractEventLoop, event: asyncio.Event):
         loop.call_soon_threadsafe(event.set)
 
     return callback
+
+
+async def test_cancel_while_the_server_is_silent_stops_promptly(fake_gradium):
+    # One audio message, then nothing (the server is still synthesizing, no
+    # end-of-stream yet): the receive loop must be polling `stop`, not blocked
+    # on the next message, or the cancel hangs for as long as the server does.
+    fake_gradium.silent = True
+    fake_gradium.messages = [_audio(b"\x01\x02")]
+    loop = asyncio.get_running_loop()
+    first_chunk = asyncio.Event()
+
+    module = GradiumModule(VALID_CONFIG)
+    task = asyncio.create_task(
+        module.synthesize_text("hello", TTSOptions(), _signal(loop, first_chunk))
+    )
+    await first_chunk.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=5)
+    assert fake_gradium.tts.closed is True
 
 
 # --- text stream (sender + receiver on one connection) -----------------------

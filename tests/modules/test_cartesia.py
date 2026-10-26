@@ -233,6 +233,7 @@ def test_api_key_env_pointing_to_unset_var_raises(fake, monkeypatch):
         ({"model": ""}, "model"),
         ({"model": 3}, "model"),
         ({"sample_rate": 32000}, "sample_rate"),
+        ({"sample_rate": 24000.0}, "sample_rate"),
         ({"sample_rate": "24000"}, "sample_rate"),
         ({"sample_rate": True}, "sample_rate"),
         ({"language": ""}, "language"),

@@ -66,7 +66,7 @@ class PocketModule(TTSModule):
             model_config = str(resolve_path(config, model_config))
 
         device = config.get("device", "auto")
-        if device not in _VALID_DEVICES:
+        if not isinstance(device, str) or device not in _VALID_DEVICES:
             raise ConfigError(
                 f"Pocket module 'device' must be one of {sorted(_VALID_DEVICES)}"
             )
@@ -161,17 +161,25 @@ class PocketModule(TTSModule):
             self._voice_state, text, **kwargs
         )
         # Still poll `stop`: the decoder may hand back frames it already queued.
-        while not stop.is_set():
-            # Advance the generator inside the provider try so inference
-            # errors become TTSError; feed the callback outside it so a
-            # downstream playback failure keeps its own identity.
-            try:
-                chunk = next(stream_iter)
-            except StopIteration:
-                break
-            except Exception as exc:
-                raise TTSError(f"pocket-tts synthesis failed: {exc}") from exc
-            callback(_to_int16_pcm(chunk))
+        try:
+            while not stop.is_set():
+                # Advance the generator inside the provider try so inference
+                # errors become TTSError; feed the callback outside it so a
+                # downstream playback failure keeps its own identity.
+                try:
+                    chunk = next(stream_iter)
+                except StopIteration:
+                    break
+                except Exception as exc:
+                    raise TTSError(f"pocket-tts synthesis failed: {exc}") from exc
+                callback(_to_int16_pcm(chunk))
+        except BaseException:
+            # The utterance is over (a sink failure, a synthesis error): tell
+            # the library's generation thread to stop now, as a cancel does,
+            # instead of letting it run the sentence to its end in the
+            # background while the model may be reused.
+            stop.set()
+            raise
 
     async def synthesize_text(
         self,

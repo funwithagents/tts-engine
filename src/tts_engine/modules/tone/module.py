@@ -4,6 +4,7 @@ Not a TTS backend. Exists so the engine, tools, MCP transport, and downstream
 test suites run end to end with no API key, extra, model, or fixture files.
 """
 
+import math
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator
 
@@ -21,10 +22,15 @@ _CHUNK_FRAMES = 4096
 
 
 def _positive_number(config: dict, field: str, default: float) -> float:
-    """Read an optional numeric field that must be > 0; bools rejected."""
+    """Read an optional numeric field that must be finite and > 0; bools rejected."""
     value = config.get(field, default)
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-        raise ConfigError(f"Tone module '{field}' must be a number > 0")
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        raise ConfigError(f"Tone module '{field}' must be a finite number > 0")
     return float(value)
 
 

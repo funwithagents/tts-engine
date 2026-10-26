@@ -86,9 +86,12 @@ class AudioFileModule(TTSModule):
                     sampwidth = wav.getsampwidth()
                     nchannels = wav.getnchannels()
                     framerate = wav.getframerate()
-            except (OSError, wave.Error) as exc:
+            except (OSError, EOFError, wave.Error) as exc:
+                # EOFError: an empty or truncated file, which `wave` does not
+                # wrap in its own error.
                 raise ConfigError(
-                    f"AudioFile module cannot read {path}: {exc}"
+                    f"AudioFile module cannot read {path}: "
+                    f"{str(exc) or 'unexpected end of file'}"
                 ) from exc
             if sampwidth != 2:
                 raise ConfigError(
@@ -127,15 +130,19 @@ class AudioFileModule(TTSModule):
         """Feed one WAV file's frames in chunks, polling `stop` between them."""
         try:
             wav = wave.open(str(path), "rb")  # noqa: SIM115 (closed by the with below)
-        except (OSError, wave.Error) as exc:
-            raise TTSError(f"AudioFile module cannot read {path}: {exc}") from exc
+        except (OSError, EOFError, wave.Error) as exc:
+            raise TTSError(
+                f"AudioFile module cannot read {path}: "
+                f"{str(exc) or 'unexpected end of file'}"
+            ) from exc
         with wav:
             while not stop.is_set():
                 try:
                     chunk = wav.readframes(_CHUNK_FRAMES)
-                except (OSError, wave.Error) as exc:
+                except (OSError, EOFError, wave.Error) as exc:
                     raise TTSError(
-                        f"AudioFile module cannot read {path}: {exc}"
+                        f"AudioFile module cannot read {path}: "
+                        f"{str(exc) or 'unexpected end of file'}"
                     ) from exc
                 if not chunk:
                     break

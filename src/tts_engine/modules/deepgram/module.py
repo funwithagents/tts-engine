@@ -98,7 +98,11 @@ class DeepgramModule(TTSModule):
             raise ConfigError("Deepgram module 'model' must be a non-empty string")
 
         sample_rate = config.get("sample_rate", 24000)
-        if isinstance(sample_rate, bool) or sample_rate not in _SAMPLE_RATES:
+        if (
+            isinstance(sample_rate, bool)
+            or not isinstance(sample_rate, int)
+            or sample_rate not in _SAMPLE_RATES
+        ):
             raise ConfigError(
                 "Deepgram module 'sample_rate' must be one of "
                 + ", ".join(str(r) for r in _SAMPLE_RATES)

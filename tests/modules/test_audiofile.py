@@ -40,6 +40,15 @@ def test_missing_file_raises(tmp_path):
         )
 
 
+def test_empty_file_raises(tmp_path):
+    # `wave` raises a bare EOFError on an empty/truncated file, not wave.Error.
+    (tmp_path / "empty.wav").write_bytes(b"")
+    with pytest.raises(ConfigError, match="empty.wav"):
+        AudioFileModule(
+            {"type": "audiofile", "default_file": str(tmp_path / "empty.wav")}
+        )
+
+
 def test_stereo_file_raises(tmp_path):
     path = _write_wav(tmp_path / "stereo.wav", channels=2)
     with pytest.raises(ConfigError, match="stereo.wav"):

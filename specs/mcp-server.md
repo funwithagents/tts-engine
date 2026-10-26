@@ -30,6 +30,8 @@ StreamableHTTP, mounted at `/mcp`. Default bind: `127.0.0.1:8000` (configurable 
 
 MCP clients connect to `http://<host>:<port>/mcp`.
 
+**Host policy.** `create_server(engine, host=..., port=...)` hands the configured bind address to `FastMCP`, which decides the Host-header policy from it: for a loopback bind (`127.0.0.1`, `localhost`, `::1`) the SDK enables DNS-rebinding protection and accepts only loopback `Host` headers (any other `Host` gets `421 Invalid Host header`); for any other bind address it leaves requests unfiltered, so a server bound to a LAN interface is reachable through that address. The CLI always passes `server.host`/`server.port`: without them the SDK would apply the loopback policy regardless of where uvicorn listens, and a LAN bind would answer nothing but 421.
+
 ## Tool: `say`
 
 ### Input schema
@@ -88,8 +90,10 @@ from mcp.server.fastmcp import FastMCP
 from tts_engine.tools import TTSTools
 
 
-def create_server(engine: TTSEngine) -> FastMCP:
-    mcp = FastMCP("tts-engine")
+def create_server(
+    engine: TTSEngine, *, host: str = "127.0.0.1", port: int = 8000
+) -> FastMCP:
+    mcp = FastMCP("tts-engine", host=host, port=port)  # host: see "Transport"
     tools = TTSTools(engine)
 
     @mcp.tool()
