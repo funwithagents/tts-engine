@@ -1,0 +1,17 @@
+{
+  "engine": {
+    "module": {
+      "type": "deepgram",
+      "api_key_env": "DEEPGRAM_API_KEY",
+      "model": "aura-2-thalia-en",
+      "sample_rate": 24000
+    },
+    "player": {
+      "device": null
+    }
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000
+  }
+}

@@ -54,6 +54,7 @@ _REQUIRED_IMPORT: dict[str, str] = {
     "gradium": "gradium",
     "phonon": "ptts",
     "mistral": "mistralai",
+    "deepgram": "deepgram",
 }
 
 
@@ -117,6 +118,14 @@ _MISTRAL_CONFIG = {
 }
 
 
+# Config for the `deepgram` row of `MODULES` — same shape as the other API rows:
+# `api_key_env` names the variable, never the key. The model names the voice.
+_DEEPGRAM_CONFIG = {
+    "api_key_env": "DEEPGRAM_API_KEY",
+    "model": "aura-2-thalia-en",
+}
+
+
 def default_module() -> tuple[str, dict]:
     """Module type + config for the module-agnostic live tests (the MCP
     transport in `test_mcp.py`; per-module conformance lives in `test_modules.py`
@@ -148,6 +157,7 @@ MODULES = [
     pytest.param("phonon", {}, id="phonon"),
     pytest.param("gradium", _GRADIUM_CONFIG, id="gradium"),
     pytest.param("mistral", _MISTRAL_CONFIG, id="mistral"),
+    pytest.param("deepgram", _DEEPGRAM_CONFIG, id="deepgram"),
     # Fixture modules: no key, no extra — these rows never skip.
     pytest.param("tone", {}, id="tone"),
     pytest.param(

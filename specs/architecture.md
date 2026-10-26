@@ -80,6 +80,11 @@ A library user stops at layer 1 or 2; an agent embeds layer 2 directly; an MCP c
 │    request per        │
 │    sentence           │
 │                       │
+│ deepgram/             │
+│  • Cloud WebSocket;   │
+│    text stream sent   │
+│    as it arrives      │
+│                       │
 │ tone/ audiofile/      │
 │  • fixture modules:   │
 │    sine / WAV files   │
@@ -91,10 +96,10 @@ A library user stops at layer 1 or 2; an agent embeds layer 2 directly; an MCP c
              │ HTTPS / WebSocket (cloud providers only)
 ┌────────────▼──────────┐
 │ ElevenLabs / Gradium  │
-│ / Mistral             │
+│ / Mistral / Deepgram  │
 └───────────────────────┘
 
-Providers (`elevenlabs`, `gradium`, `mistral`, `pocket`, `phonon`) each ship behind a packaging extra; the fixture modules ship in the base install; no module is the default (see [tts-module-interface.md](tts-module-interface.md), "Module kinds").
+Providers (`elevenlabs`, `gradium`, `mistral`, `deepgram`, `pocket`, `phonon`) each ship behind a packaging extra; the fixture modules ship in the base install; no module is the default (see [tts-module-interface.md](tts-module-interface.md), "Module kinds").
 The MCP layer ships behind the `mcp` extra; layers 1 and 2 need only the base install (see [project.md](project.md), "Dependency strategy for transports").
 ```
 
@@ -162,6 +167,7 @@ await engine.say_stream(llm_tokens())
 | `modules/elevenlabs/module.py` | ElevenLabs API interaction over HTTPS (complete text) and the stream-input WebSocket (text stream), MP3→PCM decoding via miniaudio (behind the `elevenlabs` extra, lazy import), config parsing |
 | `modules/gradium/module.py` | Gradium realtime WebSocket (both input shapes; the text stream is forwarded as it arrives), raw PCM output (behind the `gradium` extra, lazy import), config parsing |
 | `modules/mistral/module.py` | Mistral Voxtral TTS over HTTPS server-sent events (behind the `mistral` extra, lazy import), float32→int16 conversion fed in 100 ms slices, sentence grouping for the text stream, config parsing |
+| `modules/deepgram/module.py` | Deepgram Aura over the SDK's sync speak v1 WebSocket (both input shapes; the text stream is forwarded as it arrives), `linear16` PCM output (behind the `deepgram` extra, lazy import), flush-gated segments to bound pending text, config parsing |
 | `modules/pocket/module.py` | Local pocket-tts inference (behind the `pocket` extra, lazy import), sentence grouping for the text stream, float→int16 conversion, config parsing |
 | `modules/phonon/module.py` | Local Phonon inference through the `ptts` Rust runtime (behind the `phonon` extra, lazy import, no torch), sentence grouping for the text stream, float→int16 conversion, config parsing |
 | `modules/tone/module.py` | Fixture module: sine tone proportional to text length, no dependencies beyond numpy |

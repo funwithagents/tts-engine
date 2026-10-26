@@ -2,7 +2,7 @@
 
 A streaming text-to-speech engine for Python. Choose a TTS module, construct a `TTSEngine`, and call `await engine.say(text)`, or `await engine.say_stream(text_stream)` to speak an LLM response while it is still being generated.
 
-Audio is synthesized and consumed chunk by chunk, minimizing the delay before playback begins. Speech comes from a provider module you install as an extra: the ElevenLabs, Gradium or Mistral cloud APIs, or the local pocket-tts or Phonon models. There is no default provider. Two built-in fixture modules, `tone` and `audiofile`, stand in for a provider in tests and demos. By default, audio plays on the machine running the engine; applications can instead provide their own audio sink to capture or route the PCM stream.
+Audio is synthesized and consumed chunk by chunk, minimizing the delay before playback begins. Speech comes from a provider module you install as an extra: the ElevenLabs, Gradium, Mistral or Deepgram cloud APIs, or the local pocket-tts or Phonon models. There is no default provider. Two built-in fixture modules, `tone` and `audiofile`, stand in for a provider in tests and demos. By default, audio plays on the machine running the engine; applications can instead provide their own audio sink to capture or route the PCM stream.
 
 Agent-friendly tools are included as an optional interface over the same engine, and an MCP server is available through the `mcp` extra.
 
@@ -32,6 +32,7 @@ uv sync --no-dev --extra phonon       # local Phonon model (no torch)
 uv sync --no-dev --extra elevenlabs   # ElevenLabs cloud API
 uv sync --no-dev --extra gradium      # Gradium cloud API
 uv sync --no-dev --extra mistral      # Mistral cloud API (Voxtral TTS)
+uv sync --no-dev --extra deepgram     # Deepgram cloud API (Aura-2)
 uv sync --no-dev --extra mcp          # MCP server (tts-engine-mcp)
 uv sync --no-dev --all-extras         # every extra
 
@@ -41,6 +42,7 @@ pip install "tts-engine[phonon]"
 pip install "tts-engine[elevenlabs]"
 pip install "tts-engine[gradium]"
 pip install "tts-engine[mistral]"
+pip install "tts-engine[deepgram]"
 pip install "tts-engine[mcp,pocket]"
 pip install "tts-engine[all]"
 ```
@@ -104,7 +106,7 @@ The module declares its output sample rate, and the engine configures the defaul
 
 Pass that object directly to a loader; do not add an outer `"engine"` key. A larger application can store it under any key it chooses, while the optional MCP server format specifically stores it under `"engine"`.
 
-The [`examples/`](examples/) directory holds one complete MCP-server config per module (`config.pocket.json`, `config.phonon.json`, `config.elevenlabs.json`, `config.gradium.json`, `config.mistral.json`, `config.tone.json`, `config.audiofile.json`). No single example is the default.
+The [`examples/`](examples/) directory holds one complete MCP-server config per module (`config.pocket.json`, `config.phonon.json`, `config.elevenlabs.json`, `config.gradium.json`, `config.mistral.json`, `config.deepgram.json`, `config.tone.json`, `config.audiofile.json`). No single example is the default.
 
 | Source | Constructor | Expected shape |
 |---|---|---|
@@ -148,6 +150,7 @@ A module is a swappable synthesis backend. Its `type` selects an entry from the 
 | `elevenlabs` | Provider | ElevenLabs cloud API | `tts-engine[elevenlabs]` | API key |
 | `gradium` | Provider | Gradium cloud API | `tts-engine[gradium]` | API key |
 | `mistral` | Provider | Mistral cloud API (Voxtral TTS) | `tts-engine[mistral]` | API key |
+| `deepgram` | Provider | Deepgram cloud API (Aura-2) | `tts-engine[deepgram]` | API key |
 | `tone` | Fixture | Sine tone, no synthesis | Base installation | None |
 | `audiofile` | Fixture | Pre-recorded WAV files, no synthesis | Base installation | None |
 
@@ -334,6 +337,37 @@ pip install "tts-engine[mistral]"
 
 The module emits mono PCM at 24,000 Hz. Text is sent verbatim, so the model's inline emotion and pace tags pass through. A text stream is synthesized one request per sentence.
 
+### `deepgram`
+
+The Deepgram module streams speech from Deepgram's hosted Aura-2 voices over the official `deepgram-sdk` WebSocket. Install it with the `deepgram` extra:
+
+```bash
+uv sync --extra deepgram
+# For an installed package:
+pip install "tts-engine[deepgram]"
+```
+
+```json
+{
+  "module": {
+    "type": "deepgram",
+    "api_key_env": "DEEPGRAM_API_KEY",
+    "model": "aura-2-thalia-en"
+  }
+}
+```
+
+| Field | Required | Default | Description |
+|---|---|---|---|
+| `api_key_env` | one of `api_key_env` or `api_key` | — | Name of the environment variable holding the API key. Recommended for file-based configuration. |
+| `api_key` | one of `api_key_env` or `api_key` | — | Literal API key. A non-empty literal key takes precedence over `api_key_env`. |
+| `model` | no | `aura-2-thalia-en` | The Aura model, which is also the voice: `aura-2-<voice>-<language>`, e.g. `aura-2-hector-fr`. |
+| `sample_rate` | no | `24000` | Output rate: `8000`, `16000`, `24000`, `32000` or `48000`. |
+| `speed` | no | API default (1.0) | Speaking-rate multiplier, 0.7 to 1.5. |
+| `mip_opt_out` | no | API default | `true` opts out of Deepgram's Model Improvement Program. |
+
+The module emits mono PCM at the configured `sample_rate`. A text stream goes to the socket as it arrives. Long texts are sent in flushed segments, so the server never holds more unspoken text than it accepts.
+
 ### `tone`
 
 A fixture module for tests and demos, not a TTS backend. For any text it plays a sine tone whose length is proportional to the text length. It needs no key, no extra, no model, and no files, and it is deterministic. That makes it a good module for an integration test suite, or for checking audio output.
@@ -398,7 +432,7 @@ async def llm_tokens():
 await engine.say_stream(llm_tokens())
 ```
 
-Pieces are concatenated verbatim (tokens carry their own spaces). The ElevenLabs and Gradium modules forward the text to their realtime sockets as it arrives; `pocket`, `phonon`, `mistral` and `audiofile` synthesize sentence by sentence as each one completes; `tone` plays a tone per piece. A plain list is accepted for in-memory sequences, and a bare string is rejected. If the text source raises, playback stops and that exception propagates unchanged. A long pause in the source is heard as silence, not an error.
+Pieces are concatenated verbatim (tokens carry their own spaces). The ElevenLabs, Gradium and Deepgram modules forward the text to their realtime sockets as it arrives; `pocket`, `phonon`, `mistral` and `audiofile` synthesize sentence by sentence as each one completes; `tone` plays a tone per piece. A plain list is accepted for in-memory sequences, and a bare string is rejected. If the text source raises, playback stops and that exception propagates unchanged. A long pause in the source is heard as silence, not an error.
 
 ## Audio output and custom sinks
 
@@ -513,7 +547,7 @@ engine = TTSEngine(mcp_config.engine)
 
 ### A provider module requires its extra
 
-A `ConfigError` such as `The 'pocket' module requires the pocket extra` means that provider's libraries are not installed. Run `uv sync --extra <name>` (or `pip install "tts-engine[<name>]"`), e.g. `--extra pocket`, `--extra phonon`, `--extra elevenlabs`, `--extra gradium`, or `--extra mistral`.
+A `ConfigError` such as `The 'pocket' module requires the pocket extra` means that provider's libraries are not installed. Run `uv sync --extra <name>` (or `pip install "tts-engine[<name>]"`), e.g. `--extra pocket`, `--extra phonon`, `--extra elevenlabs`, `--extra gradium`, `--extra mistral`, or `--extra deepgram`.
 
 ### pocket-tts
 
@@ -543,6 +577,11 @@ A `ConfigError` such as `The 'pocket' module requires the pocket extra` means th
 
 - Verify that the environment variable named by `api_key_env` is set in the process running the engine.
 - A `TTSError` containing `invalid_voice` means `voice_id` is not a preset or custom voice visible to the account; one containing `invalid_model` means the `model` ID is wrong.
+
+### Deepgram
+
+- Verify that the environment variable named by `api_key_env` is set in the process running the engine.
+- A `TTSError` reporting HTTP 401 means the key was rejected; HTTP 403 usually means the `model` does not exist or the account cannot use it; HTTP 400 means a value such as `speed` is out of range.
 
 ## Development
 

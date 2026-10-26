@@ -30,7 +30,7 @@ Structure and tooling for the `tts-engine` project itself: Python version, depen
 - **Entry point:** `tts-engine-mcp = "tts_engine.mcp_server_cli:main"` (declared in `[project.scripts]`) — starts the MCP server. Extras cannot gate a console script, so it is installed with the base package, but it runs only with the `mcp` extra; without it the script exits with the install hint (see "Dependency strategy for transports"). Both the script and the module (`mcp_server_cli.py`) are named for the interface they launch, since the library itself is used by import, not by a script; the module name leaves room for other clients/entry points later. The MCP entry point is specced in [mcp-server.md](mcp-server.md).
 - **Public API:** `src/tts_engine/__init__.py` re-exports `TTSEngine`, `TTSEngineConfig`, `MCPServerConfig`, `TTSTools`, and `AudioSink` (see [architecture.md](architecture.md), "Public API").
 - **Repo shape:**
-  - `src/tts_engine/` — the package, one module per core concept (`engine.py`, `tools.py`, `mcp.py`, `audio.py`, `config.py`, `mcp_server_cli.py`) plus the `modules/` subpackage of TTS backends — the registry (`__init__.py`) and the ABC (`base.py`) at its root, then one package per backend (`elevenlabs/`, `pocket/`, `gradium/`, `phonon/`, `mistral/`, `tone/`, `audiofile/`), each specced by `specs/modules/<backend>.md`.
+  - `src/tts_engine/` — the package, one module per core concept (`engine.py`, `tools.py`, `mcp.py`, `audio.py`, `config.py`, `mcp_server_cli.py`) plus the `modules/` subpackage of TTS backends — the registry (`__init__.py`) and the ABC (`base.py`) at its root, then one package per backend (`elevenlabs/`, `pocket/`, `gradium/`, `phonon/`, `mistral/`, `deepgram/`, `tone/`, `audiofile/`), each specced by `specs/modules/<backend>.md`.
   - `examples/` — one complete config file per module (`config.<type>.json`), so no module reads as the default; see [configuration.md](configuration.md).
   - `specs/` — pre-implementation design docs, one per concept (this folder), indexed by [_index.md](_index.md).
   - `plans/` — implementation plans turning settled specs into buildable steps, indexed by [_index.md](../plans/_index.md).
@@ -67,8 +67,9 @@ Extras (`[project.optional-dependencies]`):
 | `gradium` | Provider | `gradium` (official async SDK; pulls in `aiohttp`) | [gradium-module.md](modules/gradium.md) |
 | `phonon` | Provider | `ptts` (Rust runtime, numpy only, no torch) | [phonon-module.md](modules/phonon.md) |
 | `mistral` | Provider | `mistralai>=3.5,<4` (official SDK; pulls in `httpx`, `pydantic`) | [mistral-module.md](modules/mistral.md) |
+| `deepgram` | Provider | `deepgram-sdk>=7.15,<8` (official SDK; pulls in `httpx`, `pydantic`, `websockets`) | [deepgram-module.md](modules/deepgram.md) |
 | `mcp` | Transport | `mcp<2` (MCP Python SDK: FastMCP, StreamableHTTP transport), `uvicorn` (ASGI server) | [mcp-server.md](mcp-server.md) |
-| `all` | — | `tts-engine[elevenlabs,pocket,gradium,phonon,mistral,mcp]` — every extra | — |
+| `all` | — | `tts-engine[elevenlabs,pocket,gradium,phonon,mistral,deepgram,mcp]` — every extra | — |
 
 `mcp` is pinned below 2: mcp 2.x renamed `FastMCP` (`mcp.server.fastmcp` is gone), which `mcp.py` imports, and an unpinned fresh install resolves 2.x. It is the plain SDK, not `mcp[cli]`: the `cli` extra only adds `typer`/`python-dotenv` for the SDK's own `mcp dev`/`mcp install` tooling, which this project does not use. `uvicorn` is listed explicitly even though the SDK depends on it, because `mcp_server_cli.py` imports it directly.
 
@@ -94,7 +95,7 @@ Modules pull in third-party libraries of wildly different weight — the ElevenL
   ```
 
   The registry stays static and `load_module` keeps importing fine; construction fails — with an actionable message — only when you actually select a backend whose extra isn't installed.
-- **The library imports cleanly without any extra.** A subprocess guard test (`tests/modules/test_lazy_imports.py`) poisons `elevenlabs`, `miniaudio`, `pocket_tts`, `torch`, `gradium`, `aiohttp`, `ptts`, and `mistralai` in `sys.modules`, then proves `import tts_engine` and the registry still load and that constructing each provider raises the `ConfigError` hint. Real-provider coverage lives in the opt-in `tests-e2e/` tier and skips cleanly when the extra or the key is absent (see [testing.md](testing.md)); the fixture modules give that tier something that always runs.
+- **The library imports cleanly without any extra.** A subprocess guard test (`tests/modules/test_lazy_imports.py`) poisons `elevenlabs`, `miniaudio`, `pocket_tts`, `torch`, `gradium`, `aiohttp`, `ptts`, `mistralai`, and `deepgram` in `sys.modules`, then proves `import tts_engine` and the registry still load and that constructing each provider raises the `ConfigError` hint. Real-provider coverage lives in the opt-in `tests-e2e/` tier and skips cleanly when the extra or the key is absent (see [testing.md](testing.md)); the fixture modules give that tier something that always runs.
 
 ## Dependency strategy for transports
 
@@ -111,7 +112,7 @@ A transport is an interface onto the engine, not the engine itself (see [overvie
 Linux (x86_64 and arm64), macOS (Apple Silicon) and Windows (x86_64). The library is pure Python over `sounddevice` and `numpy`, with no platform branch in `src/`; paths go through `pathlib` (`resolve_path`). The fast tier runs on all four in CI; the live tier runs in CI on Linux x86_64 only and locally on macOS, the development machine — so Windows playback through `AudioPlayer` is supported but not exercised by CI (see [ci.md](ci.md), "The runners").
 
 - **Linux arm64** (Graviton, Raspberry Pi, Docker on Apple Silicon): every extra installs, but `miniaudio` (the `elevenlabs` extra) ships no arm64 wheel and builds from its sdist, so the host needs a C compiler. torch has arm64 wheels on both PyPI and the CPU index.
-- **Intel macOS: partial.** The base install and the `elevenlabs`, `gradium`, `mistral`, `phonon` and `mcp` extras install from wheels (`ptts`, behind `phonon`, needs an AVX2 CPU on x86) and run the same Python CI tests on Apple Silicon; the `pocket` extra does not install, because PyTorch publishes no x86_64 macOS wheel after torch 2.2 ([modules/pocket.md](modules/pocket.md)). As a consequence `uv sync --dev` — whose `tts-engine[all]` includes `pocket` — does not work there, so Intel macOS is a consumer platform, not a contributor one, and has no CI entry. Intel Macs are at the end of Apple's support (macOS 26 is their last release), so the dev group is not carved up for them.
+- **Intel macOS: partial.** The base install and the `elevenlabs`, `gradium`, `mistral`, `deepgram`, `phonon` and `mcp` extras install from wheels (`ptts`, behind `phonon`, needs an AVX2 CPU on x86) and run the same Python CI tests on Apple Silicon; the `pocket` extra does not install, because PyTorch publishes no x86_64 macOS wheel after torch 2.2 ([modules/pocket.md](modules/pocket.md)). As a consequence `uv sync --dev` — whose `tts-engine[all]` includes `pocket` — does not work there, so Intel macOS is a consumer platform, not a contributor one, and has no CI entry. Intel Macs are at the end of Apple's support (macOS 26 is their last release), so the dev group is not carved up for them.
 
 ## System dependencies
 

@@ -52,7 +52,7 @@ On a runner with no sound hardware, `AudioPlayer` would find no output device an
 
 ### Secrets and expected skips
 
-- **No secret is required.** Every job is green with none. The ElevenLabs, Gradium and Mistral keys are optional repository secrets, mapped onto `ELEVENLABS_API_KEY` / `GRADIUM_API_KEY` / `MISTRAL_API_KEY` for the live step only; set, those providers' rows run; absent — or on a fork's pull request, which never receives a secret — the variables are empty and `require_module` skips the rows ([testing.md](testing.md), "Live tier: skip without credentials").
+- **No secret is required.** Every job is green with none. The ElevenLabs, Gradium, Mistral and Deepgram keys are optional repository secrets, mapped onto `ELEVENLABS_API_KEY` / `GRADIUM_API_KEY` / `MISTRAL_API_KEY` / `DEEPGRAM_API_KEY` for the live step only; set, those providers' rows run; absent — or on a fork's pull request, which never receives a secret — the variables are empty and `require_module` skips the rows ([testing.md](testing.md), "Live tier: skip without credentials").
 - **Expected skips.** A skip is not a pass. In the `fast-tier` jobs nothing skips. In the `e2e` job the following skip by design, and any other skip in the job log is an environment regression to investigate:
 
 | Skips in `e2e` | Why |
@@ -60,6 +60,7 @@ On a runner with no sound hardware, `AudioPlayer` would find no output device an
 | every `test_modules.py` scenario's `[elevenlabs]` row | only when the `ELEVENLABS_API_KEY` secret is absent (or on a fork's pull request) |
 | every `test_modules.py` scenario's `[gradium]` row | only when the `GRADIUM_API_KEY` secret is absent (or on a fork's pull request) |
 | every `test_modules.py` scenario's `[mistral]` row | only when the `MISTRAL_API_KEY` secret is absent (or on a fork's pull request) |
+| every `test_modules.py` scenario's `[deepgram]` row | only when the `DEEPGRAM_API_KEY` secret is absent (or on a fork's pull request) |
 
 `pocket`, `phonon`, `tone`, `audiofile` and the MCP test never skip in CI: their extras come with the `dev` group and they need no key.
 

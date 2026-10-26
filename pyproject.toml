@@ -39,20 +39,26 @@ gradium = [
 mistral = [
     "mistralai>=3.5,<4",
 ]
-# The MCP server (tts-engine-mcp). The plain SDK, not mcp[cli]: the cli extra
-# only serves the SDK's own `mcp dev` tooling. uvicorn is imported directly.
-# <2: mcp 2.x renamed FastMCP (mcp.server.fastmcp is gone).
+# The official SDK (Fern-generated, sync websockets client); linear16 PCM, so no
+# codec. <8: the 7.x major is the speak.v1 socket API the module drives — see
+# specs/modules/deepgram.md.
+deepgram = [
+    "deepgram-sdk>=7.15,<8",
+]
 # Gradium's Phonon on-device models through the ptts Rust runtime: numpy only,
 # no torch. <0.5: pre-1.0 and fast-moving, validated on 0.4.2 — see specs/modules/phonon.md.
 phonon = [
     "ptts>=0.4.2,<0.5",
 ]
+# The MCP server (tts-engine-mcp). The plain SDK, not mcp[cli]: the cli extra
+# only serves the SDK's own `mcp dev` tooling. uvicorn is imported directly.
+# <2: mcp 2.x renamed FastMCP (mcp.server.fastmcp is gone).
 mcp = [
     "mcp<2",
     "uvicorn",
 ]
 all = [
-    "tts-engine[elevenlabs,pocket,gradium,phonon,mistral,mcp]",
+    "tts-engine[elevenlabs,pocket,gradium,phonon,mistral,deepgram,mcp]",
 ]
 
 [dependency-groups]
@@ -98,6 +104,11 @@ filterwarnings = [
     # defined, so importing the SDK warns. Upstream, harmless; scoped to that
     # module and message so any other DeprecationWarning still shows.
     "ignore:ast\\.\\w+ is deprecated:DeprecationWarning:jsonpath.jsonpath",
+    # deepgram-sdk 7.x imports websockets' deprecated legacy client and
+    # InvalidStatusCode as fallbacks when its package loads (the module drives
+    # the modern sync client). Upstream, harmless; scoped to those messages.
+    "ignore:websockets\\.legacy is deprecated:DeprecationWarning",
+    "ignore:websockets\\.exceptions\\.InvalidStatusCode is deprecated:DeprecationWarning",
 ]
 
 [tool.ruff]

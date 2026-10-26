@@ -119,4 +119,5 @@ jobs:
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           GRADIUM_API_KEY: ${{ secrets.GRADIUM_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
         run: uv run pytest tests-e2e -rs -o log_cli=true --log-cli-level=WARNING

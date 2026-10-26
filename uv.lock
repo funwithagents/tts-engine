@@ -434,6 +434,22 @@ wheels = [
 ]
 
 [[package]]
+name = "deepgram-sdk"
+version = "7.15.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "pydantic-core" },
+    { name = "typing-extensions" },
+    { name = "websockets" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bf/db/95530a124af5a35199c91e49f4efd52a0cb9729daaf870da387530825796/deepgram_sdk-7.15.0.tar.gz", hash = "sha256:884aea06682af0c21d47a04d867e87c9c9133cddd1bf6b35d133dc073426b0c8", size = 256470, upload-time = "2026-10-23T14:44:52.238Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/57/37/d274a0c1715157eba17726e8de9ab7ed077c4268856ea504500b14d69615/deepgram_sdk-7.15.0-py3-none-any.whl", hash = "sha256:9fd0632dc8cc35333910fb4e797bdf9517e873c0e630506fdee1731054bda83e", size = 668452, upload-time = "2026-10-23T14:44:50.657Z" },
+]
+
+[[package]]
 name = "einops"
 version = "0.8.2"
 source = { registry = "https://pypi.org/simple" }
@@ -2395,6 +2411,7 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
+    { name = "deepgram-sdk" },
     { name = "elevenlabs" },
     { name = "gradium" },
     { name = "mcp" },
@@ -2403,6 +2420,9 @@ all = [
     { name = "pocket-tts" },
     { name = "ptts" },
     { name = "uvicorn" },
+]
+deepgram = [
+    { name = "deepgram-sdk" },
 ]
 elevenlabs = [
     { name = "elevenlabs" },
@@ -2439,6 +2459,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "deepgram-sdk", marker = "extra == 'deepgram'", specifier = ">=7.15,<8" },
     { name = "elevenlabs", marker = "extra == 'elevenlabs'" },
     { name = "gradium", marker = "extra == 'gradium'", specifier = ">=0.6" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = "<2" },
@@ -2448,10 +2469,10 @@ requires-dist = [
     { name = "pocket-tts", marker = "extra == 'pocket'", specifier = ">=4.0.1,<5" },
     { name = "ptts", marker = "extra == 'phonon'", specifier = ">=0.4.2,<0.5" },
     { name = "sounddevice" },
-    { name = "tts-engine", extras = ["elevenlabs", "pocket", "gradium", "phonon", "mistral", "mcp"], marker = "extra == 'all'" },
+    { name = "tts-engine", extras = ["elevenlabs", "pocket", "gradium", "phonon", "mistral", "deepgram", "mcp"], marker = "extra == 'all'" },
     { name = "uvicorn", marker = "extra == 'mcp'" },
 ]
-provides-extras = ["elevenlabs", "pocket", "gradium", "mistral", "phonon", "mcp", "all"]
+provides-extras = ["elevenlabs", "pocket", "gradium", "mistral", "deepgram", "phonon", "mcp", "all"]
 
 [package.metadata.requires-dev]
 dev = [

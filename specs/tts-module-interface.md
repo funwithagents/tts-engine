@@ -99,11 +99,11 @@ class TTSModule(ABC):
         """
 ```
 
-Both methods are abstract: every module implements both. A backend whose API accepts text incrementally (a WebSocket that takes repeated text messages before an end-of-stream marker — Gradium, ElevenLabs) implements `synthesize_text_stream` as a true stream-to-stream pass: pieces go to the backend as they arrive and audio comes back while more text is still being received. A backend that needs a complete prompt before it can produce any audio (a local model conditioned on the whole text — pocket; a request/response API — mistral; a fixture matching whole sentences — audiofile) **groups the pieces into sentences** and synthesizes each sentence as soon as it is complete, so audio for sentence one plays while the stream is still delivering sentence two. The grouping is the module's own concern, done with the shared `segment_sentences` helper (below) — the engine never cuts text. Which shape a module uses is stated in its own spec.
+Both methods are abstract: every module implements both. A backend whose API accepts text incrementally (a WebSocket that takes repeated text messages before an end-of-stream marker — Gradium, ElevenLabs, Deepgram) implements `synthesize_text_stream` as a true stream-to-stream pass: pieces go to the backend as they arrive and audio comes back while more text is still being received. A backend that needs a complete prompt before it can produce any audio (a local model conditioned on the whole text — pocket; a request/response API — mistral; a fixture matching whole sentences — audiofile) **groups the pieces into sentences** and synthesizes each sentence as soon as it is complete, so audio for sentence one plays while the stream is still delivering sentence two. The grouping is the module's own concern, done with the shared `segment_sentences` helper (below) — the engine never cuts text. Which shape a module uses is stated in its own spec.
 
 ## Module registry
 
-Each backend is a **package of its own** under `src/tts_engine/modules/` — `elevenlabs/`, `pocket/`, `gradium/`, `phonon/`, `mistral/`, `tone/`, `audiofile/` — never a loose file next to `base.py`. The `TTSModule` subclass lives in `<backend>/module.py` and the package `__init__.py` re-exports it, so `from tts_engine.modules.<backend> import <Class>` is the import path everywhere (registry, tests, callers). Each backend is specced by `specs/modules/<backend>.md`.
+Each backend is a **package of its own** under `src/tts_engine/modules/` — `elevenlabs/`, `pocket/`, `gradium/`, `phonon/`, `mistral/`, `deepgram/`, `tone/`, `audiofile/` — never a loose file next to `base.py`. The `TTSModule` subclass lives in `<backend>/module.py` and the package `__init__.py` re-exports it, so `from tts_engine.modules.<backend> import <Class>` is the import path everywhere (registry, tests, callers). Each backend is specced by `specs/modules/<backend>.md`.
 
 `modules/__init__.py` maintains a `REGISTRY` dict mapping type strings to module classes:
 
@@ -114,6 +114,7 @@ REGISTRY: dict[str, type[TTSModule]] = {
     "phonon": PhononModule,  # provider, behind the `phonon` extra
     "gradium": GradiumModule,  # provider, behind the `gradium` extra
     "mistral": MistralModule,  # provider, behind the `mistral` extra
+    "deepgram": DeepgramModule,  # provider, behind the `deepgram` extra
     "tone": ToneModule,  # fixture, base install
     "audiofile": AudioFileModule,  # fixture, base install
 }
@@ -127,7 +128,7 @@ There is **no default module**. `type` is required, and no module is privileged 
 
 | Kind | Modules | Installed by | Purpose |
 |---|---|---|---|
-| **Provider** (API-backed) | `elevenlabs`, `gradium`, `mistral` | the `elevenlabs` / `gradium` / `mistral` extra | Real speech from a cloud API |
+| **Provider** (API-backed) | `elevenlabs`, `gradium`, `mistral`, `deepgram` | the `elevenlabs` / `gradium` / `mistral` / `deepgram` extra | Real speech from a cloud API |
 | **Provider** (local model) | `pocket`, `phonon` | the `pocket` / `phonon` extra | Real speech from an in-process model |
 | **Fixture** | `tone`, `audiofile` | base install | No synthesis; deterministic audio for tests, demos, and downstream integration suites |
 
