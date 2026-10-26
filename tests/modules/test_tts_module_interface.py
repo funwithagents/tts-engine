@@ -1,10 +1,18 @@
+import asyncio
 from pathlib import Path
 
 import pytest
 
 from tts_engine.config import ConfigError
 from tts_engine.modules import REGISTRY, load_module
-from tts_engine.modules.base import TTSModule, TTSOptions, resolve_path
+from tts_engine.modules.base import (
+    TTSError,
+    TTSModule,
+    TTSOptions,
+    resolve_path,
+    run_text_stream_worker,
+    segment_sentences,
+)
 
 
 def test_load_module_unknown_type_raises():
@@ -21,7 +29,10 @@ def test_load_module_registered_type():
         def sample_rate(self) -> int:
             return 44100
 
-        async def stream(self, text, options, callback):
+        async def synthesize_text(self, text, options, callback):
+            pass
+
+        async def synthesize_text_stream(self, text_stream, options, callback):
             pass
 
     REGISTRY["_stub_test"] = StubModule
@@ -53,3 +64,155 @@ def test_resolve_path_relative_joins_base_dir():
 def test_resolve_path_relative_without_base_dir_uses_cwd(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert resolve_path({"type": "x"}, "a.wav") == Path.cwd() / "a.wav"
+
+
+# --- segment_sentences -------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "pieces, expected",
+    [
+        (["Hello. ", "World"], ["Hello.", "World"]),
+        (
+            ["Hel", "lo world! How", " are you? Fine"],
+            ["Hello world!", "How are you?", "Fine"],
+        ),
+        (
+            ["Pi is 3.14 and v2.5 ships. ", "Next"],
+            ["Pi is 3.14 and v2.5 ships.", "Next"],
+        ),
+        (["First line\nSecond line"], ["First line", "Second line"]),
+        (['He said "Go." Then left'], ['He said "Go."', "Then left"]),
+        (["   ", "", "Only one"], ["Only one"]),
+        (["Done."], ["Done."]),
+        ([], []),
+    ],
+)
+def test_segment_sentences_cuts_at_sentence_ends(pieces, expected):
+    assert list(segment_sentences(pieces)) == expected
+
+
+def test_segment_sentences_forces_a_cut_past_max_chars_at_a_clause_boundary():
+    out = list(segment_sentences(["alpha beta, gamma delta epsilon"], max_chars=20))
+    assert out == ["alpha beta,", "gamma delta epsilon"]
+
+
+def test_segment_sentences_forces_a_cut_at_whitespace_without_clause_boundary():
+    out = list(segment_sentences(["alpha ", "beta ", "gamma ", "delta"], max_chars=12))
+    assert out == ["alpha beta gamma", "delta"]
+
+
+def test_segment_sentences_never_cuts_inside_a_word():
+    out = list(segment_sentences(["x" * 300, " tail."], max_chars=20))
+    assert out == ["x" * 300, "tail."]
+
+
+def test_segment_sentences_yields_a_sentence_before_consuming_the_next_piece():
+    consumed: list[str] = []
+
+    def pieces():
+        for piece in ["Hello. ", "World"]:
+            consumed.append(piece)
+            yield piece
+
+    gen = segment_sentences(pieces())
+    assert next(gen) == "Hello."
+    assert consumed == ["Hello. "]
+
+
+# --- run_text_stream_worker --------------------------------------------------
+
+
+def _blocking_source(closed: list[bool]):
+    """A source that yields one piece, then blocks until cancelled; records
+    (in `closed`) that its finally block ran."""
+
+    async def source():
+        try:
+            yield "a"
+            await asyncio.Event().wait()
+        finally:
+            closed.append(True)
+
+    return source()
+
+
+async def test_text_stream_worker_receives_pieces_in_order_without_empties():
+    async def source():
+        for piece in ["a", "", "b", "c"]:
+            yield piece
+
+    seen: list[str] = []
+    await run_text_stream_worker(source(), lambda pieces, stop: seen.extend(pieces))
+    assert seen == ["a", "b", "c"]
+
+
+async def test_text_stream_worker_source_error_aborts_and_propagates_unchanged():
+    loop = asyncio.get_running_loop()
+    got_first = asyncio.Event()
+
+    async def source():
+        yield "a"
+        await got_first.wait()
+        raise RuntimeError("llm failed")
+
+    seen: list[str] = []
+    stopped_at_exit = False
+
+    def worker(pieces, stop):
+        nonlocal stopped_at_exit
+        for piece in pieces:
+            seen.append(piece)
+            loop.call_soon_threadsafe(got_first.set)
+        stopped_at_exit = stop.is_set()
+        # A backend seeing its text end abruptly may fail; the source's error
+        # is still the one reported.
+        raise TTSError("stream ended early")
+
+    with pytest.raises(RuntimeError, match="llm failed"):
+        await run_text_stream_worker(source(), worker)
+    assert seen == ["a"]
+    assert stopped_at_exit is True
+
+
+async def test_text_stream_worker_failure_closes_the_source_and_propagates():
+    closed: list[bool] = []
+
+    def worker(pieces, stop):
+        next(pieces)
+        raise TTSError("boom")
+
+    with pytest.raises(TTSError, match="boom"):
+        await run_text_stream_worker(_blocking_source(closed), worker)
+    assert closed == [True]
+
+
+async def test_text_stream_worker_returning_early_closes_the_source():
+    closed: list[bool] = []
+
+    def worker(pieces, stop):
+        next(pieces)
+
+    await run_text_stream_worker(_blocking_source(closed), worker)
+    assert closed == [True]
+
+
+async def test_text_stream_worker_cancel_waits_for_the_thread_then_raises():
+    loop = asyncio.get_running_loop()
+    closed: list[bool] = []
+    started = asyncio.Event()
+    exited = False
+
+    def worker(pieces, stop):
+        nonlocal exited
+        for _piece in pieces:  # ends when stop is set
+            loop.call_soon_threadsafe(started.set)
+        exited = True
+
+    task = asyncio.create_task(run_text_stream_worker(_blocking_source(closed), worker))
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert exited is True
+    assert closed == [True]

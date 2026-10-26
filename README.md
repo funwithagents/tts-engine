@@ -1,6 +1,6 @@
 # tts-engine
 
-A streaming text-to-speech engine for Python. Choose a TTS module, construct a `TTSEngine`, and call `await engine.say(text)`.
+A streaming text-to-speech engine for Python. Choose a TTS module, construct a `TTSEngine`, and call `await engine.say(text)`, or `await engine.say_stream(text_stream)` to speak an LLM response while it is still being generated.
 
 Audio is synthesized and consumed chunk by chunk, minimizing the delay before playback begins. Speech comes from a provider module you install as an extra: the ElevenLabs or Gradium cloud APIs, or the local pocket-tts model. There is no default provider. Two built-in fixture modules, `tone` and `audiofile`, stand in for a provider in tests and demos. By default, audio plays on the machine running the engine; applications can instead provide their own audio sink to capture or route the PCM stream.
 
@@ -72,15 +72,15 @@ No server or protocol is involved. The text is synthesized through the configure
 The reusable core has three parts:
 
 ```text
-text → TTSEngine.say() → TTSModule → AudioSink
-                                      └─ AudioPlayer by default
+text        → TTSEngine.say()        → TTSModule → AudioSink
+text stream → TTSEngine.say_stream() ↗                 └─ AudioPlayer by default
 ```
 
-- `TTSEngine` owns the selected module and audio sink and exposes `say(text)`.
+- `TTSEngine` owns the selected module and audio sink and exposes `say(text)` for a complete text and `say_stream(text_stream)` for text arriving over time.
 - A `TTSModule` connects the engine to one synthesis backend. Exactly one module is selected when the engine is constructed.
 - An `AudioSink` consumes the streaming PCM chunks. The built-in `AudioPlayer` sends them to the local audio device.
 
-The module declares its output sample rate, and the engine configures the default player to match it. Calls to `say()` on the same engine are serialized, and each call returns after the sink has been drained.
+The module declares its output sample rate, and the engine configures the default player to match it. Calls to `say()` and `say_stream()` on the same engine are serialized, and each call returns after the sink has been drained.
 
 ## Configuring an engine
 
@@ -301,11 +301,27 @@ Paths are absolute or relative to `base_dir` (the config file's directory when l
 To add another synthesis backend:
 
 1. Create a package `src/tts_engine/modules/<name>/` (one folder per backend) with the class extending `TTSModule` from [`src/tts_engine/modules/base.py`](src/tts_engine/modules/base.py) in `module.py`, re-exported from its `__init__.py`. A provider with third-party dependencies should put them behind its own packaging extra and import them inside `__init__`, raising `ConfigError` when they are missing. Resolve file-path fields with `resolve_path(config, value)`.
-2. Implement `sample_rate` and `async stream(text, options, callback)`. The callback receives signed 16-bit little-endian mono PCM chunks.
+2. Implement `sample_rate`, `async synthesize_text(text, options, callback)` and `async synthesize_text_stream(text_stream, options, callback)`. The callback receives signed 16-bit little-endian mono PCM chunks. For the text stream, a backend with an incremental API forwards the pieces as they arrive; one that needs a whole prompt groups them into sentences with `segment_sentences` and synthesizes each sentence as soon as it is complete (see `tone`, `audiofile` and `pocket` for the shapes, and `run_text_stream_worker` in `base.py` for the async-source-to-worker-thread bridge).
 3. Register the class under a type name in [`src/tts_engine/modules/__init__.py`](src/tts_engine/modules/__init__.py).
 4. Select it with `{"module": {"type": "your-module", ...}}` in the engine configuration.
 
 The engine and its integrations require no backend-specific changes.
+
+## Speak an LLM response as it streams
+
+`say_stream` takes an async iterable of text pieces and starts playing before the text is complete, so an LLM answer is heard as it is written rather than after the last token:
+
+```python
+async def llm_tokens():
+    async with llm_client.messages.stream(...) as stream:  # any async token source
+        async for token in stream.text_stream:
+            yield token
+
+
+await engine.say_stream(llm_tokens())
+```
+
+Pieces are concatenated verbatim (tokens carry their own spaces). The ElevenLabs and Gradium modules forward the text to their realtime sockets as it arrives; `pocket` and `audiofile` synthesize sentence by sentence as each one completes; `tone` plays a tone per piece. A plain list is accepted for in-memory sequences, and a bare string is rejected. If the text source raises, playback stops and that exception propagates unchanged. A long pause in the source is heard as silence, not an error.
 
 ## Audio output and custom sinks
 

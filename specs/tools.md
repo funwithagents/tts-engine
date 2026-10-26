@@ -71,4 +71,8 @@ Tools do not raise for expected error conditions (empty input, provider failure)
 
 ## Open questions
 
-None currently. Additional tools (e.g. a future `synthesize` for file output) would follow the same shape, but none are in v1 scope (see [overview.md](overview.md), "Non-goals").
+Deferrals only:
+
+1. **Streaming text input over tools/MCP.** The engine accepts a text stream (`TTSEngine.say_stream`, see [architecture.md](architecture.md), "From a text stream"), but a tool call carries one complete JSON argument, so there is no `say_stream` tool. An application that streams an LLM response into speech calls the engine directly, in-process. If an MCP client ever needs it, the shape would be a stateful trio (`say_begin` / `say_append(text)` / `say_end`) holding an open utterance between calls — not pursued until there is a concrete client.
+
+Additional tools (e.g. a future `synthesize` for file output) would follow the same shape, but none are in v1 scope (see [overview.md](overview.md), "Non-goals").

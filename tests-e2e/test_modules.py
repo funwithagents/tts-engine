@@ -1,6 +1,6 @@
 """Per-module live conformance, driven engine-direct (no MCP server).
 
-Parametrized over ``MODULES`` in ``support`` — every backend runs both scenarios
+Parametrized over ``MODULES`` in ``support`` — every backend runs three scenarios
 with its own config:
 
 - ``test_module_say_produces_pcm`` — synthesize into an injected ``AudioSink``
@@ -9,6 +9,9 @@ with its own config:
 - ``test_module_say_completes`` — the same synthesis played through the real
   ``AudioPlayer`` (the default sink), exercising the output stream opened at the
   module's declared sample rate. Needs audio hardware.
+- ``test_module_say_stream_produces_pcm`` — ``say_stream`` fed from a small
+  async source of text pieces into an injected ``AudioSink``; whole PCM, drained
+  once for the whole stream. No audio hardware.
 
 The MCP transport is module-agnostic and covered once in ``test_mcp.py``.
 
@@ -56,3 +59,34 @@ async def test_module_say_completes(module_type: str, module_config: dict) -> No
     engine = TTSEngine(engine_cfg)
 
     await engine.say("Hello directly from the TTS engine")
+
+
+@pytest.mark.parametrize("module_type, module_config", MODULES)
+async def test_module_say_stream_produces_pcm(
+    module_type: str, module_config: dict
+) -> None:
+    # The text-stream input shape against the real backend: a few pieces, two
+    # sentences, one split mid-word, so both the native (socket) and the
+    # sentence-grouping modules are exercised. Assert robust properties only:
+    # PCM was produced, in whole int16 samples, drained once for the whole
+    # stream. Needs no audio hardware.
+    require_module(module_type, module_config)
+
+    async def pieces():
+        for piece in [
+            "Hello directly ",
+            "from the TTS engine. ",
+            "This is the sec",
+            "ond sentence.",
+        ]:
+            yield piece
+
+    sink = CaptureSink()
+    engine_cfg = TTSEngineConfig.from_dict(engine_block(module_type, module_config))
+    engine = TTSEngine(engine_cfg, sink=sink)
+
+    await engine.say_stream(pieces())
+
+    assert len(sink.data) > 0
+    assert len(sink.data) % 2 == 0  # whole signed-16-bit samples
+    assert sink.drains == 1

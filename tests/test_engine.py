@@ -13,7 +13,8 @@ from tts_engine.modules.base import TTSError, TTSOptions
 @pytest.fixture
 def mock_module():
     module = MagicMock()
-    module.stream = AsyncMock()
+    module.synthesize_text = AsyncMock()
+    module.synthesize_text_stream = AsyncMock()
     return module
 
 
@@ -36,8 +37,8 @@ def engine(mock_module, mock_player, mocker):
 async def test_say_calls_stream_with_text_and_options(engine, mock_module, mock_player):
     await engine.say("hello world")
 
-    mock_module.stream.assert_awaited_once()
-    args, kwargs = mock_module.stream.call_args
+    mock_module.synthesize_text.assert_awaited_once()
+    args, kwargs = mock_module.synthesize_text.call_args
     assert args[0] == "hello world"
     assert isinstance(args[1], TTSOptions)
     assert kwargs.get("callback") == mock_player.feed
@@ -47,13 +48,13 @@ async def test_say_calls_stream_with_text_and_options(engine, mock_module, mock_
 async def test_say_calls_drain_after_stream(engine, mock_module, mock_player):
     await engine.say("hello")
 
-    mock_module.stream.assert_awaited_once()
+    mock_module.synthesize_text.assert_awaited_once()
     mock_player.drain.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_say_calls_drain_even_on_tts_error(engine, mock_module, mock_player):
-    mock_module.stream.side_effect = TTSError("synthesis failed")
+    mock_module.synthesize_text.side_effect = TTSError("synthesis failed")
 
     with pytest.raises(TTSError):
         await engine.say("hello")
@@ -63,7 +64,7 @@ async def test_say_calls_drain_even_on_tts_error(engine, mock_module, mock_playe
 
 @pytest.mark.asyncio
 async def test_say_propagates_tts_error_after_drain(engine, mock_module, mock_player):
-    mock_module.stream.side_effect = TTSError("synthesis failed")
+    mock_module.synthesize_text.side_effect = TTSError("synthesis failed")
 
     with pytest.raises(TTSError, match="synthesis failed"):
         await engine.say("hello")
@@ -83,7 +84,7 @@ async def test_concurrent_say_calls_are_serialized(engine, mock_module, mock_pla
         await asyncio.sleep(0)
         active -= 1
 
-    mock_module.stream.side_effect = stream
+    mock_module.synthesize_text.side_effect = stream
 
     await asyncio.gather(engine.say("first"), engine.say("second"))
 
@@ -130,7 +131,7 @@ async def test_injected_sink_receives_chunks_and_one_drain(
     engine_with_sink, mock_module
 ):
     engine, sink, _ = engine_with_sink
-    mock_module.stream.side_effect = _feeding_stream(b"\x01\x00", b"\x02\x00")
+    mock_module.synthesize_text.side_effect = _feeding_stream(b"\x01\x00", b"\x02\x00")
 
     await engine.say("hello")
 
@@ -141,7 +142,7 @@ async def test_injected_sink_receives_chunks_and_one_drain(
 @pytest.mark.asyncio
 async def test_injected_sink_drained_once_on_tts_error(engine_with_sink, mock_module):
     engine, sink, _ = engine_with_sink
-    mock_module.stream.side_effect = TTSError("synthesis failed")
+    mock_module.synthesize_text.side_effect = TTSError("synthesis failed")
 
     with pytest.raises(TTSError):
         await engine.say("hello")
@@ -158,7 +159,7 @@ async def test_injected_sink_drained_once_on_cancellation(
     async def cancelling_stream(text, options, callback):
         raise asyncio.CancelledError
 
-    mock_module.stream.side_effect = cancelling_stream
+    mock_module.synthesize_text.side_effect = cancelling_stream
 
     with pytest.raises(asyncio.CancelledError):
         await engine.say("hello")
@@ -186,7 +187,7 @@ def test_sample_rate_exposes_module_rate(mock_module, mocker):
 @pytest.mark.asyncio
 async def test_constructor_wires_module_and_player_from_config(mocker):
     fake_module = MagicMock()
-    fake_module.stream = AsyncMock()
+    fake_module.synthesize_text = AsyncMock()
     fake_module.sample_rate = 24000
     fake_player = MagicMock()
     load_module = mocker.patch(
@@ -207,6 +208,100 @@ async def test_constructor_wires_module_and_player_from_config(mocker):
 
     # The engine drives the config's module and player.
     await engine.say("hi")
-    fake_module.stream.assert_awaited_once()
-    assert fake_module.stream.call_args.kwargs["callback"] == fake_player.feed
+    fake_module.synthesize_text.assert_awaited_once()
+    assert fake_module.synthesize_text.call_args.kwargs["callback"] == fake_player.feed
     fake_player.drain.assert_called_once()
+
+
+# --- say_stream --------------------------------------------------------------
+
+
+def _consuming_stream(received: list[str], *chunks: bytes):
+    """A fake synthesize_text_stream: drains the source into `received`, then
+    feeds the given chunks."""
+
+    async def consume(text_stream, options, callback):
+        async for piece in text_stream:
+            received.append(piece)
+        for chunk in chunks:
+            callback(chunk)
+
+    return consume
+
+
+@pytest.mark.asyncio
+async def test_say_stream_passes_an_async_iterator_of_pieces_to_the_module(
+    engine, mock_module, mock_player
+):
+    received: list[str] = []
+    mock_module.synthesize_text_stream.side_effect = _consuming_stream(
+        received, b"\x01\x00"
+    )
+
+    async def source():
+        yield "Hel"
+        yield "lo"
+
+    await engine.say_stream(source())
+
+    assert received == ["Hel", "lo"]
+    args, kwargs = mock_module.synthesize_text_stream.call_args
+    assert isinstance(args[1], TTSOptions)
+    assert kwargs.get("callback") == mock_player.feed
+    mock_player.feed.assert_called_once_with(b"\x01\x00")
+    mock_player.drain.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_say_stream_accepts_a_plain_iterable(engine, mock_module):
+    received: list[str] = []
+    mock_module.synthesize_text_stream.side_effect = _consuming_stream(received)
+
+    await engine.say_stream(["a", "b"])
+
+    assert received == ["a", "b"]
+
+
+@pytest.mark.asyncio
+async def test_say_stream_rejects_a_bare_string(engine, mock_module, mock_player):
+    with pytest.raises(TypeError):
+        await engine.say_stream("hello")
+
+    mock_module.synthesize_text_stream.assert_not_called()
+    mock_player.drain.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error", [TTSError("synthesis failed"), RuntimeError("llm failed")]
+)
+async def test_say_stream_drains_once_and_propagates_errors(
+    engine, mock_module, mock_player, error
+):
+    mock_module.synthesize_text_stream.side_effect = error
+
+    with pytest.raises(type(error), match=str(error)):
+        await engine.say_stream(["a"])
+
+    mock_player.drain.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_say_and_say_stream_share_one_lock(engine, mock_module, mock_player):
+    active = 0
+    maximum_active = 0
+
+    async def busy(*args, **kwargs):
+        nonlocal active, maximum_active
+        active += 1
+        maximum_active = max(maximum_active, active)
+        await asyncio.sleep(0)
+        active -= 1
+
+    mock_module.synthesize_text.side_effect = busy
+    mock_module.synthesize_text_stream.side_effect = busy
+
+    await asyncio.gather(engine.say("first"), engine.say_stream(["second"]))
+
+    assert maximum_active == 1
+    assert mock_player.drain.call_count == 2

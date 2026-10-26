@@ -70,7 +70,7 @@ class _ChunkSource(miniaudio.StreamableSource):
         return data
 
 
-async def stream(self, text, options, callback):
+async def synthesize_text(self, text, options, callback):
     def _blocking_stream(stop: threading.Event) -> None:
         # Build the provider request + decoder inside the TTSError boundary,
         # then loop: advance the decoder inside that boundary, invoke callback
@@ -81,7 +81,17 @@ async def stream(self, text, options, callback):
     await run_cancellable_worker(_blocking_stream)
 ```
 
-The ElevenLabs SDK streaming method is synchronous (returns an iterator). The entire decode-and-feed loop is wrapped in `asyncio.to_thread` to avoid blocking the event loop. Cancellation is cooperative via `run_cancellable_worker` (see [tts-module-interface.md](../tts-module-interface.md), "Cancellation"): the worker polls the stop flag between decoded chunks, and the coroutine waits for the thread to finish before propagating `CancelledError`, so no callback can occur after `stream()` exits.
+The ElevenLabs SDK streaming method is synchronous (returns an iterator). The entire decode-and-feed loop is wrapped in `asyncio.to_thread` to avoid blocking the event loop. Cancellation is cooperative via `run_cancellable_worker` (see [tts-module-interface.md](../tts-module-interface.md), "Cancellation"): the worker polls the stop flag between decoded chunks, and the coroutine waits for the thread to finish before propagating `CancelledError`, so no callback can occur after `synthesize_text()` exits.
+
+### Text stream: the stream-input WebSocket (native)
+
+`synthesize_text_stream` is a **true stream-to-stream** pass: it does not group the text into sentences. The SDK exposes the ElevenLabs *stream-input* WebSocket (`wss://…/v1/text-to-speech/{voice_id}/stream-input`) as `client.text_to_speech.convert_realtime(voice_id, *, text: Iterator[str], model_id, output_format, voice_settings) -> Iterator[bytes]`: a **synchronous** generator that pulls text pieces from the given iterator, sends them over the socket as they arrive, and yields MP3 chunks as the server returns them. The SDK's own `text_chunker` buffers the pieces to word/punctuation boundaries before sending, so sub-word LLM tokens never reach the server split.
+
+That shape fits the existing worker exactly: the module runs its blocking loop through `run_text_stream_worker` ([tts-module-interface.md](../tts-module-interface.md), "Text-stream helpers"), hands the bridge's blocking `pieces` iterator to `convert_realtime` as `text`, and feeds the resulting MP3 iterator through the **same** `_ChunkSource` + `miniaudio.stream_any` decode as `synthesize_text`, with the same `output_format="mp3_44100_128"`, `model_id` and `voice_settings`. The two methods share one decode-and-feed loop (`_decode_and_feed(raw_chunks, callback, stop)`): advance the decoder inside the `TTSError` boundary, call `callback` outside it, poll `stop` between chunks. Only the SDK call differs. `sample_rate` stays 44100.
+
+Error and cancellation rules are unchanged: SDK/socket/decoder failures become `TTSError("ElevenLabs request failed: …")`; callback failures propagate unchanged; a text-stream failure aborts via the bridge and propagates unchanged; cancellation stops the worker before `synthesize_text_stream` raises.
+
+**Known limitation, accepted for v1.** The SDK's generator polls the socket for audio only once per text piece sent, with a 10 ms timeout, then drains the rest after the final (empty) text message. With a slow text source, audio can therefore lag behind what the server has already produced until the stream ends. Measured on the live tier (plan `202610261140_streaming-text-input`): with a source paced at 60 ms per word, first audio arrived 0.7 s into the stream and the last audio 1.0 s after the last piece — no lag worth replacing the SDK loop for. See "Open questions".
 
 ### Dependencies and lazy import
 
@@ -101,7 +111,7 @@ except ImportError as exc:
     ) from exc
 ```
 
-Because `_ChunkSource` subclasses `miniaudio.StreamableSource`, that class cannot be defined at module top either. It is built by a small factory, `_make_chunk_source_class(miniaudio_module)`, called once in `__init__`; the constructor stores the imported `miniaudio` module, the `VoiceSettings` class, and the resulting adapter class on the instance for `stream()` to use. Nothing observable changes: `sample_rate`, config validation, streaming, and error handling are as specified above.
+Because `_ChunkSource` subclasses `miniaudio.StreamableSource`, that class cannot be defined at module top either. It is built by a small factory, `_make_chunk_source_class(miniaudio_module)`, called once in `__init__`; the constructor stores the imported `miniaudio` module, the `VoiceSettings` class, and the resulting adapter class on the instance for both synthesis methods to use. Nothing observable changes: `sample_rate`, config validation, streaming, and error handling are as specified above.
 
 ### Error handling
 
@@ -112,3 +122,10 @@ Because `_ChunkSource` subclasses `miniaudio.StreamableSource`, that class canno
 ## Module ID
 
 Registered in `REGISTRY` as `"elevenlabs"`.
+
+## Open questions
+
+Deferrals only (design is settled):
+
+1. **Own WebSocket loop for the text stream.** Not needed on current measurements (above). If a future SDK or a slower source ever shows a real audio lag, replace `convert_realtime` with a two-thread loop over the same socket — one sending text as it arrives, one receiving audio continuously — using `websockets.sync`, which the `elevenlabs` SDK already depends on (no new extra). Same decode path, same contract; only the transport loop changes.
+2. **PCM output for the stream.** The stream-input endpoint also serves `pcm_*` formats, which would drop the MP3 decode; MP3 is kept so both methods share one decode path and one declared rate.

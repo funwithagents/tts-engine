@@ -23,6 +23,7 @@ The MCP is one interface onto the engine, not the whole product. The engine, the
 - Expose the engine's capabilities as provider-agnostic **tools** (`say`), reusable independently of any transport
 - Ship an **MCP server** that exposes those tools over StreamableHTTP, deployable on a local network — installed through its own `mcp` extra, so the engine and tools carry no server dependencies
 - Stream audio from the provider to the audio device with minimal latency (playback starts before the full audio is received)
+- Accept text as a **stream** as well as a complete string (`engine.say_stream`), so an LLM response is spoken while it is still being generated — a backend with an incremental API forwards the text as it arrives; one that needs a whole prompt synthesizes sentence by sentence
 - Support pluggable TTS backends — API-backed (ElevenLabs) and local-model (pocket-tts) — behind one module contract, each behind its own extra, with **no default provider**
 - Stay runnable end to end with no provider installed, through fixture modules (`tone`, `audiofile`) meant for tests and demos, never presented as TTS
 - Keep configuration simple: one config file, one active module (logging is the entry point's concern, not the config file's)
@@ -61,6 +62,7 @@ cfg = MCPServerConfig.from_json_file("config.json")  # -> engine + server
 engine = TTSEngine(cfg.engine)  # builds module + player from config
 await engine.say("Hello world")  # raw engine call, or:
 await TTSTools(engine).say("Hello world")  # guarded, agent-friendly contract
+await engine.say_stream(llm_tokens())  # speak an async stream of text pieces as it arrives
 ```
 
 See [architecture.md](architecture.md) for the layer breakdown and [configuration.md](configuration.md) for the config shape.

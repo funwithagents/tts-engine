@@ -15,21 +15,21 @@ Read the concept specs in order — each builds on the ones above it. `project.m
 | Spec | Description | Status |
 |---|---|---|
 | [project.md](project.md) | Project structure and tooling: Python version, packaging with uv, ruff/pyright, layout, library-first shape, provider- and transport-agnostic base + one extra per provider and per transport (`mcp`), supported platforms (Linux x86_64/arm64, macOS, Windows; Intel macOS partial), CPU torch index on Linux | Implemented |
-| [testing.md](testing.md) | Testing strategy: two-tier `tests/`/`tests-e2e/` split, functional-test philosophy, skip-without-credentials live tier, per-module live conformance, `tone` as the live default module | Implemented |
+| [testing.md](testing.md) | Testing strategy: two-tier `tests/`/`tests-e2e/` split, functional-test philosophy, skip-without-credentials live tier, per-module live conformance (complete text and text stream), `tone` as the live default module | Implemented |
 | [ci.md](ci.md) | Continuous integration on GitHub's hosted runners: static gate, fast tier on Linux x86_64/arm64, macOS and Windows, live tier on Linux against a PulseAudio null sink, optional provider-key secrets, expected skips | Implemented |
 | [overview.md](overview.md) | Goals, components, constraints, non-goals — library + MCP framing | Stable |
-| [architecture.md](architecture.md) | System diagram, layers (engine/tools/mcp), concurrency model, data flow, `TTSEngine(config)` construction, public API | Implemented |
+| [architecture.md](architecture.md) | System diagram, layers (engine/tools/mcp), concurrency model, data flow for a complete text (`say`) and a text stream (`say_stream`), `TTSEngine(config)` construction, public API | Implemented |
 | [configuration.md](configuration.md) | Config file schema (`engine`/`server`), dataclasses, `MCPServerConfig`/`TTSEngineConfig` constructor trio with `base_dir`, reserved `module.base_dir` key, validation rules | Implemented |
 | [tools.md](tools.md) | The provider-agnostic tools layer: `TTSTools(engine).say(text)`, guards, return contract, agent-registrable bound methods | Implemented |
 | [mcp-server.md](mcp-server.md) | `mcp` extra + install hint, `say` tool, transport, lifecycle, error handling — thin wrappers over the tools layer | Implemented |
-| [tts-module-interface.md](tts-module-interface.md) | ABC, audio format contract (module-declared sample rate), module kinds (provider / fixture), registry with no default, `resolve_path`, `TTSOptions` | Implemented |
-| [elevenlabs-module.md](modules/elevenlabs.md) | API-backed provider: `elevenlabs` extra, lazy import, streaming MP3→PCM, config fields, error handling | Implemented |
-| [pocket-module.md](modules/pocket.md) | Local-model provider (pocket-tts): `pocket` extra, lazy import, native 24 kHz, device auto-detect, float→int16, `base_dir` for a voice `.wav` | Implemented |
-| [gradium-module.md](modules/gradium.md) | API-backed provider with an async SDK: `gradium` extra, lazy import, raw `pcm_<rate>` output (no decode), configurable sample rate, voice settings, private event loop in the cancellable worker | Implemented |
-| [tone-module.md](modules/tone.md) | Fixture module: sine tone proportional to text length; no key, no extra, no files; the live tier's default module | Implemented |
-| [audiofile-module.md](modules/audiofile.md) | Fixture module: text → WAV file list with a default file, 16-bit mono WAV validated at construction, paths relative to `base_dir` | Implemented |
+| [tts-module-interface.md](tts-module-interface.md) | ABC with two input shapes (`synthesize_text`, `synthesize_text_stream`), audio format contract (module-declared sample rate), module kinds (provider / fixture), registry with no default, `resolve_path`, `TTSOptions`, text-stream helpers (`run_text_stream_worker`, `segment_sentences`) | Implemented |
+| [elevenlabs-module.md](modules/elevenlabs.md) | API-backed provider: `elevenlabs` extra, lazy import, streaming MP3→PCM, native text stream over the stream-input WebSocket, config fields, error handling | Implemented |
+| [pocket-module.md](modules/pocket.md) | Local-model provider (pocket-tts): `pocket` extra, lazy import, native 24 kHz, device auto-detect, float→int16, sentence-grouped text stream, `base_dir` for a voice `.wav` | Implemented |
+| [gradium-module.md](modules/gradium.md) | API-backed provider with an async SDK: `gradium` extra, lazy import, raw `pcm_<rate>` output (no decode), configurable sample rate, voice settings, private event loop in the cancellable worker, native text stream (sender + receiver on one socket) | Implemented |
+| [tone-module.md](modules/tone.md) | Fixture module: sine tone proportional to text length (a tone per piece for a text stream); no key, no extra, no files; the live tier's default module | Implemented |
+| [audiofile-module.md](modules/audiofile.md) | Fixture module: text → WAV file list with a default file (a file per sentence for a text stream), 16-bit mono WAV validated at construction, paths relative to `base_dir` | Implemented |
 | [audio-player.md](audio-player.md) | `AudioPlayer`, sounddevice integration, stream lifecycle, per-module sample rate | Implemented |
-| [audio-sink.md](audio-sink.md) | `AudioSink` Protocol, constructor sink injection, `TTSEngine.sample_rate`, lazy sounddevice import | Implemented |
+| [audio-sink.md](audio-sink.md) | `AudioSink` Protocol, constructor sink injection, `TTSEngine.sample_rate`, lazy sounddevice import, one drain per `say`/`say_stream` utterance | Implemented |
 
 ## Status legend
 

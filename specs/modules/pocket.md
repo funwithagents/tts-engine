@@ -84,10 +84,10 @@ Model download/load is blocking and takes ~10 s on first run (weights are fetche
 `generate_audio_stream(voice_state, text, max_tokens=...)` returns a synchronous generator of 1-D `torch.float32` tensors — mono, native rate, ~1920 samples (80 ms) per chunk, values in ~`[-1, 1]`. Like the ElevenLabs module, the whole generate-and-feed loop runs inside `asyncio.to_thread` so blocking inference never stalls the event loop, driving `callback` from that single worker thread (calls never overlap):
 
 ```python
-async def stream(self, text, options, callback):
+async def synthesize_text(self, text, options, callback):
     max_tokens = self._max_tokens
 
-    def _blocking_stream() -> None:
+    def _blocking_stream(stop: threading.Event) -> None:
         # Pass max_tokens only when configured, else the library's own
         # default (50) applies — None would override it and is rejected.
         if max_tokens is None:
@@ -96,7 +96,7 @@ async def stream(self, text, options, callback):
             stream_iter = self._model.generate_audio_stream(
                 self._voice_state, text, max_tokens=max_tokens
             )
-        while True:
+        while not stop.is_set():
             # Advance the generator inside the provider try so inference
             # errors become TTSError; feed the callback outside it so a
             # downstream playback failure keeps its own identity.
@@ -108,8 +108,12 @@ async def stream(self, text, options, callback):
                 raise TTSError(f"pocket-tts synthesis failed: {exc}") from exc
             callback(_to_int16_pcm(chunk))  # float tensor -> signed-16 LE bytes
 
-    await asyncio.to_thread(_blocking_stream)
+    await run_cancellable_worker(_blocking_stream)
 ```
+
+### Text stream: sentence grouping
+
+pocket-tts has no incremental text API: the model conditions on its whole prompt before emitting a frame, and `generate_audio_stream` itself splits a long text into sentences (`split_into_best_sentences`) and generates each one from a fresh copy of the voice state. `synthesize_text_stream` therefore does the same split **as the text arrives**: one worker from `run_text_stream_worker`, iterating `segment_sentences(pieces)` ([tts-module-interface.md](../tts-module-interface.md), "Text-stream helpers") and running the generate-and-feed loop above once per sentence, inside that single worker. Audio for sentence one plays while the stream is still delivering sentence two; the result is equivalent to what the library does internally for a complete text, only earlier. A sentence longer than `max_tokens` is still split further by the library, as for `synthesize_text`. Error and cancellation rules are those of `synthesize_text`, plus: a text-stream failure aborts via the bridge and propagates unchanged.
 
 **Float → int16** happens in the module before the callback: move to CPU/`numpy`, clip to `[-1.0, 1.0]`, scale by `32767`, cast to little-endian `int16`, and emit `.tobytes()`. This satisfies the "signed 16-bit PCM (little-endian), mono" half of the audio-format contract.
 
@@ -126,7 +130,7 @@ Registered in `REGISTRY` as `"pocket"` ([modules/__init__.py](../../src/tts_engi
 
 ## Testing
 
-- **Unit (`tests/modules/test_pocket.py`)** — the `pocket_tts` library is **faked** (a stub `TTSModel` injected via `sys.modules`/`monkeypatch`), never importing `torch`, so the fast tier stays runnable without the `pocket` extra and never waits on a model load — even though `uv sync --dev` now installs the extra (see [project.md](../project.md), "Key dependencies"). Covers: `ConfigError` on a missing extra (import failure) and on invalid `device`/`max_tokens`/`voice`; `device` auto-detection; `sample_rate` reflecting the (faked) model's rate; and `stream` converting fake float chunks to whole-int16 PCM and wrapping backend errors in `TTSError`. Follows the ElevenLabs unit-test shape (mock the library, assert observable behavior).
+- **Unit (`tests/modules/test_pocket.py`)** — the `pocket_tts` library is **faked** (a stub `TTSModel` injected via `sys.modules`/`monkeypatch`), never importing `torch`, so the fast tier stays runnable without the `pocket` extra and never waits on a model load — even though `uv sync --dev` now installs the extra (see [project.md](../project.md), "Key dependencies"). Covers: `ConfigError` on a missing extra (import failure) and on invalid `device`/`max_tokens`/`voice`; `device` auto-detection; `sample_rate` reflecting the (faked) model's rate; `synthesize_text` converting fake float chunks to whole-int16 PCM and wrapping backend errors in `TTSError`; and `synthesize_text_stream` calling the fake's `generate_audio_stream` once per sentence (texts recorded by the fake), with the first sentence's audio reaching the callback before the source has yielded the second (the source waits on an event the callback sets). Follows the ElevenLabs unit-test shape (mock the library, assert observable behavior).
 - **Live (`tests-e2e/test_modules.py`)** — one `MODULES` row (`pocket`, no `api_key_env`) plus `_REQUIRED_IMPORT["pocket"] = "pocket_tts"` in `support.py`, so both per-module scenarios (`test_module_say_produces_pcm`, `test_module_say_completes`) run against the real model and **skip cleanly** when the extra isn't installed (see [testing.md](../testing.md), "Live tier"). Asserts robust properties only (PCM produced, drained once, playback completes), never audio content.
 
 ## Validated against `pocket-tts==3.1.0`

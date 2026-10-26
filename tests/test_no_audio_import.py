@@ -34,8 +34,12 @@ _SCRIPT = textwrap.dedent(
         def sample_rate(self):
             return 24000
 
-        async def stream(self, text, options, callback):
+        async def synthesize_text(self, text, options, callback):
             callback(b"\\x01\\x00")
+
+        async def synthesize_text_stream(self, text_stream, options, callback):
+            async for piece in text_stream:
+                callback(piece.encode())
 
 
     REGISTRY["fake"] = FakeModule
