@@ -41,6 +41,7 @@ Implementation plans for TTS Engine — each plan turns a settled part of a spec
 | [Pocket 4 upgrade](202610261350_pocket-4-upgrade.md) | `pocket-tts>=4.0.1,<5`: worker `stop` event passed into `generate_audio_stream`, `config`/`quantize`/`temperature` fields, per-language default voice from the library, audio and `.safetensors` voice files, library rejections at load as `ConfigError` | Done |
 | [Mistral module](202610261359_mistral-module.md) | API-backed `mistral` backend on Voxtral TTS via the `mistralai` 3.x SDK: `mistral` extra, lazy import, streamed float32 `pcm` → int16 at 24 kHz fed in 100 ms slices, sentence-grouped text stream, faked-SDK unit tests + live `MODULES` row gated on `MISTRAL_API_KEY` | Done |
 | [Deepgram module](202610261436_deepgram-module.md) | API-backed `deepgram` backend on Aura-2 via the `deepgram-sdk` 7.x speak v1 WebSocket: `deepgram` extra, lazy import, `linear16` PCM, native text stream for both input shapes, flush-gated segments under the server's ~2000-character pending limit, aborted sockets closed off the worker, faked-SDK unit tests + live `MODULES` row gated on `DEEPGRAM_API_KEY` | Done |
+| [Qwen3 module](202610261503_qwen3-module.md) | Local-model `qwen3` backend running Qwen3-TTS through `qwentts-cpp-python` (GGML, Metal): Apple-silicon-only `qwen3` extra, lazy import, native 24 kHz, one call per sentence for both input shapes, post-load voice/language checks, faked-library unit tests + live `MODULES` row that runs on the Mac and skips in CI | Done |
 
 ## Status legend
 

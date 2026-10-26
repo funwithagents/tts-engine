@@ -1,0 +1,16 @@
+{
+  "engine": {
+    "module": {
+      "type": "qwen3",
+      "voice": "ryan",
+      "language": "english"
+    },
+    "player": {
+      "device": null
+    }
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000
+  }
+}

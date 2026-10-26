@@ -2,7 +2,7 @@
 
 A streaming text-to-speech engine for Python. Choose a TTS module, construct a `TTSEngine`, and call `await engine.say(text)`, or `await engine.say_stream(text_stream)` to speak an LLM response while it is still being generated.
 
-Audio is synthesized and consumed chunk by chunk, minimizing the delay before playback begins. Speech comes from a provider module you install as an extra: the ElevenLabs, Gradium, Mistral or Deepgram cloud APIs, or the local pocket-tts or Phonon models. There is no default provider. Two built-in fixture modules, `tone` and `audiofile`, stand in for a provider in tests and demos. By default, audio plays on the machine running the engine; applications can instead provide their own audio sink to capture or route the PCM stream.
+Audio is synthesized and consumed chunk by chunk, minimizing the delay before playback begins. Speech comes from a provider module you install as an extra: the ElevenLabs, Gradium, Mistral or Deepgram cloud APIs, or the local pocket-tts, Phonon or Qwen3-TTS models. There is no default provider. Two built-in fixture modules, `tone` and `audiofile`, stand in for a provider in tests and demos. By default, audio plays on the machine running the engine; applications can instead provide their own audio sink to capture or route the PCM stream.
 
 Agent-friendly tools are included as an optional interface over the same engine, and an MCP server is available through the `mcp` extra.
 
@@ -29,6 +29,7 @@ The base installation contains the engine, tools, audio player, and the `tone`/`
 ```bash
 uv sync --no-dev --extra pocket       # local pocket-tts model (pulls in torch)
 uv sync --no-dev --extra phonon       # local Phonon model (no torch)
+uv sync --no-dev --extra qwen3        # local Qwen3-TTS model (Apple silicon)
 uv sync --no-dev --extra elevenlabs   # ElevenLabs cloud API
 uv sync --no-dev --extra gradium      # Gradium cloud API
 uv sync --no-dev --extra mistral      # Mistral cloud API (Voxtral TTS)
@@ -39,6 +40,7 @@ uv sync --no-dev --all-extras         # every extra
 # For an installed package:
 pip install "tts-engine[pocket]"
 pip install "tts-engine[phonon]"
+pip install "tts-engine[qwen3]"
 pip install "tts-engine[elevenlabs]"
 pip install "tts-engine[gradium]"
 pip install "tts-engine[mistral]"
@@ -106,7 +108,7 @@ The module declares its output sample rate, and the engine configures the defaul
 
 Pass that object directly to a loader; do not add an outer `"engine"` key. A larger application can store it under any key it chooses, while the optional MCP server format specifically stores it under `"engine"`.
 
-The [`examples/`](examples/) directory holds one complete MCP-server config per module (`config.pocket.json`, `config.phonon.json`, `config.elevenlabs.json`, `config.gradium.json`, `config.mistral.json`, `config.deepgram.json`, `config.tone.json`, `config.audiofile.json`). No single example is the default.
+The [`examples/`](examples/) directory holds one complete MCP-server config per module (`config.pocket.json`, `config.phonon.json`, `config.qwen3.json`, `config.elevenlabs.json`, `config.gradium.json`, `config.mistral.json`, `config.deepgram.json`, `config.tone.json`, `config.audiofile.json`). No single example is the default.
 
 | Source | Constructor | Expected shape |
 |---|---|---|
@@ -147,6 +149,7 @@ A module is a swappable synthesis backend. Its `type` selects an entry from the 
 |---|---|---|---|---|
 | `pocket` | Provider | Local, in-process model | `tts-engine[pocket]` | None |
 | `phonon` | Provider | Local, in-process model | `tts-engine[phonon]` | None |
+| `qwen3` | Provider | Local, in-process model (Apple silicon) | `tts-engine[qwen3]` | None |
 | `elevenlabs` | Provider | ElevenLabs cloud API | `tts-engine[elevenlabs]` | API key |
 | `gradium` | Provider | Gradium cloud API | `tts-engine[gradium]` | API key |
 | `mistral` | Provider | Mistral cloud API (Voxtral TTS) | `tts-engine[mistral]` | API key |
@@ -229,6 +232,41 @@ Then select the module:
 | `cfg_coef` | no | Model default | Guidance coefficient (voice adherence). |
 
 The module emits mono PCM at 24,000 Hz. The default English model is Apache-2.0. The French, German, Spanish, Portuguese and multilingual models (`gradium/phonon-40m-*`) are gated and licensed CC BY-NC 4.0: they need an `HF_TOKEN` with access, plus matching `model` and `language` fields.
+
+### `qwen3`
+
+The qwen3 module runs [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) (Apache-2.0) in process through [`qwentts-cpp-python`](https://github.com/andimarafioti/qwentts-cpp-python), bindings over the qwentts.cpp GGML engine. It needs no API key and no PyTorch, speaks ten languages with nine preset voices, and can design a voice from a text description. On an Apple-silicon Mac it runs on Metal at about 3–4× real time, with first audio in about 0.2 s. The first use downloads the GGUF weights into the Hugging Face cache: about 1.3 GB for the default 0.6B model at `Q8_0`, about 2.3 GB for a 1.7B model.
+
+The extra installs on **Apple-silicon macOS 14+ only**, because PyPI has no CPU or Windows build of the runtime. On Linux with an NVIDIA GPU, glibc 2.39+ and the CUDA 12.8 runtime, install the CUDA wheel yourself (`pip install "qwentts-cpp-python>=0.5,<0.6"`); that path is not tested here.
+
+```bash
+uv sync --extra qwen3
+# For an installed package:
+pip install "tts-engine[qwen3]"
+```
+
+Then select the module:
+
+```json
+{
+  "module": {
+    "type": "qwen3",
+    "voice": "ryan",
+    "language": "english"
+  }
+}
+```
+
+| Field | Required | Default | Description |
+|---|---|---|---|
+| `model` | no | `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` | `Qwen/Qwen3-TTS-12Hz-{0.6B,1.7B}-CustomVoice` (preset voices) or `Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign` (a voice described in `instruct`). The `-Base` cloning models are not supported. |
+| `quant` | no | `Q8_0` | Weight format: `Q8_0`, `Q4_K_M`, `BF16` or `F32`. |
+| `voice` | no | `aiden` | A preset voice: `aiden`, `ryan`, `vivian`, `serena`, `uncle_fu`, `dylan`, `eric`, `ono_anna`, `sohee` (case-insensitive). Not allowed with a VoiceDesign model. |
+| `instruct` | VoiceDesign only | None | Style instruction for CustomVoice ("Speak cheerfully."), or the voice description for VoiceDesign. Qwen documents it for the 1.7B models. |
+| `language` | no | `auto` | `auto` or `english`, `chinese`, `french`, `german`, `spanish`, `italian`, `portuguese`, `russian`, `japanese`, `korean`. |
+| `temperature` | no | Library default (0.9) | Sampling temperature, greater than 0. |
+
+The module emits mono PCM at 24,000 Hz and synthesizes one sentence per call, for a complete text as well as a text stream.
 
 ### `elevenlabs`
 
@@ -432,7 +470,7 @@ async def llm_tokens():
 await engine.say_stream(llm_tokens())
 ```
 
-Pieces are concatenated verbatim (tokens carry their own spaces). The ElevenLabs, Gradium and Deepgram modules forward the text to their realtime sockets as it arrives; `pocket`, `phonon`, `mistral` and `audiofile` synthesize sentence by sentence as each one completes; `tone` plays a tone per piece. A plain list is accepted for in-memory sequences, and a bare string is rejected. If the text source raises, playback stops and that exception propagates unchanged. A long pause in the source is heard as silence, not an error.
+Pieces are concatenated verbatim (tokens carry their own spaces). The ElevenLabs, Gradium and Deepgram modules forward the text to their realtime sockets as it arrives; `pocket`, `phonon`, `qwen3`, `mistral` and `audiofile` synthesize sentence by sentence as each one completes; `tone` plays a tone per piece. A plain list is accepted for in-memory sequences, and a bare string is rejected. If the text source raises, playback stops and that exception propagates unchanged. A long pause in the source is heard as silence, not an error.
 
 ## Audio output and custom sinks
 
@@ -547,7 +585,7 @@ engine = TTSEngine(mcp_config.engine)
 
 ### A provider module requires its extra
 
-A `ConfigError` such as `The 'pocket' module requires the pocket extra` means that provider's libraries are not installed. Run `uv sync --extra <name>` (or `pip install "tts-engine[<name>]"`), e.g. `--extra pocket`, `--extra phonon`, `--extra elevenlabs`, `--extra gradium`, `--extra mistral`, or `--extra deepgram`.
+A `ConfigError` such as `The 'pocket' module requires the pocket extra` means that provider's libraries are not installed. Run `uv sync --extra <name>` (or `pip install "tts-engine[<name>]"`), e.g. `--extra pocket`, `--extra phonon`, `--extra qwen3`, `--extra elevenlabs`, `--extra gradium`, `--extra mistral`, or `--extra deepgram`.
 
 ### pocket-tts
 
@@ -561,6 +599,12 @@ A `ConfigError` such as `The 'pocket' module requires the pocket extra` means th
 - Ensure the `phonon` extra is installed.
 - Allow network access when the model or a catalog voice is downloaded for the first time; a `TTSError` reporting a model load failure usually means the Hugging Face Hub was unreachable or a gated model was requested without an `HF_TOKEN`.
 - A `ConfigError` naming a device or `quant` means the installed `ptts` build does not support that combination. Quantization works on CPU only.
+
+### Qwen3-TTS
+
+- Ensure the `qwen3` extra is installed, on an Apple-silicon Mac (on any other platform the extra installs nothing and the module reports it missing).
+- Allow network access and several gigabytes of disk for the first download; a `TTSError` reporting a model load failure usually means the Hugging Face Hub was unreachable, or, on Linux, that the CUDA runtime is missing.
+- A `ConfigError` listing voices or languages names the values the loaded model accepts.
 
 ### ElevenLabs
 

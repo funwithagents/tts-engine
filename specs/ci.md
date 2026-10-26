@@ -61,6 +61,7 @@ On a runner with no sound hardware, `AudioPlayer` would find no output device an
 | every `test_modules.py` scenario's `[gradium]` row | only when the `GRADIUM_API_KEY` secret is absent (or on a fork's pull request) |
 | every `test_modules.py` scenario's `[mistral]` row | only when the `MISTRAL_API_KEY` secret is absent (or on a fork's pull request) |
 | every `test_modules.py` scenario's `[deepgram]` row | only when the `DEEPGRAM_API_KEY` secret is absent (or on a fork's pull request) |
+| every `test_modules.py` scenario's `[qwen3]` row | always: the `qwen3` extra installs only on Apple-silicon macOS, so `qwentts_cpp` is absent on the Linux runner ([modules/qwen3.md](modules/qwen3.md)) |
 
 `pocket`, `phonon`, `tone`, `audiofile` and the MCP test never skip in CI: their extras come with the `dev` group and they need no key.
 

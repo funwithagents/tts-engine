@@ -50,6 +50,14 @@ deepgram = [
 phonon = [
     "ptts>=0.4.2,<0.5",
 ]
+# Qwen3-TTS through the qwentts.cpp GGML engine (numpy + huggingface-hub only).
+# PyPI ships a Metal wheel for Apple silicon and CUDA 12.8 wheels for Linux, no
+# CPU or Windows build: the extra is Apple-silicon only, and a Linux GPU host
+# installs the wheel by hand. <0.6: alpha, pinned to one native ABI revision,
+# validated on 0.5.0 — see specs/modules/qwen3.md.
+qwen3 = [
+    "qwentts-cpp-python>=0.5,<0.6; sys_platform == 'darwin' and platform_machine == 'arm64'",
+]
 # The MCP server (tts-engine-mcp). The plain SDK, not mcp[cli]: the cli extra
 # only serves the SDK's own `mcp dev` tooling. uvicorn is imported directly.
 # <2: mcp 2.x renamed FastMCP (mcp.server.fastmcp is gone).
@@ -58,7 +66,7 @@ mcp = [
     "uvicorn",
 ]
 all = [
-    "tts-engine[elevenlabs,pocket,gradium,phonon,mistral,deepgram,mcp]",
+    "tts-engine[elevenlabs,pocket,gradium,phonon,mistral,deepgram,qwen3,mcp]",
 ]
 
 [dependency-groups]

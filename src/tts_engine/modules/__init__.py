@@ -2,7 +2,7 @@
 
 Each backend is a package of its own under ``modules/`` (``elevenlabs/``,
 ``pocket/``, ``gradium/``, ``phonon/``, ``mistral/``, ``deepgram/``,
-``tone/``, ``audiofile/``), its ``TTSModule`` subclass
+``qwen3/``, ``tone/``, ``audiofile/``), its ``TTSModule`` subclass
 in ``module.py`` and re-exported from the package ``__init__``; the registry
 imports every class eagerly, so providers import their library lazily inside
 ``__init__`` (see specs/tts-module-interface.md, "Module registry").
@@ -17,6 +17,7 @@ from tts_engine.modules.gradium import GradiumModule
 from tts_engine.modules.mistral import MistralModule
 from tts_engine.modules.phonon import PhononModule
 from tts_engine.modules.pocket import PocketModule
+from tts_engine.modules.qwen3 import Qwen3Module
 from tts_engine.modules.tone import ToneModule
 
 REGISTRY: dict[str, type[TTSModule]] = {
@@ -26,6 +27,7 @@ REGISTRY: dict[str, type[TTSModule]] = {
     "phonon": PhononModule,
     "mistral": MistralModule,
     "deepgram": DeepgramModule,
+    "qwen3": Qwen3Module,
     "tone": ToneModule,
     "audiofile": AudioFileModule,
 }

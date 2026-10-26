@@ -103,7 +103,7 @@ Both methods are abstract: every module implements both. A backend whose API acc
 
 ## Module registry
 
-Each backend is a **package of its own** under `src/tts_engine/modules/` — `elevenlabs/`, `pocket/`, `gradium/`, `phonon/`, `mistral/`, `deepgram/`, `tone/`, `audiofile/` — never a loose file next to `base.py`. The `TTSModule` subclass lives in `<backend>/module.py` and the package `__init__.py` re-exports it, so `from tts_engine.modules.<backend> import <Class>` is the import path everywhere (registry, tests, callers). Each backend is specced by `specs/modules/<backend>.md`.
+Each backend is a **package of its own** under `src/tts_engine/modules/` — `elevenlabs/`, `pocket/`, `gradium/`, `phonon/`, `mistral/`, `deepgram/`, `qwen3/`, `tone/`, `audiofile/` — never a loose file next to `base.py`. The `TTSModule` subclass lives in `<backend>/module.py` and the package `__init__.py` re-exports it, so `from tts_engine.modules.<backend> import <Class>` is the import path everywhere (registry, tests, callers). Each backend is specced by `specs/modules/<backend>.md`.
 
 `modules/__init__.py` maintains a `REGISTRY` dict mapping type strings to module classes:
 
@@ -115,6 +115,7 @@ REGISTRY: dict[str, type[TTSModule]] = {
     "gradium": GradiumModule,  # provider, behind the `gradium` extra
     "mistral": MistralModule,  # provider, behind the `mistral` extra
     "deepgram": DeepgramModule,  # provider, behind the `deepgram` extra
+    "qwen3": Qwen3Module,  # provider, behind the `qwen3` extra
     "tone": ToneModule,  # fixture, base install
     "audiofile": AudioFileModule,  # fixture, base install
 }
@@ -129,7 +130,7 @@ There is **no default module**. `type` is required, and no module is privileged 
 | Kind | Modules | Installed by | Purpose |
 |---|---|---|---|
 | **Provider** (API-backed) | `elevenlabs`, `gradium`, `mistral`, `deepgram` | the `elevenlabs` / `gradium` / `mistral` / `deepgram` extra | Real speech from a cloud API |
-| **Provider** (local model) | `pocket`, `phonon` | the `pocket` / `phonon` extra | Real speech from an in-process model |
+| **Provider** (local model) | `pocket`, `phonon`, `qwen3` | the `pocket` / `phonon` / `qwen3` extra | Real speech from an in-process model |
 | **Fixture** | `tone`, `audiofile` | base install | No synthesis; deterministic audio for tests, demos, and downstream integration suites |
 
 Fixture modules implement the full contract (declared rate, PCM format, cancellation) and are first-class members of the registry, but the documentation must never present them as TTS: users wanting speech install a provider extra. See [tone-module.md](modules/tone.md) and [audiofile-module.md](modules/audiofile.md).
@@ -218,7 +219,7 @@ A pure, lazy generator — it works equally on an in-memory list and on the brid
 - Pieces are concatenated verbatim into a buffer. A sentence is yielded (stripped) when the buffer holds a **sentence end**: `.`, `!`, `?` or `…` — optionally followed by a closing quote or bracket — **followed by whitespace**, or a newline. "Followed by whitespace" is what keeps `3.14` and `v2.5` whole; it also means `Hello.` is yielded when the next piece starts (or at end of input), not the instant the period arrives.
 - **Length cap.** Once the buffer exceeds `max_chars` with no sentence end, it is cut at the last **clause boundary** (`,`, `;`, `:` followed by whitespace), else at the last whitespace — never inside a word — so a long LLM sentence cannot stall playback. `max_chars` is a fixed default in v1 (not configurable); modules pass nothing.
 - At end of input the remainder is yielded if it is not blank. Blank segments are never yielded.
-- Known limitation, accepted: abbreviations such as `Dr. Smith` split as a sentence. The backends that use this (pocket, phonon, mistral, audiofile) tolerate a short segment; correctness of the audio is unaffected.
+- Known limitation, accepted: abbreviations such as `Dr. Smith` split as a sentence. The backends that use this (pocket, phonon, qwen3, mistral, audiofile) tolerate a short segment; correctness of the audio is unaffected.
 
 ## Local-model modules
 
@@ -228,7 +229,7 @@ The API-backed pattern (ElevenLabs) is one shape; a second shape is a **local-mo
 - **`sample_rate` reports the module's native rate** (commonly 24000 for these models), so no resampling is needed unless the backend itself varies.
 - **Inference runs off the event loop.** Local inference is blocking and CPU/GPU-bound; run it inside `asyncio.to_thread` (as ElevenLabs does for its blocking SDK iterator), driving `callback` from that single worker thread so calls never overlap.
 - **Float → int16 conversion** happens in the module before the callback (clip to ±1.0, scale to the int16 range), since these libraries yield float waveforms.
-- **Cancellation and errors** follow the same rules as any module: stop calling `callback` before returning/raising, and wrap backend/inference failures in `TTSError`. When the library accepts a stop signal of its own (pocket-tts's `stop` event, Phonon's stream `close()`), the worker hands it the cancellation so inference stops too, not just the callbacks.
+- **Cancellation and errors** follow the same rules as any module: stop calling `callback` before returning/raising, and wrap backend/inference failures in `TTSError`. When the library accepts a stop signal of its own (pocket-tts's `stop` event, Phonon's stream `close()`, closing the qwentts.cpp generator), the worker hands it the cancellation so inference stops too, not just the callbacks.
 - **Text stream = sentence grouping.** A local model conditions on its whole prompt before emitting a frame, so there is no token-in/audio-out mode to call. `synthesize_text_stream` runs one worker through `run_text_stream_worker`, groups the pieces with `segment_sentences`, and runs inference per sentence inside that single worker — audio for one sentence plays while the stream is still delivering the next. The reference is [pocket-module.md](modules/pocket.md).
 
 Concrete config fields and dependencies for a specific local-model module are specced alongside its code when it lands, following this contract.

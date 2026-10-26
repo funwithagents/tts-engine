@@ -1797,6 +1797,18 @@ wheels = [
 ]
 
 [[package]]
+name = "qwentts-cpp-python"
+version = "0.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "huggingface-hub" },
+    { name = "numpy" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/96/37/8ba17242cfc7434687f35e9089a44fd1392efd3121952fb6d659f0b38dd8/qwentts_cpp_python-0.5.0-py3-none-macosx_14_0_arm64.whl", hash = "sha256:04546453b573afc5f0fbc8ba3c8fc810fef6367c4b603b9b5a1ef0dd459ed1a9", size = 1259944, upload-time = "2026-09-30T22:01:32.98Z" },
+]
+
+[[package]]
 name = "referencing"
 version = "0.37.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2419,6 +2431,7 @@ all = [
     { name = "mistralai" },
     { name = "pocket-tts" },
     { name = "ptts" },
+    { name = "qwentts-cpp-python", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
     { name = "uvicorn" },
 ]
 deepgram = [
@@ -2444,6 +2457,9 @@ phonon = [
 pocket = [
     { name = "pocket-tts" },
 ]
+qwen3 = [
+    { name = "qwentts-cpp-python", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -2468,11 +2484,12 @@ requires-dist = [
     { name = "numpy" },
     { name = "pocket-tts", marker = "extra == 'pocket'", specifier = ">=4.0.1,<5" },
     { name = "ptts", marker = "extra == 'phonon'", specifier = ">=0.4.2,<0.5" },
+    { name = "qwentts-cpp-python", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'qwen3'", specifier = ">=0.5,<0.6" },
     { name = "sounddevice" },
-    { name = "tts-engine", extras = ["elevenlabs", "pocket", "gradium", "phonon", "mistral", "deepgram", "mcp"], marker = "extra == 'all'" },
+    { name = "tts-engine", extras = ["elevenlabs", "pocket", "gradium", "phonon", "mistral", "deepgram", "qwen3", "mcp"], marker = "extra == 'all'" },
     { name = "uvicorn", marker = "extra == 'mcp'" },
 ]
-provides-extras = ["elevenlabs", "pocket", "gradium", "mistral", "deepgram", "phonon", "mcp", "all"]
+provides-extras = ["elevenlabs", "pocket", "gradium", "mistral", "deepgram", "phonon", "qwen3", "mcp", "all"]
 
 [package.metadata.requires-dev]
 dev = [

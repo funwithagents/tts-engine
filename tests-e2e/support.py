@@ -55,6 +55,7 @@ _REQUIRED_IMPORT: dict[str, str] = {
     "phonon": "ptts",
     "mistral": "mistralai",
     "deepgram": "deepgram",
+    "qwen3": "qwentts_cpp",
 }
 
 
@@ -155,6 +156,10 @@ MODULES = [
     # on the `phonon` extra (_REQUIRED_IMPORT). Default checkpoint and voice,
     # language defaulting to English.
     pytest.param("phonon", {}, id="phonon"),
+    # Local-model backend on qwentts.cpp: no api_key_env; gated on the `qwen3`
+    # extra (_REQUIRED_IMPORT), which installs only on Apple silicon, so this
+    # row runs on the Mac and skips in CI. Default 0.6B CustomVoice model.
+    pytest.param("qwen3", {"language": "english"}, id="qwen3"),
     pytest.param("gradium", _GRADIUM_CONFIG, id="gradium"),
     pytest.param("mistral", _MISTRAL_CONFIG, id="mistral"),
     pytest.param("deepgram", _DEEPGRAM_CONFIG, id="deepgram"),

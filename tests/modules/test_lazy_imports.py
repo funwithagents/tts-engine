@@ -28,6 +28,7 @@ _SCRIPT = textwrap.dedent(
         "ptts",
         "mistralai",
         "deepgram",
+        "qwentts_cpp",
     ):
         sys.modules[name] = None
 
@@ -42,6 +43,7 @@ _SCRIPT = textwrap.dedent(
         "phonon",
         "mistral",
         "deepgram",
+        "qwen3",
         "tone",
         "audiofile",
     }, REGISTRY
@@ -53,6 +55,7 @@ _SCRIPT = textwrap.dedent(
         ("phonon", {"type": "phonon"}),
         ("mistral", {"type": "mistral", "api_key": "k", "voice_id": "v"}),
         ("deepgram", {"type": "deepgram", "api_key": "k"}),
+        ("qwen3", {"type": "qwen3"}),
     ):
         try:
             REGISTRY[module_type](config)
