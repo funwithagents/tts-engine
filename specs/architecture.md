@@ -81,6 +81,13 @@ A library user stops at layer 1 or 2; an agent embeds layer 2 directly; an MCP c
 │    Metal); one call   │
 │    per sentence       │
 │                       │
+│ kokoro/               │
+│  • Runs Kokoro-82M    │
+│    via kokoro-onnx;   │
+│    one call per       │
+│    sentence, one      │
+│    sentence ahead     │
+│                       │
 │ mistral/              │
 │  • Cloud API; one     │
 │    request per        │
@@ -123,7 +130,7 @@ A library user stops at layer 1 or 2; an agent embeds layer 2 directly; an MCP c
 │ / OpenAI              │
 └───────────────────────┘
 
-Providers (`elevenlabs`, `gradium`, `mistral`, `deepgram`, `gemini`, `cartesia`, `openai`, `pocket`, `phonon`, `qwen3`) each ship behind a packaging extra; the fixture modules ship in the base install; no module is the default (see [tts-module-interface.md](tts-module-interface.md), "Module kinds").
+Providers (`elevenlabs`, `gradium`, `mistral`, `deepgram`, `gemini`, `cartesia`, `openai`, `pocket`, `phonon`, `qwen3`, `kokoro`) each ship behind a packaging extra; the fixture modules ship in the base install; no module is the default (see [tts-module-interface.md](tts-module-interface.md), "Module kinds").
 The MCP layer ships behind the `mcp` extra; layers 1 and 2 need only the base install (see [project.md](project.md), "Dependency strategy for transports").
 ```
 
@@ -198,6 +205,7 @@ await engine.say_stream(llm_tokens())
 | `modules/pocket/module.py` | Local pocket-tts inference (behind the `pocket` extra, lazy import), sentence grouping for the text stream, float→int16 conversion, config parsing |
 | `modules/phonon/module.py` | Local Phonon inference through the `ptts` Rust runtime (behind the `phonon` extra, lazy import, no torch), sentence grouping for the text stream, float→int16 conversion, config parsing |
 | `modules/qwen3/module.py` | Local Qwen3-TTS inference through the `qwentts-cpp-python` GGML bindings (behind the Apple-silicon-only `qwen3` extra, lazy import, no torch), one call per sentence for both input shapes, float→int16 conversion, config parsing and post-load voice/language checks |
+| `modules/kokoro/module.py` | Local Kokoro-82M inference through `kokoro-onnx` (onnxruntime + bundled espeak-ng, behind the `kokoro` extra, lazy import, no torch), model files from a pinned Hub repository, one call per sentence for both input shapes with a one-sentence lookahead thread, 100 ms feed slices, float→int16 conversion, config parsing and post-load voice/language checks |
 | `modules/tone/module.py` | Fixture module: sine tone proportional to text length, no dependencies beyond numpy |
 | `modules/audiofile/module.py` | Fixture module: text → WAV file mapping with a default file, paths relative to `base_dir` |
 | `audio.py` | Defines the `AudioSink` Protocol; `AudioPlayer` (its default impl): `sounddevice` output stream management, lazily imported; provider-agnostic consumer of the fixed PCM format contract |

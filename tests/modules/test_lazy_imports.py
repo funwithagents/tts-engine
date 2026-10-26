@@ -32,6 +32,7 @@ _SCRIPT = textwrap.dedent(
         "cartesia",
         "openai",
         "qwentts_cpp",
+        "kokoro_onnx",
     ):
         sys.modules[name] = None
 
@@ -50,6 +51,7 @@ _SCRIPT = textwrap.dedent(
         "cartesia",
         "openai",
         "qwen3",
+        "kokoro",
         "tone",
         "audiofile",
     }, REGISTRY
@@ -65,6 +67,7 @@ _SCRIPT = textwrap.dedent(
         ("cartesia", {"type": "cartesia", "api_key": "k", "voice_id": "v"}),
         ("openai", {"type": "openai", "api_key": "k", "voice": "v"}),
         ("qwen3", {"type": "qwen3"}),
+        ("kokoro", {"type": "kokoro"}),
     ):
         try:
             REGISTRY[module_type](config)

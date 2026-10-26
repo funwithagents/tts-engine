@@ -1,0 +1,15 @@
+{
+  "engine": {
+    "module": {
+      "type": "kokoro",
+      "voice": "af_heart"
+    },
+    "player": {
+      "device": null
+    }
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000
+  }
+}

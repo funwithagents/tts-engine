@@ -97,7 +97,7 @@ jobs:
           cache-dependency-glob: uv.lock
       - name: Sync (dev group, every extra, against the lock)
         run: uv sync --locked
-      - name: Hugging Face cache (pocket-tts and Phonon weights and voices)
+      - name: Hugging Face cache (pocket-tts, Phonon and Kokoro weights and voices)
         uses: actions/cache@v6
         with:
           path: ~/.cache/huggingface

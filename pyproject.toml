@@ -76,6 +76,14 @@ phonon = [
 qwen3 = [
     "qwentts-cpp-python>=0.5,<0.6; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
+# Kokoro-82M through kokoro-onnx (onnxruntime + a bundled espeak-ng, no torch),
+# not the official torch `kokoro` package, which caps Python below 3.13.
+# huggingface-hub fetches the model files, which kokoro-onnx does not download
+# itself. <0.7: pre-1.0, validated on 0.6.1 — see specs/modules/kokoro.md.
+kokoro = [
+    "kokoro-onnx>=0.6.1,<0.7",
+    "huggingface-hub",
+]
 # The MCP server (tts-engine-mcp). The plain SDK, not mcp[cli]: the cli extra
 # only serves the SDK's own `mcp dev` tooling. uvicorn is imported directly.
 # <2: mcp 2.x renamed FastMCP (mcp.server.fastmcp is gone).
@@ -84,7 +92,7 @@ mcp = [
     "uvicorn",
 ]
 all = [
-    "tts-engine[elevenlabs,pocket,gradium,phonon,mistral,deepgram,gemini,cartesia,openai,qwen3,mcp]",
+    "tts-engine[elevenlabs,pocket,gradium,phonon,mistral,deepgram,gemini,cartesia,openai,qwen3,kokoro,mcp]",
 ]
 
 [dependency-groups]

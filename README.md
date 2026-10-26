@@ -2,7 +2,7 @@
 
 A streaming text-to-speech engine for Python. Choose a TTS module, construct a `TTSEngine`, and call `await engine.say(text)`, or `await engine.say_stream(text_stream)` to speak an LLM response while it is still being generated.
 
-Audio is synthesized and consumed chunk by chunk, minimizing the delay before playback begins. Speech comes from a provider module you install as an extra: the ElevenLabs, Gradium, Mistral, Deepgram, Gemini, Cartesia or OpenAI cloud APIs (the OpenAI module also reaches OpenAI-compatible servers), or the local pocket-tts, Phonon or Qwen3-TTS models. There is no default provider. Two built-in fixture modules, `tone` and `audiofile`, stand in for a provider in tests and demos. By default, audio plays on the machine running the engine; applications can instead provide their own audio sink to capture or route the PCM stream.
+Audio is synthesized and consumed chunk by chunk, minimizing the delay before playback begins. Speech comes from a provider module you install as an extra: the ElevenLabs, Gradium, Mistral, Deepgram, Gemini, Cartesia or OpenAI cloud APIs (the OpenAI module also reaches OpenAI-compatible servers), or the local pocket-tts, Phonon, Qwen3-TTS or Kokoro models. There is no default provider. Two built-in fixture modules, `tone` and `audiofile`, stand in for a provider in tests and demos. By default, audio plays on the machine running the engine; applications can instead provide their own audio sink to capture or route the PCM stream.
 
 Agent-friendly tools are included as an optional interface over the same engine, and an MCP server is available through the `mcp` extra.
 
@@ -30,6 +30,7 @@ The base installation contains the engine, tools, audio player, and the `tone`/`
 uv sync --no-dev --extra pocket       # local pocket-tts model (pulls in torch)
 uv sync --no-dev --extra phonon       # local Phonon model (no torch)
 uv sync --no-dev --extra qwen3        # local Qwen3-TTS model (Apple silicon)
+uv sync --no-dev --extra kokoro       # local Kokoro model (no torch)
 uv sync --no-dev --extra elevenlabs   # ElevenLabs cloud API
 uv sync --no-dev --extra gradium      # Gradium cloud API
 uv sync --no-dev --extra mistral      # Mistral cloud API (Voxtral TTS)
@@ -44,6 +45,7 @@ uv sync --no-dev --all-extras         # every extra
 pip install "tts-engine[pocket]"
 pip install "tts-engine[phonon]"
 pip install "tts-engine[qwen3]"
+pip install "tts-engine[kokoro]"
 pip install "tts-engine[elevenlabs]"
 pip install "tts-engine[gradium]"
 pip install "tts-engine[mistral]"
@@ -114,7 +116,7 @@ The module declares its output sample rate, and the engine configures the defaul
 
 Pass that object directly to a loader; do not add an outer `"engine"` key. A larger application can store it under any key it chooses, while the optional MCP server format specifically stores it under `"engine"`.
 
-The [`examples/`](examples/) directory holds one complete MCP-server config per module (`config.pocket.json`, `config.phonon.json`, `config.qwen3.json`, `config.elevenlabs.json`, `config.gradium.json`, `config.mistral.json`, `config.deepgram.json`, `config.gemini.json`, `config.cartesia.json`, `config.openai.json`, `config.tone.json`, `config.audiofile.json`). No single example is the default.
+The [`examples/`](examples/) directory holds one complete MCP-server config per module (`config.pocket.json`, `config.phonon.json`, `config.qwen3.json`, `config.kokoro.json`, `config.elevenlabs.json`, `config.gradium.json`, `config.mistral.json`, `config.deepgram.json`, `config.gemini.json`, `config.cartesia.json`, `config.openai.json`, `config.tone.json`, `config.audiofile.json`). No single example is the default.
 
 | Source | Constructor | Expected shape |
 |---|---|---|
@@ -156,6 +158,7 @@ A module is a swappable synthesis backend. Its `type` selects an entry from the 
 | `pocket` | Provider | Local, in-process model | `tts-engine[pocket]` | None |
 | `phonon` | Provider | Local, in-process model | `tts-engine[phonon]` | None |
 | `qwen3` | Provider | Local, in-process model (Apple silicon) | `tts-engine[qwen3]` | None |
+| `kokoro` | Provider | Local, in-process model | `tts-engine[kokoro]` | None |
 | `elevenlabs` | Provider | ElevenLabs cloud API | `tts-engine[elevenlabs]` | API key |
 | `gradium` | Provider | Gradium cloud API | `tts-engine[gradium]` | API key |
 | `mistral` | Provider | Mistral cloud API (Voxtral TTS) | `tts-engine[mistral]` | API key |
@@ -276,6 +279,43 @@ Then select the module:
 | `temperature` | no | Library default (0.9) | Sampling temperature, greater than 0. |
 
 The module emits mono PCM at 24,000 Hz and synthesizes one sentence per call, for a complete text as well as a text stream.
+
+### `kokoro`
+
+The kokoro module runs [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (Apache-2.0) in process through [`kokoro-onnx`](https://github.com/thewh1teagle/kokoro-onnx): onnxruntime for the model, and an espeak-ng that ships with the package for pronunciation. It needs no API key and no PyTorch, and it has 54 voices in nine languages: American and British English, Spanish, French, Hindi, Italian, Japanese, Brazilian Portuguese and Mandarin. On an Apple M5 Pro CPU it runs at about 4–5× real time, with first audio in about 0.4 s. The first use downloads about 350 MB into the Hugging Face cache. It installs on Linux (x86_64 and arm64), Apple-silicon macOS and Windows, but not on Intel Macs, which have no onnxruntime wheel.
+
+It uses `kokoro-onnx` rather than hexgrad's official `kokoro` package because the official package needs PyTorch and does not support Python 3.13. The trade-off is English pronunciation: `kokoro-onnx` uses espeak-ng directly instead of the official package's misaki dictionary.
+
+```bash
+uv sync --extra kokoro
+# For an installed package:
+pip install "tts-engine[kokoro]"
+```
+
+Then select the module:
+
+```json
+{
+  "module": {
+    "type": "kokoro",
+    "voice": "af_heart"
+  }
+}
+```
+
+| Field | Required | Default | Description |
+|---|---|---|---|
+| `voice` | no | `af_heart` | A voice from the voices file. The first letter is the language (`a` American English, `b` British English, `e` Spanish, `f` French, `h` Hindi, `i` Italian, `j` Japanese, `p` Brazilian Portuguese, `z` Mandarin), the second the gender: `af_heart`, `am_michael`, `bf_emma`, `ff_siwis`, … The full list is in [Kokoro's VOICES.md](https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md). |
+| `language` | no | From the voice's first letter | An espeak-ng language code: `en-us`, `en-gb`, `es`, `fr-fr`, `hi`, `it`, `ja`, `pt-br`, `cmn`. |
+| `speed` | no | Library default (1.0) | Speaking rate, from 0.5 to 2.0. |
+| `model` | no | `kokoro-v1.0.onnx`, pinned | `hf://owner/repo/path/file.onnx[@revision]`, or a local path (relative to `base_dir`), e.g. the int8 or fp16 exports from the [kokoro-onnx releases](https://github.com/thewh1teagle/kokoro-onnx/releases). |
+| `voices` | no | `voices-v1.0.bin`, pinned | Same forms as `model`, for the voices file. |
+
+The default files are kokoro-onnx's own release files, from the `fastrtc/kokoro-onnx` Hugging Face repository pinned to one commit.
+
+The module emits mono PCM at 24,000 Hz. It synthesizes one sentence per call, for a complete text as well as a text stream, and synthesizes the next sentence while the current one plays, so there is no gap between sentences.
+
+**License note.** The model, `kokoro-onnx` and onnxruntime are permissively licensed, but the pronunciation step is not: `phonemizer` is GPLv3+ and the bundled espeak-ng is GPL-3.0. The official `kokoro` package uses espeak-ng too. If you redistribute an application that includes this extra, check what the GPL requires of you.
 
 ### `elevenlabs`
 
@@ -580,7 +620,7 @@ async def llm_tokens():
 await engine.say_stream(llm_tokens())
 ```
 
-Pieces are concatenated verbatim (tokens carry their own spaces). The ElevenLabs, Gradium, Deepgram and Cartesia modules forward the text to their realtime sockets as it arrives; `pocket`, `phonon`, `qwen3`, `mistral`, `gemini`, `openai` and `audiofile` synthesize sentence by sentence as each one completes; `tone` plays a tone per piece. A plain list is accepted for in-memory sequences, and a bare string is rejected. If the text source raises, playback stops and that exception propagates unchanged. A long pause in the source is heard as silence, not an error.
+Pieces are concatenated verbatim (tokens carry their own spaces). The ElevenLabs, Gradium, Deepgram and Cartesia modules forward the text to their realtime sockets as it arrives; `pocket`, `phonon`, `qwen3`, `kokoro`, `mistral`, `gemini`, `openai` and `audiofile` synthesize sentence by sentence as each one completes; `tone` plays a tone per piece. A plain list is accepted for in-memory sequences, and a bare string is rejected. If the text source raises, playback stops and that exception propagates unchanged. A long pause in the source is heard as silence, not an error.
 
 ## Audio output and custom sinks
 
@@ -695,7 +735,7 @@ engine = TTSEngine(mcp_config.engine)
 
 ### A provider module requires its extra
 
-A `ConfigError` such as `The 'pocket' module requires the pocket extra` means that provider's libraries are not installed. Run `uv sync --extra <name>` (or `pip install "tts-engine[<name>]"`), e.g. `--extra pocket`, `--extra phonon`, `--extra qwen3`, `--extra elevenlabs`, `--extra gradium`, `--extra mistral`, `--extra deepgram`, `--extra gemini`, `--extra cartesia`, or `--extra openai`.
+A `ConfigError` such as `The 'pocket' module requires the pocket extra` means that provider's libraries are not installed. Run `uv sync --extra <name>` (or `pip install "tts-engine[<name>]"`), e.g. `--extra pocket`, `--extra phonon`, `--extra qwen3`, `--extra kokoro`, `--extra elevenlabs`, `--extra gradium`, `--extra mistral`, `--extra deepgram`, `--extra gemini`, `--extra cartesia`, or `--extra openai`.
 
 ### pocket-tts
 
@@ -715,6 +755,12 @@ A `ConfigError` such as `The 'pocket' module requires the pocket extra` means th
 - Ensure the `qwen3` extra is installed, on an Apple-silicon Mac (on any other platform the extra installs nothing and the module reports it missing).
 - Allow network access and several gigabytes of disk for the first download; a `TTSError` reporting a model load failure usually means the Hugging Face Hub was unreachable, or, on Linux, that the CUDA runtime is missing.
 - A `ConfigError` listing voices or languages names the values the loaded model accepts.
+
+### Kokoro
+
+- Ensure the `kokoro` extra is installed. It does not install on Intel Macs or on Python 3.14, because `kokoro-onnx` does not support them yet.
+- Allow network access for the first download (about 350 MB). A `TTSError` reporting a model load failure usually means the Hugging Face Hub was unreachable and the files are not cached yet.
+- A `ConfigError` naming `voice` means the voice is not in the voices file. A `ConfigError` naming `language` means espeak-ng does not know that code. A custom voice whose first letter is not a known language needs an explicit `language`.
 
 ### ElevenLabs
 

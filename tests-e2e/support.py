@@ -59,6 +59,7 @@ _REQUIRED_IMPORT: dict[str, str] = {
     "cartesia": "cartesia",
     "openai": "openai",
     "qwen3": "qwentts_cpp",
+    "kokoro": "kokoro_onnx",
 }
 
 
@@ -197,6 +198,10 @@ MODULES = [
     # extra (_REQUIRED_IMPORT), which installs only on Apple silicon, so this
     # row runs on the Mac and skips in CI. Default 0.6B CustomVoice model.
     pytest.param("qwen3", {"language": "english"}, id="qwen3"),
+    # Local-model backend on kokoro-onnx (onnxruntime, no torch): no
+    # api_key_env; gated on the `kokoro` extra (_REQUIRED_IMPORT). Default
+    # pinned model files and voice (af_heart, American English).
+    pytest.param("kokoro", {}, id="kokoro"),
     pytest.param("gradium", _GRADIUM_CONFIG, id="gradium"),
     pytest.param("mistral", _MISTRAL_CONFIG, id="mistral"),
     pytest.param("deepgram", _DEEPGRAM_CONFIG, id="deepgram"),
