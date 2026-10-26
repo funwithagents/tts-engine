@@ -25,7 +25,7 @@ def _write_wav(path, *, frames=400, rate=8000, channels=1, sampwidth=2, fill=0):
 
 def _stream(module: AudioFileModule, text: str) -> bytes:
     received = bytearray()
-    asyncio.run(module.stream(text, TTSOptions(), received.extend))
+    asyncio.run(module.synthesize_text(text, TTSOptions(), received.extend))
     return bytes(received)
 
 
@@ -140,7 +140,7 @@ def test_unmatched_text_without_default_raises_before_callback(tmp_path):
     )
     chunks: list[bytes] = []
     with pytest.raises(TTSError, match="no audio file configured"):
-        asyncio.run(module.stream("Goodbye.", TTSOptions(), chunks.append))
+        asyncio.run(module.synthesize_text("Goodbye.", TTSOptions(), chunks.append))
     assert chunks == []
 
 
@@ -161,4 +161,79 @@ def test_stream_does_not_mask_callback_errors(tmp_path):
         raise RuntimeError("playback failed")
 
     with pytest.raises(RuntimeError, match="playback failed"):
-        asyncio.run(module.stream("hi", TTSOptions(), bad_callback))
+        asyncio.run(module.synthesize_text("hi", TTSOptions(), bad_callback))
+
+
+# --- text stream -------------------------------------------------------------
+
+
+def _stream_pieces(module: AudioFileModule, pieces: list[str]) -> bytes:
+    async def source():
+        for piece in pieces:
+            yield piece
+
+    received = bytearray()
+    asyncio.run(module.synthesize_text_stream(source(), TTSOptions(), received.extend))
+    return bytes(received)
+
+
+def _two_file_module(tmp_path, *, with_default: bool = True) -> AudioFileModule:
+    hello = _write_wav(tmp_path / "hello.wav", frames=300, fill=1)
+    bye = _write_wav(tmp_path / "bye.wav", frames=200, fill=2)
+    config = {
+        "type": "audiofile",
+        "files": [
+            {"text": "Hello, world!", "file": hello},
+            {"text": "Goodbye.", "file": bye},
+        ],
+    }
+    if with_default:
+        config["default_file"] = _write_wav(
+            tmp_path / "default.wav", frames=100, fill=3
+        )
+    return AudioFileModule(config)
+
+
+def test_text_stream_plays_a_file_per_sentence(tmp_path):
+    module = _two_file_module(tmp_path)
+    data = _stream_pieces(module, ["Hel", "lo, wor", "ld! Good", "bye. Else"])
+    assert data == bytes([1]) * 600 + bytes([2]) * 400 + bytes([3]) * 200
+
+
+async def test_text_stream_plays_the_first_file_before_the_source_finishes(tmp_path):
+    module = _two_file_module(tmp_path)
+    loop = asyncio.get_running_loop()
+    got_audio = asyncio.Event()
+
+    async def source():
+        yield "Hello, world! "
+        await got_audio.wait()
+        yield "Goodbye."
+
+    received = bytearray()
+
+    def callback(chunk: bytes) -> None:
+        received.extend(chunk)
+        loop.call_soon_threadsafe(got_audio.set)
+
+    await asyncio.wait_for(
+        module.synthesize_text_stream(source(), TTSOptions(), callback), timeout=5
+    )
+    assert bytes(received) == bytes([1]) * 600 + bytes([2]) * 400
+
+
+def test_text_stream_unmatched_sentence_without_default_raises_after_earlier_file(
+    tmp_path,
+):
+    module = _two_file_module(tmp_path, with_default=False)
+    received = bytearray()
+
+    async def source():
+        yield "Hello, world! "
+        yield "Unknown."
+
+    with pytest.raises(TTSError, match="no audio file configured"):
+        asyncio.run(
+            module.synthesize_text_stream(source(), TTSOptions(), received.extend)
+        )
+    assert bytes(received) == bytes([1]) * 600

@@ -8,12 +8,16 @@ The SDK is async-only (an aiohttp WebSocket), so the cancellable worker thread
 runs a private event loop of its own and drives `callback` from there — the
 engine's loop never sees the blocking sink. See specs/modules/gradium.md,
 "Threading model".
+
+A text stream is forwarded as it arrives: on the private loop a sender task
+pushes word groups to the socket while the receiver feeds audio back, so this
+is a true stream-to-stream pass over one connection.
 """
 
 import asyncio
 import os
 import threading
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable, Iterator
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
@@ -21,6 +25,7 @@ from tts_engine.modules.base import (
     TTSModule,
     TTSOptions,
     run_cancellable_worker,
+    run_text_stream_worker,
 )
 
 _SAMPLE_RATES = (8000, 16000, 24000, 44100, 48000)
@@ -56,6 +61,19 @@ def _optional_number(config: dict, field: str, lo: float, hi: float) -> float | 
             f"Gradium module '{field}' must be a number between {lo} and {hi}"
         )
     return float(value)
+
+
+def _split_at_last_space(buffer: str) -> tuple[str, str]:
+    """Split `buffer` after its last whitespace: (complete words, the rest).
+
+    Keeps a possibly unfinished last word back so the server never receives a
+    sub-word token on its own; works for both space-leading and space-trailing
+    tokenizations.
+    """
+    for i in range(len(buffer) - 1, -1, -1):
+        if buffer[i].isspace():
+            return buffer[: i + 1], buffer[i + 1 :]
+    return "", buffer
 
 
 class GradiumModule(TTSModule):
@@ -154,14 +172,12 @@ class GradiumModule(TTSModule):
             setup["pronunciation_id"] = self._pronunciation_id
         return setup
 
-    async def _consume(
-        self, text: str, callback: Callable[[bytes], None], stop: threading.Event
-    ) -> None:
-        """Run one utterance over one WebSocket, feeding audio to `callback`.
+    async def _open(self):
+        """Open one realtime connection and check its `ready` message.
 
-        Runs on the worker thread's private loop. SDK/connection failures
-        become TTSError; `callback` is invoked outside that boundary so a
-        downstream playback failure keeps its own identity.
+        Returns `(context_manager, tts)`; the caller must `__aexit__` the
+        context manager. Connection/setup failures and a `ready` sample-rate
+        mismatch are `TTSError` (the connection is closed on the mismatch).
         """
         try:
             tts_cm = self._client.tts_realtime(
@@ -171,37 +187,128 @@ class GradiumModule(TTSModule):
         except Exception as exc:
             raise TTSError(f"Gradium request failed: {exc}") from exc
 
+        ready_rate = (tts.ready or {}).get("sample_rate")
+        if ready_rate is not None and ready_rate != self._sample_rate:
+            await tts_cm.__aexit__(None, None, None)
+            raise TTSError(
+                f"Gradium stream is {ready_rate} Hz but the module "
+                f"declares {self._sample_rate} Hz"
+            )
+        return tts_cm, tts
+
+    @staticmethod
+    async def _receive(
+        tts,
+        callback: Callable[[bytes], None],
+        stop: threading.Event,
+        sender: asyncio.Task | None,
+    ) -> None:
+        """Feed audio messages to `callback` until the server ends the stream
+        or `stop` is set. With a `sender` task, race it against each message so
+        a sender failure ends the utterance instead of waiting for audio that
+        will never come."""
         try:
+            stream_iter = tts.__aiter__()
+        except Exception as exc:
+            raise TTSError(f"Gradium request failed: {exc}") from exc
+
+        while not stop.is_set():
+            next_msg = asyncio.ensure_future(stream_iter.__anext__())
             try:
-                ready_rate = (tts.ready or {}).get("sample_rate")
-                if ready_rate is not None and ready_rate != self._sample_rate:
-                    raise TTSError(
-                        f"Gradium stream is {ready_rate} Hz but the module "
-                        f"declares {self._sample_rate} Hz"
+                if sender is not None and not sender.done():
+                    await asyncio.wait(
+                        {next_msg, sender}, return_when=asyncio.FIRST_COMPLETED
                     )
-                await tts.send_text(text)
-                await tts.send_eos()
-                stream_iter = tts.__aiter__()
+                if sender is not None and sender.done() and not sender.cancelled():
+                    sender_error = sender.exception()
+                    if sender_error is not None:
+                        raise sender_error  # a TTSError, see _send_all
+                if stop.is_set() and not next_msg.done():
+                    # Aborted: no end-of-stream was sent, so no final audio
+                    # will come; don't wait for it.
+                    break
+                msg = await next_msg
+            except StopAsyncIteration:
+                break
             except TTSError:
                 raise
             except Exception as exc:
                 raise TTSError(f"Gradium request failed: {exc}") from exc
+            finally:
+                if not next_msg.done():
+                    next_msg.cancel()
+            if msg.get("type") == "audio":
+                callback(msg["audio"])
 
-            while not stop.is_set():
-                try:
-                    msg = await stream_iter.__anext__()
-                except StopAsyncIteration:
-                    break
-                except Exception as exc:
-                    raise TTSError(f"Gradium request failed: {exc}") from exc
-                if msg.get("type") == "audio":
-                    callback(msg["audio"])
+    async def _consume(
+        self, text: str, callback: Callable[[bytes], None], stop: threading.Event
+    ) -> None:
+        """Run one complete-text utterance over one WebSocket.
+
+        Runs on the worker thread's private loop. SDK/connection failures
+        become TTSError; `callback` is invoked outside that boundary so a
+        downstream playback failure keeps its own identity.
+        """
+        tts_cm, tts = await self._open()
+        try:
+            try:
+                await tts.send_text(text)
+                await tts.send_eos()
+            except Exception as exc:
+                raise TTSError(f"Gradium request failed: {exc}") from exc
+            await self._receive(tts, callback, stop, sender=None)
         finally:
             # Closes the socket and session at once, so a cancel mid-utterance
             # drops the request instead of draining the rest of the audio.
             await tts_cm.__aexit__(None, None, None)
 
-    async def stream(
+    @staticmethod
+    async def _send_all(tts, pieces: Iterator[str], stop: threading.Event) -> None:
+        """Forward the text pieces to the socket as they arrive, grouped at
+        word boundaries, then end-of-stream. `next(pieces)` blocks waiting for
+        text, so it runs in an executor to keep the receiver going."""
+        loop = asyncio.get_running_loop()
+        buffer = ""
+        try:
+            while True:
+                piece = await loop.run_in_executor(None, next, pieces, None)
+                if piece is None:
+                    break
+                buffer += piece
+                words, buffer = _split_at_last_space(buffer)
+                if words:
+                    await tts.send_text(words)
+            if stop.is_set():
+                return  # aborted: no end-of-stream, the request is dropped
+            if buffer:
+                await tts.send_text(buffer)
+            await tts.send_eos()
+        except Exception as exc:
+            raise TTSError(f"Gradium request failed: {exc}") from exc
+
+    async def _consume_stream(
+        self,
+        pieces: Iterator[str],
+        callback: Callable[[bytes], None],
+        stop: threading.Event,
+    ) -> None:
+        """Run one text-stream utterance over one WebSocket: a sender task
+        forwarding text concurrently with the receiver feeding audio."""
+        tts_cm, tts = await self._open()
+        sender = asyncio.create_task(self._send_all(tts, pieces, stop))
+        try:
+            await self._receive(tts, callback, stop, sender)
+        finally:
+            # Release a sender still blocked on text (`stop` ends `pieces`) so
+            # its executor thread exits before this loop is torn down, then
+            # drop the request.
+            stop.set()
+            if not sender.done():
+                sender.cancel()
+            await asyncio.wait([sender])
+            await tts_cm.__aexit__(None, None, None)
+
+    async def synthesize_text(
         self,
         text: str,
         options: TTSOptions,
@@ -213,3 +320,14 @@ class GradiumModule(TTSModule):
             asyncio.run(self._consume(text, callback, stop))
 
         await run_cancellable_worker(_blocking_stream)
+
+    async def synthesize_text_stream(
+        self,
+        text_stream: AsyncIterator[str],
+        options: TTSOptions,
+        callback: Callable[[bytes], None],
+    ) -> None:
+        def _blocking_stream(pieces: Iterator[str], stop: threading.Event) -> None:
+            asyncio.run(self._consume_stream(pieces, callback, stop))
+
+        await run_text_stream_worker(text_stream, _blocking_stream)

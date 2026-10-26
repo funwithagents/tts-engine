@@ -7,7 +7,7 @@ never require the `pocket` extra — a missing extra becomes a clear `ConfigErro
 """
 
 import threading
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable, Iterator
 
 import numpy as np
 
@@ -18,6 +18,8 @@ from tts_engine.modules.base import (
     TTSOptions,
     resolve_path,
     run_cancellable_worker,
+    run_text_stream_worker,
+    segment_sentences,
 )
 
 _VALID_DEVICES = {"auto", "cpu", "cuda", "mps"}
@@ -87,33 +89,52 @@ class PocketModule(TTSModule):
     def sample_rate(self) -> int:
         return self._sample_rate
 
-    async def stream(
+    def _generate(
+        self, text: str, callback: Callable[[bytes], None], stop: threading.Event
+    ) -> None:
+        """Run inference for one text and feed its PCM, polling `stop`."""
+        # Pass max_tokens only when configured, else the library's own
+        # default (50) applies — None would override it and is rejected.
+        if self._max_tokens is None:
+            stream_iter = self._model.generate_audio_stream(self._voice_state, text)
+        else:
+            stream_iter = self._model.generate_audio_stream(
+                self._voice_state, text, max_tokens=self._max_tokens
+            )
+        while not stop.is_set():
+            # Advance the generator inside the provider try so inference
+            # errors become TTSError; feed the callback outside it so a
+            # downstream playback failure keeps its own identity.
+            try:
+                chunk = next(stream_iter)
+            except StopIteration:
+                break
+            except Exception as exc:
+                raise TTSError(f"pocket-tts synthesis failed: {exc}") from exc
+            callback(_to_int16_pcm(chunk))
+
+    async def synthesize_text(
         self,
         text: str,
         options: TTSOptions,
         callback: Callable[[bytes], None],
     ) -> None:
-        max_tokens = self._max_tokens
+        def _worker(stop: threading.Event) -> None:
+            self._generate(text, callback, stop)
 
-        def _blocking_stream(stop: threading.Event) -> None:
-            # Pass max_tokens only when configured, else the library's own
-            # default (50) applies — None would override it and is rejected.
-            if max_tokens is None:
-                stream_iter = self._model.generate_audio_stream(self._voice_state, text)
-            else:
-                stream_iter = self._model.generate_audio_stream(
-                    self._voice_state, text, max_tokens=max_tokens
-                )
-            while not stop.is_set():
-                # Advance the generator inside the provider try so inference
-                # errors become TTSError; feed the callback outside it so a
-                # downstream playback failure keeps its own identity.
-                try:
-                    chunk = next(stream_iter)
-                except StopIteration:
-                    break
-                except Exception as exc:
-                    raise TTSError(f"pocket-tts synthesis failed: {exc}") from exc
-                callback(_to_int16_pcm(chunk))
+        await run_cancellable_worker(_worker)
 
-        await run_cancellable_worker(_blocking_stream)
+    async def synthesize_text_stream(
+        self,
+        text_stream: AsyncIterator[str],
+        options: TTSOptions,
+        callback: Callable[[bytes], None],
+    ) -> None:
+        # The model conditions on its whole prompt, and the library itself
+        # splits a long text into sentences: do that split as the text arrives
+        # and run inference per sentence, inside one worker.
+        def _worker(pieces: Iterator[str], stop: threading.Event) -> None:
+            for sentence in segment_sentences(pieces):
+                self._generate(sentence, callback, stop)
+
+        await run_text_stream_worker(text_stream, _worker)

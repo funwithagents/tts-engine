@@ -65,6 +65,35 @@ class FakeTts:
         return item
 
 
+class ReactiveFakeTts(FakeTts):
+    """A fake that answers each `send_text` with one audio message (the text's
+    bytes) and ends the stream after `send_eos`, the way the server behaves
+    over time, so text-stream tests can observe audio arriving between pieces."""
+
+    def __init__(self, messages, ready):
+        super().__init__(messages, ready)
+        self._queue: asyncio.Queue | None = None
+
+    def _q(self) -> asyncio.Queue:
+        if self._queue is None:
+            self._queue = asyncio.Queue()  # bound to the module's private loop
+        return self._queue
+
+    async def send_text(self, text: str) -> None:
+        await super().send_text(text)
+        self._q().put_nowait(_audio(text.encode()))
+
+    async def send_eos(self) -> None:
+        await super().send_eos()
+        self._q().put_nowait(None)
+
+    async def __anext__(self):
+        item = await self._q().get()
+        if item is None:
+            raise StopAsyncIteration
+        return item
+
+
 @pytest.fixture
 def fake_gradium(monkeypatch):
     """Install a fake `gradium` package; returns a recorder of what reached it."""
@@ -72,6 +101,7 @@ def fake_gradium(monkeypatch):
     recorder.messages = []
     recorder.ready = {"type": "ready", "sample_rate": 48000, "request_id": "r1"}
     recorder.tts = None
+    recorder.reactive = False
 
     class FakeClient:
         def __init__(self, **kwargs):
@@ -79,7 +109,8 @@ def fake_gradium(monkeypatch):
 
         def tts_realtime(self, **kwargs):
             recorder.setup_kwargs = kwargs
-            recorder.tts = FakeTts(iter(recorder.messages), recorder.ready)
+            cls = ReactiveFakeTts if recorder.reactive else FakeTts
+            recorder.tts = cls(iter(recorder.messages), recorder.ready)
             return recorder.tts
 
     module = types.ModuleType("gradium")
@@ -173,7 +204,7 @@ def test_sample_rate_reflects_config(fake_gradium):
 
 async def test_defaults_reach_the_provider_client(fake_gradium):
     module = GradiumModule(VALID_CONFIG)
-    await module.stream("hello", TTSOptions(), MagicMock())
+    await module.synthesize_text("hello", TTSOptions(), MagicMock())
 
     assert fake_gradium.setup_kwargs == {
         "wait_for_ready_on_start": True,
@@ -198,7 +229,7 @@ async def test_custom_values_reach_the_provider_client(fake_gradium):
         "rewrite_rules": "none",
         "pronunciation_id": "pron-1",
     }
-    await GradiumModule(config).stream("hello", TTSOptions(), MagicMock())
+    await GradiumModule(config).synthesize_text("hello", TTSOptions(), MagicMock())
 
     kwargs = fake_gradium.setup_kwargs
     assert kwargs["model_name"] == "gradium-tts-beta"
@@ -213,7 +244,7 @@ async def test_custom_values_reach_the_provider_client(fake_gradium):
 
 
 async def test_partial_voice_settings_send_only_what_was_set(fake_gradium):
-    await GradiumModule({**VALID_CONFIG, "temp": 0.2}).stream(
+    await GradiumModule({**VALID_CONFIG, "temp": 0.2}).synthesize_text(
         "hi", TTSOptions(), MagicMock()
     )
     assert fake_gradium.setup_kwargs["json_config"] == {"temp": 0.2}
@@ -227,7 +258,9 @@ def test_stream_feeds_audio_bytes_and_skips_other_messages(fake_gradium):
         {"type": "end_of_stream"},
     ]
     callback = MagicMock()
-    asyncio.run(GradiumModule(VALID_CONFIG).stream("hello", TTSOptions(), callback))
+    asyncio.run(
+        GradiumModule(VALID_CONFIG).synthesize_text("hello", TTSOptions(), callback)
+    )
 
     assert [c.args[0] for c in callback.call_args_list] == [
         b"\x01\x00\x02\x00",
@@ -240,7 +273,9 @@ def test_ready_sample_rate_mismatch_raises_tts_error(fake_gradium):
     fake_gradium.messages = [_audio(b"\x01\x00")]
     callback = MagicMock()
     with pytest.raises(TTSError, match="24000"):
-        asyncio.run(GradiumModule(VALID_CONFIG).stream("hello", TTSOptions(), callback))
+        asyncio.run(
+            GradiumModule(VALID_CONFIG).synthesize_text("hello", TTSOptions(), callback)
+        )
     callback.assert_not_called()
     assert fake_gradium.tts.closed is True
 
@@ -249,7 +284,9 @@ def test_stream_wraps_sdk_exception_in_tts_error(fake_gradium):
     fake_gradium.messages = [_audio(b"\x01\x00"), RuntimeError("Error from server")]
     callback = MagicMock()
     with pytest.raises(TTSError, match="Error from server"):
-        asyncio.run(GradiumModule(VALID_CONFIG).stream("hello", TTSOptions(), callback))
+        asyncio.run(
+            GradiumModule(VALID_CONFIG).synthesize_text("hello", TTSOptions(), callback)
+        )
     callback.assert_called_once_with(b"\x01\x00")
     assert fake_gradium.tts.closed is True
 
@@ -265,7 +302,7 @@ def test_stream_wraps_connection_failure_in_tts_error(fake_gradium, monkeypatch)
         failing_tts_realtime,
     )
     with pytest.raises(TTSError, match="connection refused"):
-        asyncio.run(module.stream("hello", TTSOptions(), MagicMock()))
+        asyncio.run(module.synthesize_text("hello", TTSOptions(), MagicMock()))
 
 
 def test_stream_does_not_mask_callback_errors(fake_gradium):
@@ -276,7 +313,9 @@ def test_stream_does_not_mask_callback_errors(fake_gradium):
 
     with pytest.raises(ValueError, match="playback failed"):
         asyncio.run(
-            GradiumModule(VALID_CONFIG).stream("hello", TTSOptions(), bad_callback)
+            GradiumModule(VALID_CONFIG).synthesize_text(
+                "hello", TTSOptions(), bad_callback
+            )
         )
     assert fake_gradium.tts.closed is True
 
@@ -301,7 +340,7 @@ async def test_cancel_stops_callbacks_before_stream_raises(fake_gradium):
         loop.call_soon_threadsafe(first_chunk.set)
 
     module = GradiumModule(VALID_CONFIG)
-    task = asyncio.create_task(module.stream("hello", TTSOptions(), callback))
+    task = asyncio.create_task(module.synthesize_text("hello", TTSOptions(), callback))
     await first_chunk.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -310,4 +349,102 @@ async def test_cancel_stops_callbacks_before_stream_raises(fake_gradium):
     settled = count
     await asyncio.sleep(0.05)  # ~10 chunk periods: a leaked worker would show
     assert count == settled
+    assert fake_gradium.tts.closed is True
+
+
+def _signal(loop: asyncio.AbstractEventLoop, event: asyncio.Event):
+    """A callback that sets `event` on `loop` from the module's worker thread."""
+
+    def callback(_chunk: bytes) -> None:
+        loop.call_soon_threadsafe(event.set)
+
+    return callback
+
+
+# --- text stream (sender + receiver on one connection) -----------------------
+
+
+def _source(*pieces: str):
+    async def source():
+        for piece in pieces:
+            yield piece
+
+    return source()
+
+
+def test_text_stream_sends_word_groups_then_eos(fake_gradium):
+    fake_gradium.reactive = True
+    callback = MagicMock()
+
+    asyncio.run(
+        GradiumModule(VALID_CONFIG).synthesize_text_stream(
+            _source("Hel", "lo wor", "ld, how", " are you"), TTSOptions(), callback
+        )
+    )
+
+    # Pieces are forwarded up to their last whitespace, so a sub-word token is
+    # never sent on its own; the remainder goes before the single end-of-stream.
+    assert fake_gradium.tts.sent == ["Hello ", "world, ", "how are ", "you"]
+    assert fake_gradium.tts.eos is True
+    assert [c.args[0] for c in callback.call_args_list] == [
+        b"Hello ",
+        b"world, ",
+        b"how are ",
+        b"you",
+    ]
+    assert fake_gradium.tts.closed is True
+
+
+async def test_text_stream_feeds_audio_before_the_source_finishes(fake_gradium):
+    fake_gradium.reactive = True
+    loop = asyncio.get_running_loop()
+    got_audio = asyncio.Event()
+
+    async def source():
+        yield "Hello "
+        await got_audio.wait()
+        yield "world."
+
+    await asyncio.wait_for(
+        GradiumModule(VALID_CONFIG).synthesize_text_stream(
+            source(), TTSOptions(), _signal(loop, got_audio)
+        ),
+        timeout=5,
+    )
+    assert fake_gradium.tts.sent == ["Hello ", "world."]
+    assert fake_gradium.tts.eos is True
+
+
+def test_text_stream_sender_failure_raises_tts_error(fake_gradium, monkeypatch):
+    fake_gradium.reactive = True
+
+    async def failing_send(self, text):
+        raise RuntimeError("socket closed")
+
+    monkeypatch.setattr(ReactiveFakeTts, "send_text", failing_send)
+
+    with pytest.raises(TTSError, match="socket closed"):
+        asyncio.run(
+            GradiumModule(VALID_CONFIG).synthesize_text_stream(
+                _source("Hello "), TTSOptions(), MagicMock()
+            )
+        )
+    assert fake_gradium.tts.closed is True
+
+
+def test_text_stream_source_error_propagates_unchanged(fake_gradium):
+    fake_gradium.reactive = True
+
+    async def source():
+        yield "Hello "
+        raise RuntimeError("llm failed")
+
+    with pytest.raises(RuntimeError, match="llm failed"):
+        asyncio.run(
+            GradiumModule(VALID_CONFIG).synthesize_text_stream(
+                source(), TTSOptions(), MagicMock()
+            )
+        )
+    # Aborted: the request is dropped without an end-of-stream.
+    assert fake_gradium.tts.eos is False
     assert fake_gradium.tts.closed is True

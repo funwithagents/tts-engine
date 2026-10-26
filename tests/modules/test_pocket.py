@@ -46,6 +46,7 @@ class _FakeModel:
         self.chunks = [_FakeChunk([0.0, 0.5, -0.5, 1.0]), _FakeChunk([0.25])]
         self.raise_on_stream: Exception | None = None
         self.endless = False
+        self.texts: list[str] = []
 
     def to(self, device):
         self.moved_to = device
@@ -57,6 +58,7 @@ class _FakeModel:
 
     def generate_audio_stream(self, state, text, **kwargs):
         self.stream_kwargs = kwargs
+        self.texts.append(text)
         if self.raise_on_stream is not None:
             raise self.raise_on_stream
         if self.endless:
@@ -177,7 +179,7 @@ def test_language_and_max_tokens_forwarded(monkeypatch, fresh_model):
     )
     import asyncio
 
-    asyncio.run(module.stream("hello", TTSOptions(), lambda _b: None))
+    asyncio.run(module.synthesize_text("hello", TTSOptions(), lambda _b: None))
     assert fresh_model.voice == "marius"
     assert fresh_model.load_kwargs == {"language": "fr"}
     assert fresh_model.stream_kwargs == {"max_tokens": 200}
@@ -193,7 +195,7 @@ def test_stream_produces_int16_pcm(monkeypatch, fresh_model):
     received = bytearray()
     import asyncio
 
-    asyncio.run(module.stream("hi", TTSOptions(), received.extend))
+    asyncio.run(module.synthesize_text("hi", TTSOptions(), received.extend))
 
     assert len(received) % 2 == 0  # whole signed-16-bit samples
     samples = np.frombuffer(bytes(received), dtype="<i2")
@@ -209,7 +211,7 @@ def test_stream_wraps_backend_error_in_tts_error(monkeypatch, fresh_model):
     import asyncio
 
     with pytest.raises(TTSError, match="inference boom"):
-        asyncio.run(module.stream("hi", TTSOptions(), lambda _b: None))
+        asyncio.run(module.synthesize_text("hi", TTSOptions(), lambda _b: None))
 
 
 def test_stream_does_not_mask_callback_errors(monkeypatch, fresh_model):
@@ -222,7 +224,7 @@ def test_stream_does_not_mask_callback_errors(monkeypatch, fresh_model):
     import asyncio
 
     with pytest.raises(ValueError, match="playback failed"):
-        asyncio.run(module.stream("hi", TTSOptions(), bad_callback))
+        asyncio.run(module.synthesize_text("hi", TTSOptions(), bad_callback))
 
 
 async def test_cancel_stops_callbacks_before_stream_raises(monkeypatch, fresh_model):
@@ -239,7 +241,7 @@ async def test_cancel_stops_callbacks_before_stream_raises(monkeypatch, fresh_mo
         count += 1
         loop.call_soon_threadsafe(first_chunk.set)
 
-    task = asyncio.create_task(module.stream("hi", TTSOptions(), callback))
+    task = asyncio.create_task(module.synthesize_text("hi", TTSOptions(), callback))
     await first_chunk.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -248,3 +250,50 @@ async def test_cancel_stops_callbacks_before_stream_raises(monkeypatch, fresh_mo
     settled = count
     await asyncio.sleep(0.05)
     assert count == settled
+
+
+def _signal(loop: asyncio.AbstractEventLoop, event: asyncio.Event):
+    """A callback that sets `event` on `loop` from the module's worker thread."""
+
+    def callback(_chunk: bytes) -> None:
+        loop.call_soon_threadsafe(event.set)
+
+    return callback
+
+
+# --- text stream -------------------------------------------------------------
+
+
+def test_text_stream_runs_inference_per_sentence(monkeypatch, fresh_model):
+    _install_fakes(monkeypatch)
+    module = PocketModule({"type": "pocket"})
+
+    async def source():
+        for piece in ["Hello wor", "ld. How are", " you? Fine"]:
+            yield piece
+
+    received = bytearray()
+    asyncio.run(module.synthesize_text_stream(source(), TTSOptions(), received.extend))
+
+    assert fresh_model.texts == ["Hello world.", "How are you?", "Fine"]
+    assert len(received) == 3 * 2 * 5  # five int16 samples per fake generation
+
+
+async def test_text_stream_feeds_first_sentence_before_the_source_finishes(
+    monkeypatch, fresh_model
+):
+    _install_fakes(monkeypatch)
+    module = PocketModule({"type": "pocket"})
+    loop = asyncio.get_running_loop()
+    got_audio = asyncio.Event()
+
+    async def source():
+        yield "Hello world. "
+        await got_audio.wait()
+        yield "Second one."
+
+    await asyncio.wait_for(
+        module.synthesize_text_stream(source(), TTSOptions(), _signal(loop, got_audio)),
+        timeout=5,
+    )
+    assert fresh_model.texts == ["Hello world.", "Second one."]

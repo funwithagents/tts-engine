@@ -92,7 +92,7 @@ The setup is sent and the server's `ready` message awaited on entry (`wait_for_r
 `AudioPlayer.feed` blocks (sounddevice's `write` waits for buffer room), so `callback` must never run on the engine's event loop — that would stall every other coroutine for the duration of playback. The synchronous providers avoid this because `run_cancellable_worker` runs their SDK loop in a thread. An async SDK gets the same treatment: the worker thread runs a **private event loop** of its own.
 
 ```python
-async def stream(self, text, options, callback):
+async def synthesize_text(self, text, options, callback):
     def _blocking_stream(stop: threading.Event) -> None:
         asyncio.run(self._consume(text, callback, stop))
 
@@ -104,6 +104,17 @@ async def stream(self, text, options, callback):
 ### Cancellation
 
 Cooperative via `run_cancellable_worker` ([tts-module-interface.md](../tts-module-interface.md), "Cancellation"): the consumer polls `stop` between messages and `break`s out of the `async for` when it is set. Leaving the `async with` block then runs `Tts.__aexit__`, which closes the WebSocket and the aiohttp session at once — the server drops the request, and `asyncio.run` returns as soon as that completes, so the thread exits promptly and the coroutine re-raises `CancelledError` only after callbacks have stopped.
+
+### Text stream (native): sender and receiver on one connection
+
+`synthesize_text_stream` is a **true stream-to-stream** pass — the realtime interface is built for it: `send_text` may be called repeatedly (the SDK documents word-by-word input) before a single `send_eos`, and audio flows back while text is still being sent. The module does not group text into sentences.
+
+The worker comes from `run_text_stream_worker` ([tts-module-interface.md](../tts-module-interface.md), "Text-stream helpers") and, as for `synthesize_text`, runs a private event loop. Inside one `tts_realtime(...)` connection (same setup, same `ready` rate check), that loop runs two coroutines concurrently:
+
+- **Sender** — pulls `next(pieces)` through `loop.run_in_executor` (so the loop keeps receiving while it waits for text), buffers to **word boundaries** (the buffer is forwarded up to its last whitespace, holding back a possibly unfinished last word until the next piece or the end of stream — so a sub-word LLM token is never sent on its own, whichever side the tokenizer puts spaces on), `send_text` per word group, then `send_eos` when the bridge's iterator ends. If `stop` ends the iterator early, no `send_eos` is sent: leaving the context manager drops the request.
+- **Receiver** — the existing audio loop: `callback(msg["audio"])` per audio message, polling `stop`, until the server ends the stream after EOS.
+
+The receive loop races the sender task (`asyncio.wait(..., FIRST_COMPLETED)` on the next message and the sender) so a sender failure ends the utterance instead of leaving the receiver waiting for audio that will never come. A failure on either side is `TTSError("Gradium request failed: …")`; callback failures propagate unchanged; a text-stream failure aborts via the bridge and propagates unchanged. Leaving the `async with` in `finally` cancels a still-running sender and closes the socket, so cancellation behaves exactly as for `synthesize_text`.
 
 ### Dependencies and lazy import
 
@@ -135,7 +146,7 @@ Registered in `REGISTRY` as `"gradium"` ([modules/__init__.py](../../src/tts_eng
 
 ## Testing
 
-- **Unit (`tests/modules/test_gradium.py`)** — the `gradium` SDK is **faked** (a stub `GradiumClient` whose `tts_realtime` returns a scripted async context manager / async iterator), so no socket is ever opened and the fast tier runs without the extra. Covers: `ConfigError` on a missing extra, on a missing/empty key, and on each invalid field (parametrized); key resolution (`api_key_env`, literal precedence, unset variable); `sample_rate` reflecting the config; the setup kwargs reaching the SDK (`output_format=pcm_<rate>`, `model_name`, `voice_id`, `json_config` present only when a voice setting is set, `pronunciation_id`/`base_url` only when set); `stream` feeding audio bytes to the callback unchanged and skipping non-audio messages; the `ready` rate mismatch raising `TTSError`; SDK errors wrapped in `TTSError` while callback errors propagate unchanged; and cancellation stopping callbacks before `stream()` raises. Follows the ElevenLabs unit-test shape (mock the library, assert observable behavior via the arguments sent to the client).
+- **Unit (`tests/modules/test_gradium.py`)** — the `gradium` SDK is **faked** (a stub `GradiumClient` whose `tts_realtime` returns a scripted async context manager / async iterator), so no socket is ever opened and the fast tier runs without the extra. Covers: `ConfigError` on a missing extra, on a missing/empty key, and on each invalid field (parametrized); key resolution (`api_key_env`, literal precedence, unset variable); `sample_rate` reflecting the config; the setup kwargs reaching the SDK (`output_format=pcm_<rate>`, `model_name`, `voice_id`, `json_config` present only when a voice setting is set, `pronunciation_id`/`base_url` only when set); `synthesize_text` feeding audio bytes to the callback unchanged and skipping non-audio messages; the `ready` rate mismatch raising `TTSError`; SDK errors wrapped in `TTSError` while callback errors propagate unchanged; cancellation stopping callbacks before `synthesize_text()` raises; and for `synthesize_text_stream`: pieces reaching the fake's `send_text` grouped at word boundaries and followed by exactly one `send_eos`, audio reaching the callback **before** the source has yielded its last piece (the fake emits an audio message per `send_text`; the source waits on an event the callback sets), a sender-side SDK error raised as `TTSError`, and a source error propagating unchanged with the connection closed. Follows the ElevenLabs unit-test shape (mock the library, assert observable behavior via the arguments sent to the client).
 - **Live (`tests-e2e/test_modules.py`)** — one `MODULES` row (`gradium`, `api_key_env: "GRADIUM_API_KEY"`, the Alex voice) plus `_REQUIRED_IMPORT["gradium"] = "gradium"` in `support.py`, so both per-module scenarios run against the real API and **skip cleanly** when the key or the extra is absent (see [testing.md](../testing.md), "Live tier").
 
 ## Validated against `gradium==0.6.4`
@@ -152,5 +163,5 @@ The SDK surface this spec relies on, confirmed from the pinned package:
 
 Deferrals only (design is settled):
 
-1. **Incremental text.** The realtime interface accepts text word-by-word (`send_text` repeatedly before `send_eos`), which an LLM-streaming caller could exploit. `stream()` takes a complete string today, so the module sends it in one message; revisit if `TTSOptions`/the engine ever grow a streaming-text input.
-2. **Connection reuse.** One WebSocket per utterance is the simplest correct shape and matches how the other providers issue one request per `stream()`. Keeping a connection warm across utterances (Gradium supports `close_ws_on_eos: false`) would shave the handshake off time-to-first-audio; measure before adding it.
+1. **Connection reuse.** One WebSocket per utterance is the simplest correct shape and matches how the other providers issue one request per call. Keeping a connection warm across utterances (Gradium supports `close_ws_on_eos: false`) would shave the handshake off time-to-first-audio; measure before adding it.
+2. **Word-boundary buffering.** The sender groups pieces at whitespace before `send_text` as a cheap safety against split tokens. If the live tier shows the server handles raw sub-word pieces correctly, the buffer can go.

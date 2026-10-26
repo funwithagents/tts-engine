@@ -15,7 +15,7 @@ tests:
 
 ## Purpose
 
-`TTSEngine.say` synthesizes PCM and, by default, plays it on the local machine through `AudioPlayer` (sounddevice). Some embedders need that PCM to go **somewhere other than the local speaker** — a robot's audio pipeline, an in-memory buffer, a network stream — without reimplementing `say`.
+`TTSEngine.say` (and `say_stream`, its text-stream counterpart) synthesizes PCM and, by default, plays it on the local machine through `AudioPlayer` (sounddevice). Some embedders need that PCM to go **somewhere other than the local speaker** — a robot's audio pipeline, an in-memory buffer, a network stream — without reimplementing `say`.
 
 The `AudioSink` Protocol is the seam that makes the playback destination swappable. It names the `feed`/`drain` shape `AudioPlayer` already has, so an embedder can supply its own destination and capture the synthesized stream through the engine's **public** API instead of reaching into module internals.
 
@@ -58,11 +58,11 @@ The engine does **not** resample or reformat. A sink whose destination wants ano
 
 ### Call discipline
 
-The same guarantees `TTSModule.stream` documents for its callback carry through to the sink:
+The same guarantees `TTSModule.synthesize_text` / `synthesize_text_stream` document for their callback carry through to the sink:
 
 - `feed` is called sequentially with each chunk. Calls may run off the event-loop thread (the module drives them from a single `asyncio.to_thread` worker) but **never overlap**.
-- `drain` is called **exactly once** after the last `feed`, from `say`'s `finally` — including when synthesis fails or the coroutine is cancelled. `say` keeps its `try/finally` so `drain` always runs on the active sink.
-- Concurrency across `say` calls is unchanged: `TTSEngine` still serializes all `say` calls under its `asyncio.Lock`, so a sink never sees two overlapping utterances.
+- `drain` is called **exactly once** after the last `feed`, from `say`'s (or `say_stream`'s) `finally` — including when synthesis fails, the text stream fails, or the coroutine is cancelled. Both methods keep their `try/finally` so `drain` always runs on the active sink. A `say_stream` utterance is **one** utterance to the sink however many sentences or pieces it was built from: a single `drain` at the end, so the device stays open across sentence boundaries with no click between them.
+- Concurrency across calls is unchanged: `TTSEngine` serializes all `say` and `say_stream` calls under its `asyncio.Lock`, so a sink never sees two overlapping utterances.
 
 ### `AudioPlayer` is an `AudioSink`
 
@@ -90,7 +90,18 @@ class TTSEngine:
     async def say(self, text: str) -> None:
         async with self._say_lock:
             try:
-                await self._module.stream(text, TTSOptions(), callback=self._sink.feed)
+                await self._module.synthesize_text(
+                    text, TTSOptions(), callback=self._sink.feed
+                )
+            finally:
+                self._sink.drain()
+
+    async def say_stream(self, text_stream: AsyncIterable[str] | Iterable[str]) -> None:
+        async with self._say_lock:
+            try:
+                await self._module.synthesize_text_stream(
+                    _as_async_iterator(text_stream), TTSOptions(), callback=self._sink.feed
+                )
             finally:
                 self._sink.drain()
 ```

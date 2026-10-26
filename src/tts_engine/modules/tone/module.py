@@ -5,12 +5,17 @@ test suites run end to end with no API key, extra, model, or fixture files.
 """
 
 import threading
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable, Iterator
 
 import numpy as np
 
 from tts_engine.config import ConfigError
-from tts_engine.modules.base import TTSModule, TTSOptions, run_cancellable_worker
+from tts_engine.modules.base import (
+    TTSModule,
+    TTSOptions,
+    run_cancellable_worker,
+    run_text_stream_worker,
+)
 
 _CHUNK_FRAMES = 4096
 
@@ -44,24 +49,56 @@ class ToneModule(TTSModule):
     def sample_rate(self) -> int:
         return self._sample_rate
 
-    async def stream(
+    def _frames_for(self, text: str) -> int:
+        return round(len(text) * self._seconds_per_char * self._sample_rate)
+
+    def _emit(
+        self,
+        start: int,
+        end: int,
+        callback: Callable[[bytes], None],
+        stop: threading.Event,
+    ) -> int:
+        """Feed frames [start, end) in chunks; return the frame index reached.
+
+        Frame indices run continuously across chunks (and across pieces of a
+        text stream), so the wave has no phase jump at any boundary.
+        """
+        while start < end and not stop.is_set():
+            chunk_end = min(start + _CHUNK_FRAMES, end)
+            n = np.arange(start, chunk_end, dtype=np.float64)
+            wave = np.sin(2.0 * np.pi * self._frequency * n / self._sample_rate)
+            pcm = np.round(self._amplitude * 32767.0 * wave).astype("<i2")
+            callback(pcm.tobytes())
+            start = chunk_end
+        return start
+
+    async def synthesize_text(
         self,
         text: str,
         options: TTSOptions,
         callback: Callable[[bytes], None],
     ) -> None:
-        total = round(len(text) * self._seconds_per_char * self._sample_rate)
+        total = self._frames_for(text)
 
         def _worker(stop: threading.Event) -> None:
-            # Frame indices run continuously across chunks, so the wave has no
-            # phase jump at chunk boundaries.
-            start = 0
-            while start < total and not stop.is_set():
-                end = min(start + _CHUNK_FRAMES, total)
-                n = np.arange(start, end, dtype=np.float64)
-                wave = np.sin(2.0 * np.pi * self._frequency * n / self._sample_rate)
-                pcm = np.round(self._amplitude * 32767.0 * wave).astype("<i2")
-                callback(pcm.tobytes())
-                start = end
+            self._emit(0, total, callback, stop)
 
         await run_cancellable_worker(_worker)
+
+    async def synthesize_text_stream(
+        self,
+        text_stream: AsyncIterator[str],
+        options: TTSOptions,
+        callback: Callable[[bytes], None],
+    ) -> None:
+        # A tone per piece, as each arrives: no grouping, so the first piece's
+        # audio is fed before the source has produced the second.
+        def _worker(pieces: Iterator[str], stop: threading.Event) -> None:
+            frame = 0
+            for piece in pieces:
+                frame = self._emit(
+                    frame, frame + self._frames_for(piece), callback, stop
+                )
+
+        await run_text_stream_worker(text_stream, _worker)

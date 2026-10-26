@@ -3,11 +3,17 @@
 Behind the `elevenlabs` extra: `elevenlabs` and `miniaudio` are imported lazily
 inside `__init__` so `import tts_engine` and `load_module` never require them —
 a missing extra becomes a clear `ConfigError`.
+
+Both input shapes share one MP3 -> PCM decode-and-feed loop; only the SDK call
+differs: `text_to_speech.stream` (HTTPS) for a complete text,
+`text_to_speech.convert_realtime` (the stream-input WebSocket, text iterator in)
+for a text stream.
 """
 
 import os
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterable, Iterator
+from typing import Any, cast
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
@@ -15,6 +21,7 @@ from tts_engine.modules.base import (
     TTSModule,
     TTSOptions,
     run_cancellable_worker,
+    run_text_stream_worker,
 )
 
 
@@ -127,52 +134,92 @@ class ElevenLabsModule(TTSModule):
             "ElevenLabs module requires a non-empty 'api_key' or 'api_key_env'"
         )
 
-    async def stream(
+    def _request_kwargs(self) -> dict:
+        """The per-request SDK arguments, shared by both input shapes."""
+        return {
+            "voice_id": self._voice_id,
+            "model_id": self._model,
+            "output_format": "mp3_44100_128",
+            "voice_settings": self._voice_settings_cls(
+                stability=self._stability,
+                similarity_boost=self._similarity_boost,
+            ),
+        }
+
+    def _decode_and_feed(
+        self,
+        open_raw: Callable[[], Iterable[bytes]],
+        callback: Callable[[bytes], None],
+        stop: threading.Event,
+    ) -> None:
+        """Open the raw MP3 chunk source, decode it to PCM and feed `callback`,
+        polling `stop` between chunks. Runs on the worker thread."""
+        # Build the provider request and the decoder inside the provider try
+        # so SDK/decoder failures become TTSError. (The generator expression
+        # evaluates `open_raw()` eagerly, so a failing call fails here.)
+        try:
+            raw_chunks = (chunk for chunk in open_raw() if chunk)
+            pcm_iter = iter(
+                self._miniaudio.stream_any(
+                    self._chunk_source_cls(raw_chunks),
+                    output_format=self._miniaudio.SampleFormat.SIGNED16,
+                    nchannels=1,
+                    sample_rate=44100,
+                )
+            )
+        except Exception as exc:
+            raise TTSError(f"ElevenLabs request failed: {exc}") from exc
+
+        while not stop.is_set():
+            # Advance the decoder inside the provider try so SDK/decoder
+            # errors become TTSError; feed the callback outside it so a
+            # downstream playback failure keeps its own identity.
+            try:
+                pcm_chunk = next(pcm_iter)
+            except StopIteration:
+                break
+            except Exception as exc:
+                raise TTSError(f"ElevenLabs request failed: {exc}") from exc
+            callback(pcm_chunk.tobytes())
+
+    async def synthesize_text(
         self,
         text: str,
         options: TTSOptions,
         callback: Callable[[bytes], None],
     ) -> None:
-        def _blocking_stream(stop: threading.Event) -> None:
-            # Build the provider request and the decoder inside the provider
-            # try so SDK/decoder failures become TTSError. (The generator
-            # expression evaluates the SDK call eagerly, so it fails here.)
-            try:
-                raw_chunks = (
-                    chunk
-                    for chunk in self._client.text_to_speech.stream(
-                        text=text,
-                        voice_id=self._voice_id,
-                        model_id=self._model,
-                        output_format="mp3_44100_128",
-                        voice_settings=self._voice_settings_cls(
-                            stability=self._stability,
-                            similarity_boost=self._similarity_boost,
-                        ),
-                    )
-                    if chunk
-                )
-                pcm_iter = iter(
-                    self._miniaudio.stream_any(
-                        self._chunk_source_cls(raw_chunks),
-                        output_format=self._miniaudio.SampleFormat.SIGNED16,
-                        nchannels=1,
-                        sample_rate=44100,
-                    )
-                )
-            except Exception as exc:
-                raise TTSError(f"ElevenLabs request failed: {exc}") from exc
+        def _worker(stop: threading.Event) -> None:
+            self._decode_and_feed(
+                lambda: self._client.text_to_speech.stream(
+                    text=text, **self._request_kwargs()
+                ),
+                callback,
+                stop,
+            )
 
-            while not stop.is_set():
-                # Advance the decoder inside the provider try so SDK/decoder
-                # errors become TTSError; feed the callback outside it so a
-                # downstream playback failure keeps its own identity.
-                try:
-                    pcm_chunk = next(pcm_iter)
-                except StopIteration:
-                    break
-                except Exception as exc:
-                    raise TTSError(f"ElevenLabs request failed: {exc}") from exc
-                callback(pcm_chunk.tobytes())
+        await run_cancellable_worker(_worker)
 
-        await run_cancellable_worker(_blocking_stream)
+    async def synthesize_text_stream(
+        self,
+        text_stream: AsyncIterator[str],
+        options: TTSOptions,
+        callback: Callable[[bytes], None],
+    ) -> None:
+        # `convert_realtime` pulls the text iterator itself, on this worker
+        # thread, sending pieces over the stream-input socket as they arrive
+        # and yielding MP3 as the server answers: the same iterator shape as
+        # `stream`, so the decode loop is shared.
+        # The SDK types `text_to_speech` as its base client, but the instance
+        # is the realtime subclass that carries `convert_realtime`.
+        tts_client = cast(Any, self._client.text_to_speech)
+
+        def _worker(pieces: Iterator[str], stop: threading.Event) -> None:
+            self._decode_and_feed(
+                lambda: tts_client.convert_realtime(
+                    text=pieces, **self._request_kwargs()
+                ),
+                callback,
+                stop,
+            )
+
+        await run_text_stream_worker(text_stream, _worker)
