@@ -5,7 +5,7 @@
 # supported platform — Linux (x86_64 and arm64), macOS, Windows — since the fast tier needs no network, no
 # credentials and no sound device, and is where a platform's wheels, paths and
 # subprocesses meet a machine of that platform; and `e2e` (the live tier) on Linux, the
-# one runner with a dependable virtual sound device (a PulseAudio null sink). None waits
+# one runner with a dependable virtual sound device (ALSA's null plugin). None waits
 # on another. Every extra installs through the dev group; on Linux torch comes from
 # PyTorch's CPU index. No secret is needed: the cloud-provider rows skip without their
 # key, and the spec's expected-skips table says which.
@@ -86,10 +86,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
-      - name: System packages (PortAudio, PulseAudio and its ALSA plugin)
+      - name: System packages (PortAudio)
         run: |
           sudo apt-get update
-          sudo apt-get install -y $APT_OPTS libportaudio2 pulseaudio pulseaudio-utils libasound2-plugins
+          sudo apt-get install -y $APT_OPTS libportaudio2
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -103,13 +103,12 @@ jobs:
           path: ~/.cache/huggingface
           key: hf-${{ runner.os }}-${{ hashFiles('uv.lock') }}
           restore-keys: hf-${{ runner.os }}-
-      - name: Sound device (PulseAudio null sink as ALSA's default — what PortAudio opens)
+      - name: Sound device (ALSA's built-in null plugin as the default PCM — what PortAudio opens)
+        # No PulseAudio: the null plugin ships in libasound2, which libportaudio2
+        # already depends on, so the job installs nothing else and a throttled apt
+        # mirror costs seconds, not minutes (specs/ci.md "The live job's sound device").
         run: |
-          pulseaudio --start --exit-idle-time=-1
-          pactl load-module module-null-sink sink_name=ci sink_properties=device.description=ci
-          pactl set-default-sink ci
-          printf 'pcm.!default { type pulse }\nctl.!default { type pulse }\n' > ~/.asoundrc
-          pactl info
+          printf 'pcm.!default { type null }\nctl.!default { type null }\n' > ~/.asoundrc
           uv run python -c "import sounddevice as sd; print(sd.query_devices()); print('default output:', sd.default.device)"
       - name: Live tier
         # The cloud TTS keys, when the repository holds them as secrets: those rows run;
@@ -123,4 +122,4 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CARTESIA_API_KEY: ${{ secrets.CARTESIA_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: uv run pytest tests-e2e -rs -o log_cli=true --log-cli-level=WARNING
+        run: uv run pytest tests-e2e -rs --durations=10 -o log_cli=true --log-cli-level=WARNING

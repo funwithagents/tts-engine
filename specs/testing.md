@@ -77,7 +77,7 @@ A live test needs real credentials, and it must **skip — never fail** — when
 
 ## Continuous integration
 
-Both tiers run on GitHub's hosted runners on every pull request and push to `main`: the fast tier on Linux, macOS and Windows, the live tier on Linux against a PulseAudio null sink, with the provider keys as optional repository secrets. The jobs, runners and expected skips are specced in [ci.md](ci.md).
+Both tiers run on GitHub's hosted runners on every pull request and push to `main`: the fast tier on Linux, macOS and Windows, the live tier on Linux against ALSA's null plugin as the sound device, with the provider keys as optional repository secrets. The jobs, runners and expected skips are specced in [ci.md](ci.md).
 
 ## Open questions
 
