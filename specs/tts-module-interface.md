@@ -99,11 +99,11 @@ class TTSModule(ABC):
         """
 ```
 
-Both methods are abstract: every module implements both. A backend whose API accepts text incrementally (a WebSocket that takes repeated text messages before an end-of-stream marker — Gradium, ElevenLabs) implements `synthesize_text_stream` as a true stream-to-stream pass: pieces go to the backend as they arrive and audio comes back while more text is still being received. A backend that needs a complete prompt before it can produce any audio (a local model conditioned on the whole text — pocket; a fixture matching whole sentences — audiofile) **groups the pieces into sentences** and synthesizes each sentence as soon as it is complete, so audio for sentence one plays while the stream is still delivering sentence two. The grouping is the module's own concern, done with the shared `segment_sentences` helper (below) — the engine never cuts text. Which shape a module uses is stated in its own spec.
+Both methods are abstract: every module implements both. A backend whose API accepts text incrementally (a WebSocket that takes repeated text messages before an end-of-stream marker — Gradium, ElevenLabs) implements `synthesize_text_stream` as a true stream-to-stream pass: pieces go to the backend as they arrive and audio comes back while more text is still being received. A backend that needs a complete prompt before it can produce any audio (a local model conditioned on the whole text — pocket; a request/response API — mistral; a fixture matching whole sentences — audiofile) **groups the pieces into sentences** and synthesizes each sentence as soon as it is complete, so audio for sentence one plays while the stream is still delivering sentence two. The grouping is the module's own concern, done with the shared `segment_sentences` helper (below) — the engine never cuts text. Which shape a module uses is stated in its own spec.
 
 ## Module registry
 
-Each backend is a **package of its own** under `src/tts_engine/modules/` — `elevenlabs/`, `pocket/`, `gradium/`, `phonon/`, `tone/`, `audiofile/` — never a loose file next to `base.py`. The `TTSModule` subclass lives in `<backend>/module.py` and the package `__init__.py` re-exports it, so `from tts_engine.modules.<backend> import <Class>` is the import path everywhere (registry, tests, callers). Each backend is specced by `specs/modules/<backend>.md`.
+Each backend is a **package of its own** under `src/tts_engine/modules/` — `elevenlabs/`, `pocket/`, `gradium/`, `phonon/`, `mistral/`, `tone/`, `audiofile/` — never a loose file next to `base.py`. The `TTSModule` subclass lives in `<backend>/module.py` and the package `__init__.py` re-exports it, so `from tts_engine.modules.<backend> import <Class>` is the import path everywhere (registry, tests, callers). Each backend is specced by `specs/modules/<backend>.md`.
 
 `modules/__init__.py` maintains a `REGISTRY` dict mapping type strings to module classes:
 
@@ -113,6 +113,7 @@ REGISTRY: dict[str, type[TTSModule]] = {
     "pocket": PocketModule,  # provider, behind the `pocket` extra
     "phonon": PhononModule,  # provider, behind the `phonon` extra
     "gradium": GradiumModule,  # provider, behind the `gradium` extra
+    "mistral": MistralModule,  # provider, behind the `mistral` extra
     "tone": ToneModule,  # fixture, base install
     "audiofile": AudioFileModule,  # fixture, base install
 }
@@ -126,7 +127,7 @@ There is **no default module**. `type` is required, and no module is privileged 
 
 | Kind | Modules | Installed by | Purpose |
 |---|---|---|---|
-| **Provider** (API-backed) | `elevenlabs`, `gradium` | the `elevenlabs` / `gradium` extra | Real speech from a cloud API |
+| **Provider** (API-backed) | `elevenlabs`, `gradium`, `mistral` | the `elevenlabs` / `gradium` / `mistral` extra | Real speech from a cloud API |
 | **Provider** (local model) | `pocket`, `phonon` | the `pocket` / `phonon` extra | Real speech from an in-process model |
 | **Fixture** | `tone`, `audiofile` | base install | No synthesis; deterministic audio for tests, demos, and downstream integration suites |
 
@@ -216,7 +217,7 @@ A pure, lazy generator — it works equally on an in-memory list and on the brid
 - Pieces are concatenated verbatim into a buffer. A sentence is yielded (stripped) when the buffer holds a **sentence end**: `.`, `!`, `?` or `…` — optionally followed by a closing quote or bracket — **followed by whitespace**, or a newline. "Followed by whitespace" is what keeps `3.14` and `v2.5` whole; it also means `Hello.` is yielded when the next piece starts (or at end of input), not the instant the period arrives.
 - **Length cap.** Once the buffer exceeds `max_chars` with no sentence end, it is cut at the last **clause boundary** (`,`, `;`, `:` followed by whitespace), else at the last whitespace — never inside a word — so a long LLM sentence cannot stall playback. `max_chars` is a fixed default in v1 (not configurable); modules pass nothing.
 - At end of input the remainder is yielded if it is not blank. Blank segments are never yielded.
-- Known limitation, accepted: abbreviations such as `Dr. Smith` split as a sentence. The backends that use this (pocket, phonon, audiofile) tolerate a short segment; correctness of the audio is unaffected.
+- Known limitation, accepted: abbreviations such as `Dr. Smith` split as a sentence. The backends that use this (pocket, phonon, mistral, audiofile) tolerate a short segment; correctness of the audio is unaffected.
 
 ## Local-model modules
 

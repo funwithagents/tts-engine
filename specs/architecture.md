@@ -75,6 +75,11 @@ A library user stops at layer 1 or 2; an agent embeds layer 2 directly; an MCP c
 │    ptts (no torch);   │
 │    same grouping      │
 │                       │
+│ mistral/              │
+│  • Cloud API; one     │
+│    request per        │
+│    sentence           │
+│                       │
 │ tone/ audiofile/      │
 │  • fixture modules:   │
 │    sine / WAV files   │
@@ -86,9 +91,10 @@ A library user stops at layer 1 or 2; an agent embeds layer 2 directly; an MCP c
              │ HTTPS / WebSocket (cloud providers only)
 ┌────────────▼──────────┐
 │ ElevenLabs / Gradium  │
+│ / Mistral             │
 └───────────────────────┘
 
-Providers (`elevenlabs`, `gradium`, `pocket`, `phonon`) each ship behind a packaging extra; the fixture modules ship in the base install; no module is the default (see [tts-module-interface.md](tts-module-interface.md), "Module kinds").
+Providers (`elevenlabs`, `gradium`, `mistral`, `pocket`, `phonon`) each ship behind a packaging extra; the fixture modules ship in the base install; no module is the default (see [tts-module-interface.md](tts-module-interface.md), "Module kinds").
 The MCP layer ships behind the `mcp` extra; layers 1 and 2 need only the base install (see [project.md](project.md), "Dependency strategy for transports").
 ```
 
@@ -155,6 +161,7 @@ await engine.say_stream(llm_tokens())
 | `modules/base.py` | Defines `TTSModule` ABC (`synthesize_text`, `synthesize_text_stream`), shared dataclasses (`TTSOptions`), and the shared helpers (`run_cancellable_worker`, `run_text_stream_worker`, `segment_sentences`, `resolve_path`) |
 | `modules/elevenlabs/module.py` | ElevenLabs API interaction over HTTPS (complete text) and the stream-input WebSocket (text stream), MP3→PCM decoding via miniaudio (behind the `elevenlabs` extra, lazy import), config parsing |
 | `modules/gradium/module.py` | Gradium realtime WebSocket (both input shapes; the text stream is forwarded as it arrives), raw PCM output (behind the `gradium` extra, lazy import), config parsing |
+| `modules/mistral/module.py` | Mistral Voxtral TTS over HTTPS server-sent events (behind the `mistral` extra, lazy import), float32→int16 conversion fed in 100 ms slices, sentence grouping for the text stream, config parsing |
 | `modules/pocket/module.py` | Local pocket-tts inference (behind the `pocket` extra, lazy import), sentence grouping for the text stream, float→int16 conversion, config parsing |
 | `modules/phonon/module.py` | Local Phonon inference through the `ptts` Rust runtime (behind the `phonon` extra, lazy import, no torch), sentence grouping for the text stream, float→int16 conversion, config parsing |
 | `modules/tone/module.py` | Fixture module: sine tone proportional to text length, no dependencies beyond numpy |

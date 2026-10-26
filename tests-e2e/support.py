@@ -53,6 +53,7 @@ _REQUIRED_IMPORT: dict[str, str] = {
     "pocket": "pocket_tts",
     "gradium": "gradium",
     "phonon": "ptts",
+    "mistral": "mistralai",
 }
 
 
@@ -108,6 +109,14 @@ _GRADIUM_CONFIG = {
 }
 
 
+# Config for the `mistral` row of `MODULES` — same shape as the other API rows:
+# `api_key_env` names the variable, never the key. "James", an English preset voice.
+_MISTRAL_CONFIG = {
+    "api_key_env": "MISTRAL_API_KEY",
+    "voice_id": "01a14675-dc30-778a-8d01-b5dead5a522a",
+}
+
+
 def default_module() -> tuple[str, dict]:
     """Module type + config for the module-agnostic live tests (the MCP
     transport in `test_mcp.py`; per-module conformance lives in `test_modules.py`
@@ -138,6 +147,7 @@ MODULES = [
     # language defaulting to English.
     pytest.param("phonon", {}, id="phonon"),
     pytest.param("gradium", _GRADIUM_CONFIG, id="gradium"),
+    pytest.param("mistral", _MISTRAL_CONFIG, id="mistral"),
     # Fixture modules: no key, no extra — these rows never skip.
     pytest.param("tone", {}, id="tone"),
     pytest.param(

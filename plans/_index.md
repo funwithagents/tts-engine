@@ -39,6 +39,7 @@ Implementation plans for TTS Engine — each plan turns a settled part of a spec
 | [Phonon module](202610261213_phonon-module.md) | Local-model `phonon` backend on `ptts` (no torch): `phonon` extra, lazy import, native 24 kHz, sentence grouping for the text stream, faked-library unit tests + live `MODULES` row that runs in CI with no key | Done |
 | [Cancellation tests + ElevenLabs stream-input loop](202610261310_cancellation-tests-and-elevenlabs-stream-loop.md) | Mid-audio cancellation tests for `synthesize_text_stream` on every module, audiofile and engine cancellation tests, two live cancel scenarios; the ElevenLabs text stream moves off the SDK's `convert_realtime` (no audio while the source pauses) to the module's own sender/receiver loop over the stream-input WebSocket; `split_at_last_space` shared in `base.py` | Done |
 | [Pocket 4 upgrade](202610261350_pocket-4-upgrade.md) | `pocket-tts>=4.0.1,<5`: worker `stop` event passed into `generate_audio_stream`, `config`/`quantize`/`temperature` fields, per-language default voice from the library, audio and `.safetensors` voice files, library rejections at load as `ConfigError` | Done |
+| [Mistral module](202610261359_mistral-module.md) | API-backed `mistral` backend on Voxtral TTS via the `mistralai` 3.x SDK: `mistral` extra, lazy import, streamed float32 `pcm` → int16 at 24 kHz fed in 100 ms slices, sentence-grouped text stream, faked-SDK unit tests + live `MODULES` row gated on `MISTRAL_API_KEY` | Done |
 
 ## Status legend
 
