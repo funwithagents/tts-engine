@@ -92,6 +92,13 @@ torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
 # Only the fast, deterministic tier is collected by default; tests-e2e/ is opt-in.
 testpaths = ["tests"]
 asyncio_mode = "auto"
+filterwarnings = [
+    # jsonpath-python (a mistralai dependency, 1.1.6 is the latest) probes the
+    # AST node names deprecated in 3.12 with getattr() when its class is
+    # defined, so importing the SDK warns. Upstream, harmless; scoped to that
+    # module and message so any other DeprecationWarning still shows.
+    "ignore:ast\\.\\w+ is deprecated:DeprecationWarning:jsonpath.jsonpath",
+]
 
 [tool.ruff]
 target-version = "py311"  # keep in sync with requires-python
