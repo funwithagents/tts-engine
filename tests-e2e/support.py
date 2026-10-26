@@ -57,6 +57,7 @@ _REQUIRED_IMPORT: dict[str, str] = {
     "deepgram": "deepgram",
     "gemini": "google.genai",
     "cartesia": "cartesia",
+    "openai": "openai",
     "qwen3": "qwentts_cpp",
 }
 
@@ -154,6 +155,15 @@ _CARTESIA_CONFIG = {
 }
 
 
+# Config for the `openai` row of `MODULES` — same shape as the other API rows:
+# `api_key_env` names the variable, never the key. "marin", a built-in voice
+# OpenAI recommends for the default `gpt-4o-mini-tts` model.
+_OPENAI_CONFIG = {
+    "api_key_env": "OPENAI_API_KEY",
+    "voice": "marin",
+}
+
+
 def default_module() -> tuple[str, dict]:
     """Module type + config for the module-agnostic live tests (the MCP
     transport in `test_mcp.py`; per-module conformance lives in `test_modules.py`
@@ -192,6 +202,7 @@ MODULES = [
     pytest.param("deepgram", _DEEPGRAM_CONFIG, id="deepgram"),
     pytest.param("gemini", _GEMINI_CONFIG, id="gemini"),
     pytest.param("cartesia", _CARTESIA_CONFIG, id="cartesia"),
+    pytest.param("openai", _OPENAI_CONFIG, id="openai"),
     # Fixture modules: no key, no extra — these rows never skip.
     pytest.param("tone", {}, id="tone"),
     pytest.param(

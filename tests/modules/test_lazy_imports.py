@@ -30,6 +30,7 @@ _SCRIPT = textwrap.dedent(
         "deepgram",
         "google.genai",
         "cartesia",
+        "openai",
         "qwentts_cpp",
     ):
         sys.modules[name] = None
@@ -47,6 +48,7 @@ _SCRIPT = textwrap.dedent(
         "deepgram",
         "gemini",
         "cartesia",
+        "openai",
         "qwen3",
         "tone",
         "audiofile",
@@ -61,6 +63,7 @@ _SCRIPT = textwrap.dedent(
         ("deepgram", {"type": "deepgram", "api_key": "k"}),
         ("gemini", {"type": "gemini", "api_key": "k"}),
         ("cartesia", {"type": "cartesia", "api_key": "k", "voice_id": "v"}),
+        ("openai", {"type": "openai", "api_key": "k", "voice": "v"}),
         ("qwen3", {"type": "qwen3"}),
     ):
         try:

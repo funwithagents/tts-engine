@@ -57,6 +57,12 @@ gemini = [
 cartesia = [
     "cartesia[websockets]>=4.2,<5",
 ]
+# The official SDK; streamed headerless pcm (s16le), so no codec. Also reaches any
+# OpenAI-compatible /v1/audio/speech server through base_url. <4: the 3.x
+# with_streaming_response API the module drives — see specs/modules/openai.md.
+openai = [
+    "openai>=3.37,<4",
+]
 # Gradium's Phonon on-device models through the ptts Rust runtime: numpy only,
 # no torch. <0.5: pre-1.0 and fast-moving, validated on 0.4.2 — see specs/modules/phonon.md.
 phonon = [
@@ -78,7 +84,7 @@ mcp = [
     "uvicorn",
 ]
 all = [
-    "tts-engine[elevenlabs,pocket,gradium,phonon,mistral,deepgram,gemini,cartesia,qwen3,mcp]",
+    "tts-engine[elevenlabs,pocket,gradium,phonon,mistral,deepgram,gemini,cartesia,openai,qwen3,mcp]",
 ]
 
 [dependency-groups]
