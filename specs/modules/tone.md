@@ -36,8 +36,8 @@ All fields go under the `engine.module` block alongside `"type": "tone"` (see [c
 Validated at construction, raising `ConfigError`:
 
 - `sample_rate` — if present, an integer `> 0`; booleans are rejected rather than treated as integers.
-- `frequency` and `seconds_per_char` — if present, a number (int or float, not bool) `> 0`.
-- `amplitude` — if present, a number (not bool) with `0 < amplitude <= 1`.
+- `frequency` and `seconds_per_char` — if present, a finite number (int or float, not bool; `NaN`/`inf` rejected) `> 0`.
+- `amplitude` — if present, a finite number (not bool) with `0 < amplitude <= 1`.
 
 ## Behavior
 
@@ -54,7 +54,7 @@ Registered in `REGISTRY` as `"tone"` ([modules/__init__.py](../../src/tts_engine
 
 ## Testing
 
-- **Unit (`tests/modules/test_tone.py`)** — `ConfigError` for each invalid field; default `sample_rate` is 24000 and a configured one is reported; `synthesize_text` into a capture callback yields exactly `2 * round(len(text) * seconds_per_char * sample_rate)` bytes, in whole int16 samples, in more than one chunk for a long text; the same text twice yields identical bytes; a callback exception propagates unchanged; cancellation stops the stream before `synthesize_text()` raises `CancelledError`. For `synthesize_text_stream`: the byte count equals the per-piece sum; the first piece's audio reaches the callback before the source yields the second (the source waits on an event the callback sets); an empty stream yields no bytes; a source exception propagates unchanged; cancellation stops callbacks before `synthesize_text_stream()` raises, both mid-audio and while the source is idle.
+- **Unit (`tests/modules/test_tone.py`)** — `ConfigError` for each invalid field; default `sample_rate` is 24000 and a configured one is reported; `synthesize_text` into a capture callback yields exactly `2 * round(len(text) * seconds_per_char * sample_rate)` bytes, in whole int16 samples, in more than one chunk for a long text; the same text twice yields identical bytes; a callback exception propagates unchanged; cancellation stops the stream before `synthesize_text()` raises `CancelledError`. For `synthesize_text_stream`: the byte count equals the per-piece sum; the first piece's audio reaches the callback before the source yields the second (the source waits on an event the callback sets); an empty stream yields no bytes; a source exception propagates unchanged; cancellation stops callbacks before `synthesize_text_stream()` raises, both mid-audio and while the source is idle. Non-finite values (`NaN`, `inf`) are among the rejected ones.
 - **Live (`tests-e2e/`)** — one `MODULES` row (`tone`, no gate: it never skips) so both per-module scenarios run; and it is the `default_module()` the MCP transport test drives, so `test_mcp.py` runs on every machine with audio hardware (see [testing.md](../testing.md)).
 
 ## Open questions

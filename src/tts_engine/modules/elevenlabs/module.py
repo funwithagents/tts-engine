@@ -13,6 +13,7 @@ continuously (see specs/modules/elevenlabs.md, "Text stream").
 """
 
 import base64
+import itertools
 import json
 import os
 import threading
@@ -161,22 +162,27 @@ class ElevenLabsModule(TTSModule):
         """Open the raw MP3 chunk source, decode it to PCM and feed `callback`,
         polling `stop` between chunks. Runs on the worker thread."""
         # Build the provider request and the decoder inside the provider try
-        # so SDK/decoder failures become TTSError.
+        # so SDK/decoder failures become TTSError — and inside the try/finally
+        # that releases the raw source, so a decoder failure still closes it.
+        raw = None
         try:
-            raw = open_raw()
-            raw_chunks = (chunk for chunk in raw if chunk)
-            pcm_iter = iter(
-                self._miniaudio.stream_any(
-                    self._chunk_source_cls(raw_chunks),
-                    output_format=self._miniaudio.SampleFormat.SIGNED16,
-                    nchannels=1,
-                    sample_rate=44100,
+            try:
+                raw = open_raw()
+                raw_chunks = (chunk for chunk in raw if chunk)
+                first = next(raw_chunks, None)
+                if first is None:
+                    return  # no audio came (e.g. an empty text stream): nothing to decode
+                pcm_iter = iter(
+                    self._miniaudio.stream_any(
+                        self._chunk_source_cls(itertools.chain([first], raw_chunks)),
+                        output_format=self._miniaudio.SampleFormat.SIGNED16,
+                        nchannels=1,
+                        sample_rate=44100,
+                    )
                 )
-            )
-        except Exception as exc:
-            raise TTSError(f"ElevenLabs request failed: {exc}") from exc
+            except Exception as exc:
+                raise TTSError(f"ElevenLabs request failed: {exc}") from exc
 
-        try:
             while not stop.is_set():
                 # Advance the decoder inside the provider try so SDK/decoder
                 # errors become TTSError; feed the callback outside it so a
@@ -216,6 +222,10 @@ class ElevenLabsModule(TTSModule):
             )
         )
         sender_errors: list[Exception] = []
+        # Set once the sender has finished without ever sending text (an empty
+        # stream): nothing was requested, so the receiver has nothing to wait
+        # for and drops the connection without an end-of-stream.
+        nothing_sent = threading.Event()
 
         with self._ws_connect(
             url, additional_headers={"xi-api-key": self._api_key}
@@ -237,6 +247,7 @@ class ElevenLabsModule(TTSModule):
 
             def send_all() -> None:
                 buffer = ""
+                sent = False
                 try:
                     for piece in pieces:  # ends at end-of-stream or on `stop`
                         buffer += piece
@@ -247,12 +258,17 @@ class ElevenLabsModule(TTSModule):
                                     {"text": words, "try_trigger_generation": True}
                                 )
                             )
+                            sent = True
                     if stop.is_set():
                         return  # aborted: no end-of-stream, the request is dropped
                     if buffer:
                         ws.send(
                             json.dumps({"text": buffer, "try_trigger_generation": True})
                         )
+                        sent = True
+                    if not sent:
+                        nothing_sent.set()  # empty stream: no request to finish
+                        return
                     ws.send(json.dumps({"text": ""}))
                 except Exception as exc:  # noqa: BLE001  (surfaced by the receiver)
                     if not stop.is_set():
@@ -269,6 +285,8 @@ class ElevenLabsModule(TTSModule):
             while not stop.is_set():
                 if sender_errors:
                     raise sender_errors[0]
+                if nothing_sent.is_set():
+                    break
                 try:
                     raw = ws.recv(timeout=_RECV_POLL_SECONDS)
                 except TimeoutError:

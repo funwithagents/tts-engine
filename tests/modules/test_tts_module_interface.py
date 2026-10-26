@@ -1,5 +1,6 @@
 import asyncio
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from tts_engine.modules.base import (
     TTSOptions,
     feed_with_lookahead,
     resolve_path,
+    run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
 )
@@ -218,6 +220,58 @@ async def test_text_stream_worker_cancel_waits_for_the_thread_then_raises():
         await task
     assert exited is True
     assert closed == [True]
+
+
+async def test_cancellable_worker_repeated_cancel_still_waits_for_the_thread():
+    # A second cancel while the helper is already waiting for the thread must
+    # not cut that wait short: the engine would drain the sink and release its
+    # lock while the worker can still call back.
+    loop = asyncio.get_running_loop()
+    started = asyncio.Event()
+    exited = False
+
+    def worker(stop):
+        nonlocal exited
+        loop.call_soon_threadsafe(started.set)
+        stop.wait()
+        time.sleep(0.1)  # a feed in progress: `stop` is honored only after it
+        exited = True
+
+    task = asyncio.create_task(run_cancellable_worker(worker))
+    await started.wait()
+    task.cancel()
+    await asyncio.sleep(0.02)  # the helper is now waiting for the thread
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert exited is True
+
+
+async def test_text_stream_worker_source_cancelled_error_is_a_source_failure():
+    # A CancelledError raised by the source itself (not the bridge's own cancel
+    # of its pump) aborts the utterance and propagates, like any source error,
+    # instead of the bridge reporting a complete, successful utterance.
+    loop = asyncio.get_running_loop()
+    got_first = asyncio.Event()
+    seen: list[str] = []
+    stopped_at_exit = False
+
+    async def source():
+        yield "a"
+        await got_first.wait()
+        raise asyncio.CancelledError
+
+    def worker(pieces, stop):
+        nonlocal stopped_at_exit
+        for piece in pieces:
+            seen.append(piece)
+            loop.call_soon_threadsafe(got_first.set)
+        stopped_at_exit = stop.is_set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_text_stream_worker(source(), worker)
+    assert seen == ["a"]
+    assert stopped_at_exit is True
 
 
 # --- feed_with_lookahead -----------------------------------------------------

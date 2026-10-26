@@ -1,6 +1,7 @@
 """Unit tests for the tone fixture module (no fakes: it depends only on numpy)."""
 
 import asyncio
+import math
 import time
 
 import pytest
@@ -26,9 +27,13 @@ def _stream(module: ToneModule, text: str) -> list[bytes]:
         ("sample_rate", True),
         ("sample_rate", "x"),
         ("frequency", 0),
+        ("frequency", math.nan),
+        ("frequency", math.inf),
         ("seconds_per_char", -1),
+        ("seconds_per_char", math.nan),
         ("amplitude", 0),
         ("amplitude", 1.5),
+        ("amplitude", math.nan),
     ],
 )
 def test_invalid_field_raises_config_error(field, bad):

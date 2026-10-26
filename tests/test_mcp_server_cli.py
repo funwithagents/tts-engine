@@ -49,7 +49,9 @@ def test_main_wires_config_into_server(config_path, mocker):
     basic_config.assert_called_once_with(level="WARNING", format=_LOG_FORMAT)
     # The engine is built from the parsed engine config, then handed to the server.
     engine_cls.assert_called_once_with(expected.engine)
-    create_server.assert_called_once_with(engine_cls.return_value)
+    create_server.assert_called_once_with(
+        engine_cls.return_value, host="0.0.0.0", port=9123
+    )
     # The server's ASGI app runs under uvicorn on the configured host/port.
     uvicorn_run.assert_called_once_with(
         create_server.return_value.streamable_http_app.return_value,

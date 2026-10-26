@@ -30,6 +30,9 @@ from tts_engine.modules.base import (
 )
 
 _SAMPLE_RATES = (8000, 16000, 24000, 44100, 48000)
+# How often the receive loop wakes to poll `stop` while the server is silent
+# (no audio yet, or no end-of-stream sent), so a cancel is honored promptly.
+_RECV_POLL_SECONDS = 0.1
 
 # json_config voice settings: field -> inclusive range. Sent only when set so
 # the API's own defaults apply otherwise.
@@ -85,7 +88,11 @@ class GradiumModule(TTSModule):
             raise ConfigError("Gradium module 'model' must be a non-empty string")
 
         sample_rate = config.get("sample_rate", 48000)
-        if isinstance(sample_rate, bool) or sample_rate not in _SAMPLE_RATES:
+        if (
+            isinstance(sample_rate, bool)
+            or not isinstance(sample_rate, int)
+            or sample_rate not in _SAMPLE_RATES
+        ):
             raise ConfigError(
                 "Gradium module 'sample_rate' must be one of "
                 + ", ".join(str(r) for r in _SAMPLE_RATES)
@@ -200,33 +207,46 @@ class GradiumModule(TTSModule):
         except Exception as exc:
             raise TTSError(f"Gradium request failed: {exc}") from exc
 
-        while not stop.is_set():
-            next_msg = asyncio.ensure_future(stream_iter.__anext__())
-            try:
+        # The pending receive outlives a poll: waiting on it with a timeout
+        # (never cancelling and re-issuing it) is what lets `stop` be honored
+        # while the server is silent without losing a message.
+        pending: asyncio.Future | None = None
+        try:
+            while not stop.is_set():
+                current: asyncio.Future = (
+                    pending
+                    if pending is not None
+                    else asyncio.ensure_future(stream_iter.__anext__())
+                )
+                pending = current
+                waiting: set[asyncio.Future] = {current}
                 if sender is not None and not sender.done():
-                    await asyncio.wait(
-                        {next_msg, sender}, return_when=asyncio.FIRST_COMPLETED
-                    )
+                    waiting.add(sender)
+                await asyncio.wait(
+                    waiting,
+                    timeout=_RECV_POLL_SECONDS,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
                 if sender is not None and sender.done() and not sender.cancelled():
                     sender_error = sender.exception()
                     if sender_error is not None:
                         raise sender_error  # a TTSError, see _send_all
-                if stop.is_set() and not next_msg.done():
-                    # Aborted: no end-of-stream was sent, so no final audio
-                    # will come; don't wait for it.
+                if not current.done():
+                    continue  # a poll: re-check `stop`, keep the receive pending
+                pending = None
+                try:
+                    msg = current.result()
+                except StopAsyncIteration:
                     break
-                msg = await next_msg
-            except StopAsyncIteration:
-                break
-            except TTSError:
-                raise
-            except Exception as exc:
-                raise TTSError(f"Gradium request failed: {exc}") from exc
-            finally:
-                if not next_msg.done():
-                    next_msg.cancel()
-            if msg.get("type") == "audio":
-                callback(msg["audio"])
+                except Exception as exc:
+                    raise TTSError(f"Gradium request failed: {exc}") from exc
+                if msg.get("type") == "audio":
+                    callback(msg["audio"])
+        finally:
+            if pending is not None and not pending.done():
+                # Aborted: no end-of-stream was sent, so no final audio will
+                # come; don't wait for it.
+                pending.cancel()
 
     async def _consume(
         self, text: str, callback: Callable[[bytes], None], stop: threading.Event

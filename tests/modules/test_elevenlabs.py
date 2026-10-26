@@ -384,6 +384,76 @@ def _source(*pieces: str):
     return source()
 
 
+class _RawSource:
+    """A raw MP3 source with an explicit `close()` (like the SDK's response
+    generator), so its release can be asserted rather than left to GC."""
+
+    def __init__(self, chunks) -> None:
+        self._chunks = iter(chunks)
+        self.closed = False
+
+    def __iter__(self):
+        return self._chunks
+
+    def close(self) -> None:
+        self.closed = True
+
+
+@patch("elevenlabs.ElevenLabs")
+async def test_stream_with_no_audio_succeeds_without_building_a_decoder(
+    mock_elevenlabs_cls,
+):
+    # `miniaudio` is deliberately not patched: the real decoder cannot
+    # initialize on no data, so this passes only if no decoder is built when
+    # the provider sends no audio — the source is still released.
+    raw = _RawSource([b"", b""])
+    mock_elevenlabs_cls.return_value.text_to_speech.stream.return_value = raw
+    module = ElevenLabsModule(VALID_CONFIG)
+    callback = MagicMock()
+
+    await module.synthesize_text("hello", TTSOptions(), callback)
+
+    callback.assert_not_called()
+    assert raw.closed is True
+
+
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
+async def test_decoder_failure_still_releases_the_raw_source(
+    mock_elevenlabs_cls, mock_stream_any
+):
+    mock_stream_any.side_effect = RuntimeError("bad mp3")
+    raw = _RawSource([b"mp3", b"more"])
+    mock_elevenlabs_cls.return_value.text_to_speech.stream.return_value = raw
+    module = ElevenLabsModule(VALID_CONFIG)
+
+    with pytest.raises(TTSError, match="bad mp3"):
+        await module.synthesize_text("hello", TTSOptions(), MagicMock())
+    assert raw.closed is True
+
+
+@patch("websockets.sync.client.connect")
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
+async def test_text_stream_with_no_text_feeds_nothing_and_builds_no_decoder(
+    mock_elevenlabs_cls, mock_stream_any, mock_connect
+):
+    # The interface's "an exhausted stream with no text produces no audio and
+    # is not an error": no text and no end-of-stream are sent, the connection
+    # is dropped, and no decoder (which cannot init on no data) is built.
+    module, ws, _ = _stream_input_module(
+        mock_elevenlabs_cls, mock_stream_any, mock_connect
+    )
+    callback = MagicMock()
+
+    await module.synthesize_text_stream(_source("", ""), TTSOptions(), callback)
+
+    callback.assert_not_called()
+    assert ws.texts == []
+    assert ws.closed is True
+    mock_stream_any.assert_not_called()
+
+
 @patch("websockets.sync.client.connect")
 @patch("miniaudio.stream_any")
 @patch("elevenlabs.ElevenLabs")

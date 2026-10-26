@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 class TTSError(Exception):
@@ -93,11 +94,12 @@ async def run_cancellable_worker(
     ``stop.is_set()`` between chunks and return promptly once it is set.
 
     If the awaiting coroutine is cancelled, this sets ``stop``, waits for the
-    thread to actually exit, and only then re-raises ``CancelledError``, so a
-    module's synthesis never returns or raises while its worker can still
-    invoke ``callback``. Any exception the worker raises while unwinding after
-    a cancel is discarded (the caller's outcome is the cancellation). Without
-    a cancel, the worker's exception propagates unchanged.
+    thread to actually exit — through any further cancellation that arrives
+    meanwhile — and only then re-raises ``CancelledError``, so a module's
+    synthesis never returns or raises while its worker can still invoke
+    ``callback``. Any exception the worker raises while unwinding after a
+    cancel is discarded (the caller's outcome is the cancellation). Without a
+    cancel, the worker's exception propagates unchanged.
 
     ``stop`` may be supplied by a caller that needs to set it from elsewhere
     (``run_text_stream_worker`` sets it when the text source fails); by default
@@ -112,10 +114,27 @@ async def run_cancellable_worker(
         await asyncio.shield(task)
     except asyncio.CancelledError:
         stop.set()
-        await asyncio.wait([task])
-        if not task.cancelled():
-            task.exception()  # mark retrieved so asyncio doesn't log it at GC
+        try:
+            await _join(task)
+        finally:
+            if not task.cancelled():
+                task.exception()  # mark retrieved so asyncio doesn't log it at GC
         raise
+
+
+async def _join(task: asyncio.Future[Any]) -> None:
+    """Wait for ``task`` to finish even if the awaiting coroutine is cancelled
+    (again) meanwhile. A cancel arriving during the wait is remembered and
+    re-raised once ``task`` is done, so the cleanup wait for a worker thread
+    can never be cut short by a repeated cancellation."""
+    cancelled = False
+    while not task.done():
+        try:
+            await asyncio.wait([task])
+        except asyncio.CancelledError:
+            cancelled = True
+    if cancelled:
+        raise asyncio.CancelledError
 
 
 _END = object()
@@ -135,15 +154,16 @@ async def run_text_stream_worker(
     pieces are dropped before they reach the worker.
 
     A pump task on the calling loop consumes ``text_stream`` into a queue. If
-    the stream raises, the utterance is aborted: ``stop`` is set, and once the
-    worker thread has exited the stream's exception is raised unchanged (it is
-    the caller's error, never a ``TTSError``). If the worker fails or returns
-    before the stream is exhausted, the pump is cancelled so the stream is
-    closed early rather than consumed to the end.
+    the stream raises — a ``CancelledError`` of its own included — the
+    utterance is aborted: ``stop`` is set, and once the worker thread has
+    exited the stream's exception is raised unchanged (it is the caller's
+    error, never a ``TTSError``). If the worker fails or returns before the
+    stream is exhausted, the pump is cancelled so the stream is closed early
+    rather than consumed to the end.
     """
     stop = threading.Event()
     q: queue.Queue[object] = queue.Queue()
-    source_error: Exception | None = None
+    source_error: BaseException | None = None
 
     async def pump() -> None:
         nonlocal source_error
@@ -151,6 +171,14 @@ async def run_text_stream_worker(
             async for piece in text_stream:
                 if piece:
                     q.put(piece)
+        except asyncio.CancelledError as exc:
+            task = asyncio.current_task()
+            if task is not None and task.cancelling():
+                raise  # the bridge's own cancel: worker done, or caller cancelled
+            # The source raised CancelledError of its own accord: a source
+            # failure like any other, not a successful end of stream.
+            source_error = exc
+            stop.set()
         except Exception as exc:  # noqa: BLE001  (re-raised once the thread exits)
             source_error = exc
             stop.set()
@@ -172,18 +200,18 @@ async def run_text_stream_worker(
         await run_cancellable_worker(lambda s: worker(pieces(), s), stop=stop)
     except asyncio.CancelledError:
         pump_task.cancel()
-        await asyncio.wait([pump_task])
+        await _join(pump_task)
         raise
     except Exception:
         pump_task.cancel()
-        await asyncio.wait([pump_task])
+        await _join(pump_task)
         if source_error is not None:
             # The worker failed because the source aborted it: the source's
             # error is the one the caller needs to see.
             raise source_error
         raise
     pump_task.cancel()  # a no-op when the stream was consumed to the end
-    await asyncio.wait([pump_task])
+    await _join(pump_task)
     if source_error is not None:
         raise source_error
 

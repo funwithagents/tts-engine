@@ -138,9 +138,10 @@ def test_invalid_language_raises():
         PocketModule({"type": "pocket", "language": ""})
 
 
-def test_invalid_device_raises():
+@pytest.mark.parametrize("device", ["gpu", [], 1])
+def test_invalid_device_raises(device):
     with pytest.raises(ConfigError, match="device"):
-        PocketModule({"type": "pocket", "device": "gpu"})
+        PocketModule({"type": "pocket", "device": device})
 
 
 @pytest.mark.parametrize("bad", ["", 7])
@@ -331,6 +332,22 @@ def test_stream_does_not_mask_callback_errors(monkeypatch, fresh_model):
 
     with pytest.raises(ValueError, match="playback failed"):
         asyncio.run(module.synthesize_text("hi", TTSOptions(), bad_callback))
+
+
+def test_callback_failure_stops_the_library_generation(monkeypatch, fresh_model):
+    # A sink failure ends the utterance: the library's generation thread must
+    # be told to stop (as on cancel), not left running the sentence out in the
+    # background while the model is reused for the next utterance.
+    _install_fakes(monkeypatch)
+    fresh_model.endless = True
+    module = PocketModule({"type": "pocket"})
+
+    def bad_callback(_b):
+        raise ValueError("playback failed")
+
+    with pytest.raises(ValueError, match="playback failed"):
+        asyncio.run(module.synthesize_text("hi", TTSOptions(), bad_callback))
+    assert fresh_model.stops[0].is_set()
 
 
 async def test_cancel_stops_callbacks_before_stream_raises(monkeypatch, fresh_model):
