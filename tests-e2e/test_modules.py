@@ -27,7 +27,7 @@ import logging
 import time
 
 import pytest
-from support import MODULES, CaptureSink, engine_block, require_module
+from support import MODULES, CaptureSink, engine_block, require_module, spoken_text
 
 from tts_engine import TTSEngine
 from tts_engine.config import TTSEngineConfig
@@ -59,12 +59,14 @@ async def test_module_say_completes(module_type: str, module_config: dict) -> No
     # The full library path with the default AudioPlayer sink: synthesis plays
     # through real audio hardware at the module's declared rate. Asserts only
     # that the pass completes without raising (no audio-content verification).
+    # The text names the module, so whoever is listening to the run knows
+    # which backend is speaking.
     require_module(module_type, module_config)
 
     engine_cfg = TTSEngineConfig.from_dict(engine_block(module_type, module_config))
     engine = TTSEngine(engine_cfg)
 
-    await engine.say("Hello directly from the TTS engine")
+    await engine.say(spoken_text(module_type))
 
 
 @pytest.mark.parametrize("module_type, module_config", MODULES)
