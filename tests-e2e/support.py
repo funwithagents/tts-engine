@@ -55,8 +55,18 @@ _REQUIRED_IMPORT: dict[str, str] = {
     "phonon": "ptts",
     "mistral": "mistralai",
     "deepgram": "deepgram",
+    "gemini": "google.genai",
     "qwen3": "qwentts_cpp",
 }
+
+
+def _importable(lib: str) -> bool:
+    # `find_spec` of a dotted name imports its parent first and raises, rather
+    # than returning None, when that parent is missing (`google.genai`).
+    try:
+        return importlib.util.find_spec(lib) is not None
+    except ModuleNotFoundError:
+        return False
 
 
 def require_module(module_type: str, config: dict) -> None:
@@ -78,7 +88,7 @@ def require_module(module_type: str, config: dict) -> None:
         pytest.skip(f"{env_name} not set; skipping live test for {module_type!r}")
 
     lib = _REQUIRED_IMPORT.get(module_type)
-    if lib and importlib.util.find_spec(lib) is None:
+    if lib and not _importable(lib):
         pytest.skip(
             f"{lib!r} not importable; install the {module_type!r} extra to run "
             f"its live test (pip install tts-engine[{module_type}])"
@@ -127,6 +137,14 @@ _DEEPGRAM_CONFIG = {
 }
 
 
+# Config for the `gemini` row of `MODULES` — same shape as the other API rows:
+# `api_key_env` names the variable, never the key. "Kore", a prebuilt voice.
+_GEMINI_CONFIG = {
+    "api_key_env": "GEMINI_API_KEY",
+    "voice": "Kore",
+}
+
+
 def default_module() -> tuple[str, dict]:
     """Module type + config for the module-agnostic live tests (the MCP
     transport in `test_mcp.py`; per-module conformance lives in `test_modules.py`
@@ -163,6 +181,7 @@ MODULES = [
     pytest.param("gradium", _GRADIUM_CONFIG, id="gradium"),
     pytest.param("mistral", _MISTRAL_CONFIG, id="mistral"),
     pytest.param("deepgram", _DEEPGRAM_CONFIG, id="deepgram"),
+    pytest.param("gemini", _GEMINI_CONFIG, id="gemini"),
     # Fixture modules: no key, no extra — these rows never skip.
     pytest.param("tone", {}, id="tone"),
     pytest.param(

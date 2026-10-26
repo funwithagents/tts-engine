@@ -45,6 +45,12 @@ mistral = [
 deepgram = [
     "deepgram-sdk>=7.15,<8",
 ]
+# The official SDK (Gemini Developer API); streamed little-endian 16-bit PCM, so no
+# codec. <3: the 2.x generate_content_stream and response shapes the module
+# reads — see specs/modules/gemini.md.
+gemini = [
+    "google-genai>=2.33,<3",
+]
 # Gradium's Phonon on-device models through the ptts Rust runtime: numpy only,
 # no torch. <0.5: pre-1.0 and fast-moving, validated on 0.4.2 — see specs/modules/phonon.md.
 phonon = [
@@ -66,7 +72,7 @@ mcp = [
     "uvicorn",
 ]
 all = [
-    "tts-engine[elevenlabs,pocket,gradium,phonon,mistral,deepgram,qwen3,mcp]",
+    "tts-engine[elevenlabs,pocket,gradium,phonon,mistral,deepgram,gemini,qwen3,mcp]",
 ]
 
 [dependency-groups]

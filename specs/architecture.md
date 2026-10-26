@@ -91,6 +91,11 @@ A library user stops at layer 1 or 2; an agent embeds layer 2 directly; an MCP c
 │    text stream sent   │
 │    as it arrives      │
 │                       │
+│ gemini/               │
+│  • Cloud API; one     │
+│    request per        │
+│    sentence           │
+│                       │
 │ tone/ audiofile/      │
 │  • fixture modules:   │
 │    sine / WAV files   │
@@ -103,9 +108,10 @@ A library user stops at layer 1 or 2; an agent embeds layer 2 directly; an MCP c
 ┌────────────▼──────────┐
 │ ElevenLabs / Gradium  │
 │ / Mistral / Deepgram  │
+│ / Gemini              │
 └───────────────────────┘
 
-Providers (`elevenlabs`, `gradium`, `mistral`, `deepgram`, `pocket`, `phonon`, `qwen3`) each ship behind a packaging extra; the fixture modules ship in the base install; no module is the default (see [tts-module-interface.md](tts-module-interface.md), "Module kinds").
+Providers (`elevenlabs`, `gradium`, `mistral`, `deepgram`, `gemini`, `pocket`, `phonon`, `qwen3`) each ship behind a packaging extra; the fixture modules ship in the base install; no module is the default (see [tts-module-interface.md](tts-module-interface.md), "Module kinds").
 The MCP layer ships behind the `mcp` extra; layers 1 and 2 need only the base install (see [project.md](project.md), "Dependency strategy for transports").
 ```
 
@@ -174,6 +180,7 @@ await engine.say_stream(llm_tokens())
 | `modules/gradium/module.py` | Gradium realtime WebSocket (both input shapes; the text stream is forwarded as it arrives), raw PCM output (behind the `gradium` extra, lazy import), config parsing |
 | `modules/mistral/module.py` | Mistral Voxtral TTS over HTTPS server-sent events (behind the `mistral` extra, lazy import), float32→int16 conversion fed in 100 ms slices, sentence grouping for the text stream, config parsing |
 | `modules/deepgram/module.py` | Deepgram Aura over the SDK's sync speak v1 WebSocket (both input shapes; the text stream is forwarded as it arrives), `linear16` PCM output (behind the `deepgram` extra, lazy import), flush-gated segments to bound pending text, config parsing |
+| `modules/gemini/module.py` | Gemini TTS over the `google-genai` SDK's sync `generate_content_stream` (behind the `gemini` extra, lazy import), little-endian `audio/l16` fed unchanged with mime and finish-reason checks, sentence grouping for the text stream, config parsing |
 | `modules/pocket/module.py` | Local pocket-tts inference (behind the `pocket` extra, lazy import), sentence grouping for the text stream, float→int16 conversion, config parsing |
 | `modules/phonon/module.py` | Local Phonon inference through the `ptts` Rust runtime (behind the `phonon` extra, lazy import, no torch), sentence grouping for the text stream, float→int16 conversion, config parsing |
 | `modules/qwen3/module.py` | Local Qwen3-TTS inference through the `qwentts-cpp-python` GGML bindings (behind the Apple-silicon-only `qwen3` extra, lazy import, no torch), one call per sentence for both input shapes, float→int16 conversion, config parsing and post-load voice/language checks |
