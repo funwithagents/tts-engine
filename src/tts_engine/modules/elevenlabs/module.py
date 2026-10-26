@@ -1,19 +1,23 @@
 """ElevenLabs streaming TTS module.
 
-Behind the `elevenlabs` extra: `elevenlabs` and `miniaudio` are imported lazily
-inside `__init__` so `import tts_engine` and `load_module` never require them —
-a missing extra becomes a clear `ConfigError`.
+Behind the `elevenlabs` extra: `elevenlabs`, `miniaudio` and `websockets` (a
+dependency of the SDK) are imported lazily inside `__init__` so
+`import tts_engine` and `load_module` never require them — a missing extra
+becomes a clear `ConfigError`.
 
-Both input shapes share one MP3 -> PCM decode-and-feed loop; only the SDK call
-differs: `text_to_speech.stream` (HTTPS) for a complete text,
-`text_to_speech.convert_realtime` (the stream-input WebSocket, text iterator in)
-for a text stream.
+Both input shapes share one MP3 -> PCM decode-and-feed loop; only the raw MP3
+source differs: the SDK's `text_to_speech.stream` (HTTPS) for a complete text,
+and the module's own loop over the stream-input WebSocket for a text stream —
+a sender thread forwarding text as it arrives while the worker receives audio
+continuously (see specs/modules/elevenlabs.md, "Text stream").
 """
 
+import base64
+import json
 import os
 import threading
+import urllib.parse
 from collections.abc import AsyncIterator, Callable, Iterable, Iterator
-from typing import Any, cast
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
@@ -22,7 +26,16 @@ from tts_engine.modules.base import (
     TTSOptions,
     run_cancellable_worker,
     run_text_stream_worker,
+    split_at_last_space,
 )
+
+_OUTPUT_FORMAT = "mp3_44100_128"
+_STREAM_INPUT_URL = "wss://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream-input"
+# The API's minimum buffered-text size before it starts generating.
+_CHUNK_LENGTH_SCHEDULE = [50]
+# How often the receive loop wakes to poll `stop` while the server is silent
+# (a paused text source), so a cancel is honored promptly.
+_RECV_POLL_SECONDS = 0.1
 
 
 def _make_chunk_source_class(miniaudio_mod):
@@ -75,6 +88,8 @@ class ElevenLabsModule(TTSModule):
             import miniaudio
             from elevenlabs import ElevenLabs
             from elevenlabs.types import VoiceSettings
+            from websockets.exceptions import ConnectionClosedOK
+            from websockets.sync.client import connect
         except ImportError as exc:
             raise ConfigError(
                 "The 'elevenlabs' module requires the elevenlabs extra: "
@@ -91,6 +106,7 @@ class ElevenLabsModule(TTSModule):
         if not isinstance(model, str) or not model:
             raise ConfigError("ElevenLabs module 'model' must be a non-empty string")
 
+        self._api_key: str = api_key
         self._voice_id: str = voice_id
         self._model: str = model
         self._stability: float = _unit_interval(config, "stability", 0.5)
@@ -98,6 +114,8 @@ class ElevenLabsModule(TTSModule):
         self._miniaudio = miniaudio
         self._voice_settings_cls = VoiceSettings
         self._chunk_source_cls = _make_chunk_source_class(miniaudio)
+        self._ws_connect = connect
+        self._ws_closed_ok = ConnectionClosedOK
         self._client = ElevenLabs(api_key=api_key)
 
     @property
@@ -134,18 +152,6 @@ class ElevenLabsModule(TTSModule):
             "ElevenLabs module requires a non-empty 'api_key' or 'api_key_env'"
         )
 
-    def _request_kwargs(self) -> dict:
-        """The per-request SDK arguments, shared by both input shapes."""
-        return {
-            "voice_id": self._voice_id,
-            "model_id": self._model,
-            "output_format": "mp3_44100_128",
-            "voice_settings": self._voice_settings_cls(
-                stability=self._stability,
-                similarity_boost=self._similarity_boost,
-            ),
-        }
-
     def _decode_and_feed(
         self,
         open_raw: Callable[[], Iterable[bytes]],
@@ -155,10 +161,10 @@ class ElevenLabsModule(TTSModule):
         """Open the raw MP3 chunk source, decode it to PCM and feed `callback`,
         polling `stop` between chunks. Runs on the worker thread."""
         # Build the provider request and the decoder inside the provider try
-        # so SDK/decoder failures become TTSError. (The generator expression
-        # evaluates `open_raw()` eagerly, so a failing call fails here.)
+        # so SDK/decoder failures become TTSError.
         try:
-            raw_chunks = (chunk for chunk in open_raw() if chunk)
+            raw = open_raw()
+            raw_chunks = (chunk for chunk in raw if chunk)
             pcm_iter = iter(
                 self._miniaudio.stream_any(
                     self._chunk_source_cls(raw_chunks),
@@ -170,17 +176,111 @@ class ElevenLabsModule(TTSModule):
         except Exception as exc:
             raise TTSError(f"ElevenLabs request failed: {exc}") from exc
 
-        while not stop.is_set():
-            # Advance the decoder inside the provider try so SDK/decoder
-            # errors become TTSError; feed the callback outside it so a
-            # downstream playback failure keeps its own identity.
-            try:
-                pcm_chunk = next(pcm_iter)
-            except StopIteration:
-                break
-            except Exception as exc:
-                raise TTSError(f"ElevenLabs request failed: {exc}") from exc
-            callback(pcm_chunk.tobytes())
+        try:
+            while not stop.is_set():
+                # Advance the decoder inside the provider try so SDK/decoder
+                # errors become TTSError; feed the callback outside it so a
+                # downstream playback failure keeps its own identity.
+                try:
+                    pcm_chunk = next(pcm_iter)
+                except StopIteration:
+                    break
+                except Exception as exc:
+                    raise TTSError(f"ElevenLabs request failed: {exc}") from exc
+                callback(pcm_chunk.tobytes())
+        finally:
+            # Release the raw source now (a generator holding an HTTP response
+            # or the stream-input socket), not whenever it is collected.
+            close = getattr(raw, "close", None)
+            if close is not None:
+                close()
+
+    def _stream_input_chunks(
+        self, pieces: Iterator[str], stop: threading.Event
+    ) -> Iterator[bytes]:
+        """Yield MP3 chunks from the stream-input WebSocket for a text stream.
+
+        A sender thread forwards `pieces` as they arrive (grouped at word
+        boundaries, then the end-of-stream message); this generator, on the
+        worker thread, receives audio continuously, polling `stop` while the
+        server is silent. Runs until the server's final message, `stop`, or a
+        failure on either side.
+        """
+        url = (
+            _STREAM_INPUT_URL.format(
+                voice_id=urllib.parse.quote(self._voice_id, safe="")
+            )
+            + "?"
+            + urllib.parse.urlencode(
+                {"model_id": self._model, "output_format": _OUTPUT_FORMAT}
+            )
+        )
+        sender_errors: list[Exception] = []
+
+        with self._ws_connect(
+            url, additional_headers={"xi-api-key": self._api_key}
+        ) as ws:
+            ws.send(
+                json.dumps(
+                    {
+                        "text": " ",
+                        "voice_settings": {
+                            "stability": self._stability,
+                            "similarity_boost": self._similarity_boost,
+                        },
+                        "generation_config": {
+                            "chunk_length_schedule": _CHUNK_LENGTH_SCHEDULE
+                        },
+                    }
+                )
+            )
+
+            def send_all() -> None:
+                buffer = ""
+                try:
+                    for piece in pieces:  # ends at end-of-stream or on `stop`
+                        buffer += piece
+                        words, buffer = split_at_last_space(buffer)
+                        if words:
+                            ws.send(
+                                json.dumps(
+                                    {"text": words, "try_trigger_generation": True}
+                                )
+                            )
+                    if stop.is_set():
+                        return  # aborted: no end-of-stream, the request is dropped
+                    if buffer:
+                        ws.send(
+                            json.dumps({"text": buffer, "try_trigger_generation": True})
+                        )
+                    ws.send(json.dumps({"text": ""}))
+                except Exception as exc:  # noqa: BLE001  (surfaced by the receiver)
+                    if not stop.is_set():
+                        sender_errors.append(exc)
+
+            # Daemon: a sender blocked on text after the receiver has left is
+            # released when `stop` or end-of-stream reaches `pieces`; its late
+            # send on the closed socket is then ignored above.
+            sender = threading.Thread(
+                target=send_all, name="elevenlabs-stream-input-sender", daemon=True
+            )
+            sender.start()
+
+            while not stop.is_set():
+                if sender_errors:
+                    raise sender_errors[0]
+                try:
+                    raw = ws.recv(timeout=_RECV_POLL_SECONDS)
+                except TimeoutError:
+                    continue
+                except self._ws_closed_ok:
+                    break
+                message = json.loads(raw)
+                audio = message.get("audio")
+                if audio:
+                    yield base64.b64decode(audio)
+                if message.get("isFinal"):
+                    break
 
     async def synthesize_text(
         self,
@@ -191,7 +291,14 @@ class ElevenLabsModule(TTSModule):
         def _worker(stop: threading.Event) -> None:
             self._decode_and_feed(
                 lambda: self._client.text_to_speech.stream(
-                    text=text, **self._request_kwargs()
+                    text=text,
+                    voice_id=self._voice_id,
+                    model_id=self._model,
+                    output_format=_OUTPUT_FORMAT,
+                    voice_settings=self._voice_settings_cls(
+                        stability=self._stability,
+                        similarity_boost=self._similarity_boost,
+                    ),
                 ),
                 callback,
                 stop,
@@ -205,21 +312,9 @@ class ElevenLabsModule(TTSModule):
         options: TTSOptions,
         callback: Callable[[bytes], None],
     ) -> None:
-        # `convert_realtime` pulls the text iterator itself, on this worker
-        # thread, sending pieces over the stream-input socket as they arrive
-        # and yielding MP3 as the server answers: the same iterator shape as
-        # `stream`, so the decode loop is shared.
-        # The SDK types `text_to_speech` as its base client, but the instance
-        # is the realtime subclass that carries `convert_realtime`.
-        tts_client = cast(Any, self._client.text_to_speech)
-
         def _worker(pieces: Iterator[str], stop: threading.Event) -> None:
             self._decode_and_feed(
-                lambda: tts_client.convert_realtime(
-                    text=pieces, **self._request_kwargs()
-                ),
-                callback,
-                stop,
+                lambda: self._stream_input_chunks(pieces, stop), callback, stop
             )
 
         await run_text_stream_worker(text_stream, _worker)

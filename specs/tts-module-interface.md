@@ -195,6 +195,15 @@ async def run_text_stream_worker(
 - **Cancellation** of the awaiting coroutine cancels the pump, sets `stop`, waits for the thread, and re-raises `CancelledError` — exactly `run_cancellable_worker`'s rule, so no callback can occur after the coroutine exits.
 - A module that opens a private event loop in its worker (the async-SDK shape) drives `next(pieces)` through `run_in_executor` so that loop keeps receiving audio while it waits for text.
 
+### `split_at_last_space` — word-boundary grouping for incremental backends
+
+```python
+def split_at_last_space(buffer: str) -> tuple[str, str]:
+    """Split `buffer` after its last whitespace: (complete words, the rest)."""
+```
+
+A backend that takes text incrementally (Gradium, ElevenLabs) forwards only up to the last whitespace of what it has buffered, holding back a possibly unfinished last word for the next piece or the end of stream, so a sub-word token never reaches the server alone — whichever side the tokenizer puts its spaces on.
+
 ### `segment_sentences` — sentence grouping for non-incremental backends
 
 ```python

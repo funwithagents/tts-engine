@@ -322,3 +322,33 @@ async def test_text_stream_feeds_first_sentence_before_the_source_finishes(fake)
         module.synthesize_text_stream(source(), TTSOptions(), callback), timeout=5
     )
     assert fake.texts == ["Hello world.", "Second one."]
+
+
+async def test_text_stream_cancel_closes_the_stream_before_cancelled_error(fake):
+    module = PhononModule({"type": "phonon"})
+    fake.block = threading.Event()
+    count = 0
+
+    def callback(_chunk: bytes) -> None:
+        nonlocal count
+        count += 1
+
+    async def source():
+        yield "Hi. "  # a complete sentence: its stream opens
+        await asyncio.Event().wait()  # then the source stays open
+
+    task = asyncio.create_task(
+        module.synthesize_text_stream(source(), TTSOptions(), callback)
+    )
+    # Wait (off the loop) until the worker is inside the stream, then cancel.
+    await asyncio.to_thread(fake.reached.wait, 5)
+    task.cancel()
+    fake.block.set()  # let the pending chunk return so the worker sees `stop`
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    settled = count
+    await asyncio.sleep(0.05)
+    assert count == settled
+    assert fake.streams[0].closed
+    assert fake.texts == ["Hi."]

@@ -203,3 +203,32 @@ async def test_cancel_while_the_source_is_idle_stops_promptly():
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(task, timeout=5)
+
+
+async def test_text_stream_cancel_mid_audio_stops_callbacks_before_raising():
+    module = ToneModule({"type": "tone"})
+    loop = asyncio.get_running_loop()
+    first_chunk = asyncio.Event()
+    count = 0
+
+    def callback(_chunk: bytes) -> None:
+        nonlocal count
+        count += 1
+        time.sleep(0.005)  # slow sink, so audio is still flowing at cancel
+        loop.call_soon_threadsafe(first_chunk.set)
+
+    async def source():
+        yield "x" * 2000  # ~100 s of tone: the audio outlasts the cancel
+        await asyncio.Event().wait()  # and the source stays open
+
+    task = asyncio.create_task(
+        module.synthesize_text_stream(source(), TTSOptions(), callback)
+    )
+    await first_chunk.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    settled = count
+    await asyncio.sleep(0.05)
+    assert count == settled

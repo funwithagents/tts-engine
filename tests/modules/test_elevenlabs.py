@@ -2,6 +2,9 @@
 
 import array as _array
 import asyncio
+import base64
+import json
+import queue
 import sys
 import time
 from unittest.mock import MagicMock, patch
@@ -293,73 +296,138 @@ def _signal(loop: asyncio.AbstractEventLoop, event: asyncio.Event):
     return callback
 
 
-# --- text stream (stream-input WebSocket via convert_realtime) ---------------
+# --- text stream (the module's own stream-input WebSocket loop) --------------
 
 
-def _fake_convert_realtime(pieces_seen: list[str]):
-    """Stands in for the SDK's convert_realtime: pulls the text iterator,
-    recording each piece, and yields one MP3 chunk per piece."""
+class _FakeStreamInput:
+    """Scripted stand-in for the stream-input socket (a `websockets.sync`
+    connection as a context manager): records every message sent, answers each
+    text message with one audio message carrying the text's bytes, and sends
+    `isFinal` after the end-of-stream message — the way the server behaves over
+    time, so tests can observe audio arriving between pieces."""
 
-    def convert_realtime(*, text, **kwargs):
-        for piece in text:
-            pieces_seen.append(piece)
-            yield b"mp3!"
+    def __init__(self) -> None:
+        self.sent: list[dict] = []
+        self.closed = False
+        self.endless = False  # keep producing audio forever (cancel test)
+        self.fail_send: Exception | None = None  # raised by send() on text
+        self.fail_recv: Exception | None = None  # raised by recv() once
+        self._inbox: queue.Queue = queue.Queue()
 
-    return convert_realtime
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> bool:
+        self.closed = True
+        return False
+
+    def send(self, raw: str) -> None:
+        message = json.loads(raw)
+        self.sent.append(message)
+        text = message.get("text")
+        if text == " ":
+            return  # the opening message
+        if self.fail_send is not None:
+            raise self.fail_send
+        if text == "":
+            self._inbox.put({"isFinal": True})
+        elif text:
+            audio = base64.b64encode(text.encode()).decode()
+            self._inbox.put({"audio": audio, "isFinal": False})
+
+    def recv(self, timeout: float | None = None) -> str:
+        if self.fail_recv is not None:
+            exc, self.fail_recv = self.fail_recv, None
+            raise exc
+        if self.endless:
+            time.sleep(0.005)
+            return json.dumps({"audio": base64.b64encode(b"x").decode()})
+        try:
+            return json.dumps(self._inbox.get(timeout=timeout))
+        except queue.Empty:
+            raise TimeoutError from None
+
+    @property
+    def texts(self) -> list[str]:
+        """The text messages after the opening one, in order."""
+        return [m["text"] for m in self.sent[1:] if "text" in m]
 
 
-def _decode_one_pcm_chunk_per_read(source, **kwargs):
-    # One PCM chunk per raw chunk: the adapter serves a 4-byte raw chunk per read.
-    while source.read(4):
+def _decode_one_pcm_chunk_per_raw_chunk(source, **kwargs):
+    # The adapter serves one raw chunk per read when its buffer is empty.
+    while source.read(65536):
         yield _array.array("h", [1, 2])
 
 
-def _realtime_module(mock_elevenlabs_cls, mock_stream_any, pieces_seen):
-    mock_client = MagicMock()
-    mock_client.text_to_speech.convert_realtime.side_effect = _fake_convert_realtime(
-        pieces_seen
-    )
-    mock_elevenlabs_cls.return_value = mock_client
-    mock_stream_any.side_effect = _decode_one_pcm_chunk_per_read
-    return ElevenLabsModule(VALID_CONFIG), mock_client
+def _stream_input_module(mock_elevenlabs_cls, mock_stream_any, mock_connect):
+    """An ElevenLabsModule whose stream-input socket is a `_FakeStreamInput`;
+    returns (module, socket, recorded connect kwargs)."""
+    ws = _FakeStreamInput()
+    connected: dict = {}
+
+    def connect(url, **kwargs):
+        connected["url"] = url
+        connected.update(kwargs)
+        return ws
+
+    mock_connect.side_effect = connect
+    mock_elevenlabs_cls.return_value = MagicMock()
+    mock_stream_any.side_effect = _decode_one_pcm_chunk_per_raw_chunk
+    return ElevenLabsModule(VALID_CONFIG), ws, connected
 
 
-@patch("miniaudio.stream_any")
-@patch("elevenlabs.ElevenLabs")
-def test_text_stream_sends_pieces_through_convert_realtime(
-    mock_elevenlabs_cls, mock_stream_any
-):
-    pieces_seen: list[str] = []
-    module, mock_client = _realtime_module(
-        mock_elevenlabs_cls, mock_stream_any, pieces_seen
-    )
-
+def _source(*pieces: str):
     async def source():
-        for piece in ["Hello ", "world."]:
+        for piece in pieces:
             yield piece
 
-    callback = MagicMock()
-    asyncio.run(module.synthesize_text_stream(source(), TTSOptions(), callback))
+    return source()
 
-    assert pieces_seen == ["Hello ", "world."]
-    kwargs = mock_client.text_to_speech.convert_realtime.call_args.kwargs
-    assert kwargs["voice_id"] == "test-voice-id"
-    assert kwargs["model_id"] == "eleven_flash_v2_5"
-    assert kwargs["output_format"] == "mp3_44100_128"
-    assert kwargs["voice_settings"] == VoiceSettings(
-        stability=0.5, similarity_boost=0.75
+
+@patch("websockets.sync.client.connect")
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
+def test_text_stream_sends_word_groups_then_eos_over_stream_input(
+    mock_elevenlabs_cls, mock_stream_any, mock_connect
+):
+    module, ws, connected = _stream_input_module(
+        mock_elevenlabs_cls, mock_stream_any, mock_connect
     )
-    assert callback.call_count == 2
-    callback.assert_any_call(_array.array("h", [1, 2]).tobytes())
+    callback = MagicMock()
+
+    asyncio.run(
+        module.synthesize_text_stream(
+            _source("Hel", "lo wor", "ld, how", " are you"), TTSOptions(), callback
+        )
+    )
+
+    assert connected["url"] == (
+        "wss://api.elevenlabs.io/v1/text-to-speech/test-voice-id/stream-input"
+        "?model_id=eleven_flash_v2_5&output_format=mp3_44100_128"
+    )
+    assert connected["additional_headers"] == {"xi-api-key": "test-api-key"}
+    assert ws.sent[0] == {
+        "text": " ",
+        "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
+        "generation_config": {"chunk_length_schedule": [50]},
+    }
+    # Forwarded up to the last whitespace, so a sub-word token never goes
+    # alone; the remainder, then the end-of-stream message.
+    assert ws.texts == ["Hello ", "world, ", "how are ", "you", ""]
+    assert all(m.get("try_trigger_generation") for m in ws.sent[1:-1])
+    assert callback.call_count == 4  # one decoded chunk per audio message
+    assert ws.closed is True
 
 
+@patch("websockets.sync.client.connect")
 @patch("miniaudio.stream_any")
 @patch("elevenlabs.ElevenLabs")
 async def test_text_stream_feeds_audio_before_the_source_finishes(
-    mock_elevenlabs_cls, mock_stream_any
+    mock_elevenlabs_cls, mock_stream_any, mock_connect
 ):
-    pieces_seen: list[str] = []
-    module, _ = _realtime_module(mock_elevenlabs_cls, mock_stream_any, pieces_seen)
+    module, ws, _ = _stream_input_module(
+        mock_elevenlabs_cls, mock_stream_any, mock_connect
+    )
     loop = asyncio.get_running_loop()
     got_audio = asyncio.Event()
 
@@ -372,39 +440,152 @@ async def test_text_stream_feeds_audio_before_the_source_finishes(
         module.synthesize_text_stream(source(), TTSOptions(), _signal(loop, got_audio)),
         timeout=5,
     )
-    assert pieces_seen == ["Hello ", "world."]
+    assert ws.texts == ["Hello ", "world.", ""]
 
 
+@patch("websockets.sync.client.connect")
 @patch("miniaudio.stream_any")
 @patch("elevenlabs.ElevenLabs")
-def test_text_stream_source_error_propagates_unchanged(
-    mock_elevenlabs_cls, mock_stream_any
+async def test_text_stream_source_error_propagates_unchanged(
+    mock_elevenlabs_cls, mock_stream_any, mock_connect
 ):
-    module, _ = _realtime_module(mock_elevenlabs_cls, mock_stream_any, [])
+    module, ws, _ = _stream_input_module(
+        mock_elevenlabs_cls, mock_stream_any, mock_connect
+    )
+    loop = asyncio.get_running_loop()
+    got_audio = asyncio.Event()
 
     async def source():
         yield "Hello "
+        await got_audio.wait()  # fail once the socket is open and audio flowed
         raise RuntimeError("llm failed")
 
     with pytest.raises(RuntimeError, match="llm failed"):
-        asyncio.run(module.synthesize_text_stream(source(), TTSOptions(), MagicMock()))
+        await asyncio.wait_for(
+            module.synthesize_text_stream(
+                source(), TTSOptions(), _signal(loop, got_audio)
+            ),
+            timeout=5,
+        )
+    # Aborted: dropped without an end-of-stream message, socket closed.
+    assert "" not in ws.texts
+    assert ws.closed is True
 
 
+@patch("websockets.sync.client.connect")
 @patch("miniaudio.stream_any")
 @patch("elevenlabs.ElevenLabs")
-def test_text_stream_wraps_sdk_exception_in_tts_error(
-    mock_elevenlabs_cls, mock_stream_any
+def test_text_stream_sender_failure_raises_tts_error(
+    mock_elevenlabs_cls, mock_stream_any, mock_connect
 ):
-    mock_stream_any.side_effect = lambda source, **kwargs: source.read(1) and iter([])
-    mock_client = MagicMock()
-    mock_client.text_to_speech.convert_realtime.side_effect = RuntimeError(
-        "socket closed"
+    module, ws, _ = _stream_input_module(
+        mock_elevenlabs_cls, mock_stream_any, mock_connect
     )
-    mock_elevenlabs_cls.return_value = mock_client
+    ws.fail_send = RuntimeError("socket closed")
+
+    with pytest.raises(TTSError, match="socket closed"):
+        asyncio.run(
+            module.synthesize_text_stream(_source("Hello "), TTSOptions(), MagicMock())
+        )
+    assert ws.closed is True
+
+
+@patch("websockets.sync.client.connect")
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
+def test_text_stream_receive_failure_raises_tts_error(
+    mock_elevenlabs_cls, mock_stream_any, mock_connect
+):
+    module, ws, _ = _stream_input_module(
+        mock_elevenlabs_cls, mock_stream_any, mock_connect
+    )
+    ws.fail_recv = RuntimeError("connection reset")
+
+    with pytest.raises(TTSError, match="connection reset"):
+        asyncio.run(
+            module.synthesize_text_stream(_source("Hello "), TTSOptions(), MagicMock())
+        )
+    assert ws.closed is True
+
+
+@patch("websockets.sync.client.connect")
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
+def test_text_stream_connect_failure_raises_tts_error(
+    mock_elevenlabs_cls, mock_stream_any, mock_connect
+):
+    mock_connect.side_effect = OSError("connection refused")
+    mock_stream_any.side_effect = _decode_one_pcm_chunk_per_raw_chunk
+    module = ElevenLabsModule(VALID_CONFIG)
+
+    with pytest.raises(TTSError, match="connection refused"):
+        asyncio.run(
+            module.synthesize_text_stream(_source("Hello "), TTSOptions(), MagicMock())
+        )
+
+
+@patch("websockets.sync.client.connect")
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
+async def test_text_stream_cancel_mid_audio_stops_callbacks_before_raising(
+    mock_elevenlabs_cls, mock_stream_any, mock_connect
+):
+    # Endless audio from the server while the sender is still blocked waiting
+    # for text (the source stays open): cancel must stop the receiver, close
+    # the socket, and never feed again once CancelledError has surfaced.
+    module, ws, _ = _stream_input_module(
+        mock_elevenlabs_cls, mock_stream_any, mock_connect
+    )
+    ws.endless = True
+    loop = asyncio.get_running_loop()
+    first_chunk = asyncio.Event()
+    count = 0
+
+    def callback(_chunk: bytes) -> None:
+        nonlocal count
+        count += 1
+        loop.call_soon_threadsafe(first_chunk.set)
 
     async def source():
         yield "Hello "
+        await asyncio.Event().wait()  # the source stays open
 
-    module = ElevenLabsModule(VALID_CONFIG)
-    with pytest.raises(TTSError, match="socket closed"):
-        asyncio.run(module.synthesize_text_stream(source(), TTSOptions(), MagicMock()))
+    task = asyncio.create_task(
+        module.synthesize_text_stream(source(), TTSOptions(), callback)
+    )
+    await first_chunk.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=5)
+
+    settled = count
+    await asyncio.sleep(0.05)  # ~10 chunk periods: a leaked worker would show
+    assert count == settled
+    assert ws.closed is True
+    assert "" not in ws.texts  # dropped, not finished
+
+
+@patch("websockets.sync.client.connect")
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
+async def test_text_stream_cancel_while_the_server_is_silent_stops_promptly(
+    mock_elevenlabs_cls, mock_stream_any, mock_connect
+):
+    # No audio yet and no text coming (the LLM is thinking): the receiver must
+    # be polling `stop` rather than blocked on the socket.
+    module, ws, _ = _stream_input_module(
+        mock_elevenlabs_cls, mock_stream_any, mock_connect
+    )
+
+    async def source():
+        await asyncio.Event().wait()  # never yields
+        yield ""
+
+    task = asyncio.create_task(
+        module.synthesize_text_stream(source(), TTSOptions(), MagicMock())
+    )
+    await asyncio.sleep(0.05)  # let the worker open the socket and start polling
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=5)
+    assert ws.closed is True

@@ -297,3 +297,36 @@ async def test_text_stream_feeds_first_sentence_before_the_source_finishes(
         timeout=5,
     )
     assert fresh_model.texts == ["Hello world.", "Second one."]
+
+
+async def test_text_stream_cancel_mid_audio_stops_callbacks_before_raising(
+    monkeypatch, fresh_model
+):
+    _install_fakes(monkeypatch)
+    fresh_model.endless = True  # the first sentence's audio never ends
+    module = PocketModule({"type": "pocket"})
+    loop = asyncio.get_running_loop()
+    first_chunk = asyncio.Event()
+    count = 0
+
+    def callback(_chunk: bytes) -> None:
+        nonlocal count
+        count += 1
+        loop.call_soon_threadsafe(first_chunk.set)
+
+    async def source():
+        yield "Hello world. "  # a complete sentence: inference starts
+        await asyncio.Event().wait()  # then the source stays open
+
+    task = asyncio.create_task(
+        module.synthesize_text_stream(source(), TTSOptions(), callback)
+    )
+    await first_chunk.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    settled = count
+    await asyncio.sleep(0.05)
+    assert count == settled
+    assert fresh_model.texts == ["Hello world."]

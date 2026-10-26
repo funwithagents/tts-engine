@@ -26,6 +26,7 @@ from tts_engine.modules.base import (
     TTSOptions,
     run_cancellable_worker,
     run_text_stream_worker,
+    split_at_last_space,
 )
 
 _SAMPLE_RATES = (8000, 16000, 24000, 44100, 48000)
@@ -61,19 +62,6 @@ def _optional_number(config: dict, field: str, lo: float, hi: float) -> float | 
             f"Gradium module '{field}' must be a number between {lo} and {hi}"
         )
     return float(value)
-
-
-def _split_at_last_space(buffer: str) -> tuple[str, str]:
-    """Split `buffer` after its last whitespace: (complete words, the rest).
-
-    Keeps a possibly unfinished last word back so the server never receives a
-    sub-word token on its own; works for both space-leading and space-trailing
-    tokenizations.
-    """
-    for i in range(len(buffer) - 1, -1, -1):
-        if buffer[i].isspace():
-            return buffer[: i + 1], buffer[i + 1 :]
-    return "", buffer
 
 
 class GradiumModule(TTSModule):
@@ -275,7 +263,7 @@ class GradiumModule(TTSModule):
                 if piece is None:
                     break
                 buffer += piece
-                words, buffer = _split_at_last_space(buffer)
+                words, buffer = split_at_last_space(buffer)
                 if words:
                     await tts.send_text(words)
             if stop.is_set():
