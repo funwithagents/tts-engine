@@ -1,0 +1,15 @@
+{
+  "engine": {
+    "module": {
+      "type": "phonon",
+      "voice": "Juniper"
+    },
+    "player": {
+      "device": null
+    }
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000
+  }
+}

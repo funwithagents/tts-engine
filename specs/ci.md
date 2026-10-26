@@ -28,7 +28,7 @@ Both test tiers run on GitHub's hosted runners for every pull request and every 
 - **`uv sync --locked`** in every job: the sync fails when `uv.lock` does not match `pyproject.toml`, so a dependency edit lands with its relock or not at all. It installs the `dev` group, which depends on `tts-engine[all]` ([project.md](project.md), "Key dependencies"), so every extra is present and no live row skips for a missing extra.
 - **torch from PyTorch's CPU index on Linux.** PyPI's Linux torch wheel is the CUDA build, which drags gigabytes of NVIDIA libraries no runner uses. `pyproject.toml` declares a `[[tool.uv.index]]` named `pytorch-cpu` (`https://download.pytorch.org/whl/cpu`, `explicit = true`) and a `[tool.uv.sources]` entry pinning `torch` to it under `sys_platform == 'linux'`; `torch` is named in the `dev` group although `pocket-tts` brings it, because a uv source applies only to a dependency the project declares itself. macOS and Windows keep PyPI's wheels, CPU-only already. A uv source is not inherited downstream, so this affects the repo's own environment, never a consumer's install of the `pocket` extra.
 - **System packages on Linux only, listed in the workflow.** `sounddevice` loads PortAudio at import, which the `sounddevice` wheels bundle on macOS and Windows but not on Linux: the Linux jobs that import it (the fast tier's `AudioPlayer` tests patch `sounddevice.OutputStream`, which imports it for real) apt-install `libportaudio2` ([project.md](project.md), "System dependencies"). The live job adds `pulseaudio` and `libasound2-plugins` (ALSA's PulseAudio plugin).
-- **Caches.** `astral-sh/setup-uv` caches uv's downloads keyed on `uv.lock`; the live job also caches `~/.cache/huggingface` (the pocket-tts weights and voice), keyed on `uv.lock` with a prefix restore key.
+- **Caches.** `astral-sh/setup-uv` caches uv's downloads keyed on `uv.lock`; the live job also caches `~/.cache/huggingface` (the pocket-tts and Phonon weights and voices), keyed on `uv.lock` with a prefix restore key.
 
 ### The workflow
 
@@ -60,7 +60,7 @@ On a runner with no sound hardware, `AudioPlayer` would find no output device an
 | `test_module_say_produces_pcm[elevenlabs]`, `test_module_say_completes[elevenlabs]` | only when the `ELEVENLABS_API_KEY` secret is absent (or on a fork's pull request) |
 | `test_module_say_produces_pcm[gradium]`, `test_module_say_completes[gradium]` | only when the `GRADIUM_API_KEY` secret is absent (or on a fork's pull request) |
 
-`pocket`, `tone`, `audiofile` and the MCP test never skip in CI: their extras come with the `dev` group and they need no key.
+`pocket`, `phonon`, `tone`, `audiofile` and the MCP test never skip in CI: their extras come with the `dev` group and they need no key.
 
 - **Required status checks on `main`** — `check`, the four `fast-tier` entries and `e2e` — are a repository setting on GitHub, outside the repo.
 

@@ -2,7 +2,7 @@
 
 A streaming text-to-speech engine for Python. Choose a TTS module, construct a `TTSEngine`, and call `await engine.say(text)`, or `await engine.say_stream(text_stream)` to speak an LLM response while it is still being generated.
 
-Audio is synthesized and consumed chunk by chunk, minimizing the delay before playback begins. Speech comes from a provider module you install as an extra: the ElevenLabs or Gradium cloud APIs, or the local pocket-tts model. There is no default provider. Two built-in fixture modules, `tone` and `audiofile`, stand in for a provider in tests and demos. By default, audio plays on the machine running the engine; applications can instead provide their own audio sink to capture or route the PCM stream.
+Audio is synthesized and consumed chunk by chunk, minimizing the delay before playback begins. Speech comes from a provider module you install as an extra: the ElevenLabs or Gradium cloud APIs, or the local pocket-tts or Phonon models. There is no default provider. Two built-in fixture modules, `tone` and `audiofile`, stand in for a provider in tests and demos. By default, audio plays on the machine running the engine; applications can instead provide their own audio sink to capture or route the PCM stream.
 
 Agent-friendly tools are included as an optional interface over the same engine, and an MCP server is available through the `mcp` extra.
 
@@ -28,6 +28,7 @@ The base installation contains the engine, tools, audio player, and the `tone`/`
 
 ```bash
 uv sync --no-dev --extra pocket       # local pocket-tts model (pulls in torch)
+uv sync --no-dev --extra phonon       # local Phonon model (no torch)
 uv sync --no-dev --extra elevenlabs   # ElevenLabs cloud API
 uv sync --no-dev --extra gradium      # Gradium cloud API
 uv sync --no-dev --extra mcp          # MCP server (tts-engine-mcp)
@@ -35,6 +36,7 @@ uv sync --no-dev --all-extras         # every extra
 
 # For an installed package:
 pip install "tts-engine[pocket]"
+pip install "tts-engine[phonon]"
 pip install "tts-engine[elevenlabs]"
 pip install "tts-engine[gradium]"
 pip install "tts-engine[mcp,pocket]"
@@ -100,7 +102,7 @@ The module declares its output sample rate, and the engine configures the defaul
 
 Pass that object directly to a loader; do not add an outer `"engine"` key. A larger application can store it under any key it chooses, while the optional MCP server format specifically stores it under `"engine"`.
 
-The [`examples/`](examples/) directory holds one complete MCP-server config per module (`config.pocket.json`, `config.elevenlabs.json`, `config.gradium.json`, `config.tone.json`, `config.audiofile.json`). No single example is the default.
+The [`examples/`](examples/) directory holds one complete MCP-server config per module (`config.pocket.json`, `config.phonon.json`, `config.elevenlabs.json`, `config.gradium.json`, `config.tone.json`, `config.audiofile.json`). No single example is the default.
 
 | Source | Constructor | Expected shape |
 |---|---|---|
@@ -140,6 +142,7 @@ A module is a swappable synthesis backend. Its `type` selects an entry from the 
 | Module | Kind | Execution | Installation | Credentials |
 |---|---|---|---|---|
 | `pocket` | Provider | Local, in-process model | `tts-engine[pocket]` | None |
+| `phonon` | Provider | Local, in-process model | `tts-engine[phonon]` | None |
 | `elevenlabs` | Provider | ElevenLabs cloud API | `tts-engine[elevenlabs]` | API key |
 | `gradium` | Provider | Gradium cloud API | `tts-engine[gradium]` | API key |
 | `tone` | Fixture | Sine tone, no synthesis | Base installation | None |
@@ -180,6 +183,41 @@ Then select the module:
 | `max_tokens` | no | pocket-tts default | Per-text-chunk token cap. Increase only for unusually long unbroken text. |
 
 The module emits mono PCM at the model's native sample rate, typically 24,000 Hz. On Apple Silicon, `auto` intentionally uses CPU; `mps` remains explicit and experimental.
+
+### `phonon`
+
+The phonon module runs Gradium's open-weight [Phonon](https://gradium.ai/phonon) models in process through the [`ptts`](https://github.com/gradium-ai/xn-ptts) runtime. It needs no API key and no PyTorch, installs from wheels on Linux, macOS (Apple Silicon and Intel) and Windows, and runs much faster than real time on a CPU. The first use downloads the model (about 160 MB) and any catalog voice into the Hugging Face cache.
+
+Install the optional dependencies:
+
+```bash
+uv sync --extra phonon
+# For an installed package:
+pip install "tts-engine[phonon]"
+```
+
+Then select the module:
+
+```json
+{
+  "module": {
+    "type": "phonon",
+    "voice": "Juniper"
+  }
+}
+```
+
+| Field | Required | Default | Description |
+|---|---|---|---|
+| `language` | no | `en` | Text normalization: `en`, `fr`, `de`, `es`, `pt`, or `none`. It does not select the model. |
+| `model` | no | `hf://gradium/phonon-31m-en` | `hf://owner/name[@revision]`, or a local model directory (relative to `base_dir`). |
+| `voice` | no | The model's `default` voice | A Phonon catalog voice name such as `Juniper`, `Harper` or `Miles`, or a local `.safetensors` voice file (relative to `base_dir`). |
+| `device` | no | `auto` | `auto` picks the first device the installed build offers (Metal on Apple Silicon, CPU elsewhere), or `cpu`, `metal`. |
+| `quant` | no | Model weights | CPU-only weight format, e.g. `q8_0` or `q4k`. |
+| `temperature` | no | `ptts` default (0.3) | Sampling temperature, 0 or more. |
+| `cfg_coef` | no | Model default | Guidance coefficient (voice adherence). |
+
+The module emits mono PCM at 24,000 Hz. The default English model is Apache-2.0. The French, German, Spanish, Portuguese and multilingual models (`gradium/phonon-40m-*`) are gated and licensed CC BY-NC 4.0: they need an `HF_TOKEN` with access, plus matching `model` and `language` fields.
 
 ### `elevenlabs`
 
@@ -321,7 +359,7 @@ async def llm_tokens():
 await engine.say_stream(llm_tokens())
 ```
 
-Pieces are concatenated verbatim (tokens carry their own spaces). The ElevenLabs and Gradium modules forward the text to their realtime sockets as it arrives; `pocket` and `audiofile` synthesize sentence by sentence as each one completes; `tone` plays a tone per piece. A plain list is accepted for in-memory sequences, and a bare string is rejected. If the text source raises, playback stops and that exception propagates unchanged. A long pause in the source is heard as silence, not an error.
+Pieces are concatenated verbatim (tokens carry their own spaces). The ElevenLabs and Gradium modules forward the text to their realtime sockets as it arrives; `pocket`, `phonon` and `audiofile` synthesize sentence by sentence as each one completes; `tone` plays a tone per piece. A plain list is accepted for in-memory sequences, and a bare string is rejected. If the text source raises, playback stops and that exception propagates unchanged. A long pause in the source is heard as silence, not an error.
 
 ## Audio output and custom sinks
 
@@ -436,13 +474,19 @@ engine = TTSEngine(mcp_config.engine)
 
 ### A provider module requires its extra
 
-A `ConfigError` such as `The 'pocket' module requires the pocket extra` means that provider's libraries are not installed. Run `uv sync --extra <name>` (or `pip install "tts-engine[<name>]"`), e.g. `--extra pocket`, `--extra elevenlabs`, or `--extra gradium`.
+A `ConfigError` such as `The 'pocket' module requires the pocket extra` means that provider's libraries are not installed. Run `uv sync --extra <name>` (or `pip install "tts-engine[<name>]"`), e.g. `--extra pocket`, `--extra phonon`, `--extra elevenlabs`, or `--extra gradium`.
 
 ### pocket-tts
 
 - Ensure the `pocket` extra is installed.
 - Allow network access and sufficient disk space when model weights are downloaded for the first time.
 - On Apple Silicon, keep `device` set to `auto` or `cpu` unless explicitly testing the experimental `mps` path.
+
+### Phonon
+
+- Ensure the `phonon` extra is installed.
+- Allow network access when the model or a catalog voice is downloaded for the first time; a `TTSError` reporting a model load failure usually means the Hugging Face Hub was unreachable or a gated model was requested without an `HF_TOKEN`.
+- A `ConfigError` naming a device or `quant` means the installed `ptts` build does not support that combination. Quantization works on CPU only.
 
 ### ElevenLabs
 

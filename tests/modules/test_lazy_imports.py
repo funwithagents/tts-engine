@@ -25,6 +25,7 @@ _SCRIPT = textwrap.dedent(
         "torch",
         "gradium",
         "aiohttp",
+        "ptts",
     ):
         sys.modules[name] = None
 
@@ -36,6 +37,7 @@ _SCRIPT = textwrap.dedent(
         "elevenlabs",
         "pocket",
         "gradium",
+        "phonon",
         "tone",
         "audiofile",
     }, REGISTRY
@@ -44,6 +46,7 @@ _SCRIPT = textwrap.dedent(
         ("elevenlabs", {"type": "elevenlabs", "api_key": "k", "voice_id": "v"}),
         ("pocket", {"type": "pocket"}),
         ("gradium", {"type": "gradium", "api_key": "k", "voice_id": "v"}),
+        ("phonon", {"type": "phonon"}),
     ):
         try:
             REGISTRY[module_type](config)

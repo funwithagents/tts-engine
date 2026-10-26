@@ -1343,6 +1343,25 @@ wheels = [
 ]
 
 [[package]]
+name = "ptts"
+version = "0.4.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/95/d9/95e638cb5dbdf06154466ec99f5a7c07ef4034af0443706fdce0feeb0db8/ptts-0.4.2.tar.gz", hash = "sha256:3e8094a733db45917a70ec781c08e818b660cd19c554e3ee6597cd31df87787d", size = 291252, upload-time = "2026-10-25T19:28:32.132Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9f/33/97319a6c4bbef83a6fff8bc1437f90269d0db939531a6b0290224b4925d8/ptts-0.4.2-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:c1147dfc547a7357ea557ff5ee269bd7a9227ee449cd61efa8429af9ada66eea", size = 6889513, upload-time = "2026-10-25T19:28:19.739Z" },
+    { url = "https://files.pythonhosted.org/packages/99/02/ea27b55f962f773a52700b699a3e423bc593425227b815634d9369e03ccd/ptts-0.4.2-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:7a7ecdf1d86b39b0694e6d1acb60065aa3bbfde3dc8361a7b00d3543c305b1bd", size = 6819209, upload-time = "2026-10-25T19:28:21.526Z" },
+    { url = "https://files.pythonhosted.org/packages/b6/53/8ea2d07be040cf4779f7d3e9d1a4526690eabef8e01fff7fe76d440fb1f6/ptts-0.4.2-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:fb223e3e8c514b77c62cb5cc1ce43e1d062c1d0d3dcd88001efde37e4231f185", size = 6791374, upload-time = "2026-10-25T19:28:22.852Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/b8/cd23a8535e0802951548ff2992672c835914d01829b18f34c88b3e6b0ec0/ptts-0.4.2-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:bd991d58d19dbd864119df72023e279b7ec2676b852f53006a63578b3f208870", size = 7457318, upload-time = "2026-10-25T19:28:24.531Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/eb/a9ab1966fb4a7a00d66e38dfb851592c0ffbcf46b763155e3579cfc1faa8/ptts-0.4.2-cp39-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:f042b8a7c2aac12767c55087cd744d1c39e60eb4d46bac286fd54c49286e3b83", size = 6973914, upload-time = "2026-10-25T19:28:26.062Z" },
+    { url = "https://files.pythonhosted.org/packages/05/2d/a905fb29bb170c536c758ad872c0ac313e11d541f429919f08e3fb404121/ptts-0.4.2-cp39-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:4859b9bfdbf9e936fd02c590b24ee6eb141d325c9e972741b7daddd644393524", size = 7489688, upload-time = "2026-10-25T19:28:27.601Z" },
+    { url = "https://files.pythonhosted.org/packages/3e/7d/3f9aab9f385d991b147e6de7ee16661c77c2542dc64af1d194bb10bc2d3a/ptts-0.4.2-cp39-abi3-win_amd64.whl", hash = "sha256:441b16ab9c2907973dc97d05965d984b74bf66cea9c412b9fdab0972727db6fb", size = 6825005, upload-time = "2026-10-25T19:28:29.376Z" },
+    { url = "https://files.pythonhosted.org/packages/29/42/893086d77e917436f50b1aa2a092695b7119f23d6cc832c40dd609bcede9/ptts-0.4.2-cp39-abi3-win_arm64.whl", hash = "sha256:120d87acdfe082cb5571a89df34c2a852a30305e3887b30eefc12a5d4b9628b4", size = 6559395, upload-time = "2026-10-25T19:28:30.891Z" },
+]
+
+[[package]]
 name = "pycparser"
 version = "3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2214,6 +2233,7 @@ all = [
     { name = "mcp" },
     { name = "miniaudio" },
     { name = "pocket-tts" },
+    { name = "ptts" },
     { name = "uvicorn" },
 ]
 elevenlabs = [
@@ -2226,6 +2246,9 @@ gradium = [
 mcp = [
     { name = "mcp" },
     { name = "uvicorn" },
+]
+phonon = [
+    { name = "ptts" },
 ]
 pocket = [
     { name = "pocket-tts" },
@@ -2251,11 +2274,12 @@ requires-dist = [
     { name = "miniaudio", marker = "extra == 'elevenlabs'" },
     { name = "numpy" },
     { name = "pocket-tts", marker = "extra == 'pocket'", specifier = ">=3.1.0" },
+    { name = "ptts", marker = "extra == 'phonon'", specifier = ">=0.4.2,<0.5" },
     { name = "sounddevice" },
-    { name = "tts-engine", extras = ["elevenlabs", "pocket", "gradium", "mcp"], marker = "extra == 'all'" },
+    { name = "tts-engine", extras = ["elevenlabs", "pocket", "gradium", "phonon", "mcp"], marker = "extra == 'all'" },
     { name = "uvicorn", marker = "extra == 'mcp'" },
 ]
-provides-extras = ["elevenlabs", "pocket", "gradium", "mcp", "all"]
+provides-extras = ["elevenlabs", "pocket", "gradium", "phonon", "mcp", "all"]
 
 [package.metadata.requires-dev]
 dev = [

@@ -37,12 +37,17 @@ gradium = [
 # The MCP server (tts-engine-mcp). The plain SDK, not mcp[cli]: the cli extra
 # only serves the SDK's own `mcp dev` tooling. uvicorn is imported directly.
 # <2: mcp 2.x renamed FastMCP (mcp.server.fastmcp is gone).
+# Gradium's Phonon on-device models through the ptts Rust runtime: numpy only,
+# no torch. <0.5: pre-1.0 and fast-moving, validated on 0.4.2 — see specs/modules/phonon.md.
+phonon = [
+    "ptts>=0.4.2,<0.5",
+]
 mcp = [
     "mcp<2",
     "uvicorn",
 ]
 all = [
-    "tts-engine[elevenlabs,pocket,gradium,mcp]",
+    "tts-engine[elevenlabs,pocket,gradium,phonon,mcp]",
 ]
 
 [dependency-groups]

@@ -52,6 +52,7 @@ _REQUIRED_IMPORT: dict[str, str] = {
     "elevenlabs": "elevenlabs",
     "pocket": "pocket_tts",
     "gradium": "gradium",
+    "phonon": "ptts",
 }
 
 
@@ -124,6 +125,10 @@ MODULES = [
     # Local-model backend: no api_key_env; gated on the `pocket` extra
     # (_REQUIRED_IMPORT) so it skips cleanly when torch/pocket-tts aren't installed.
     pytest.param("pocket", {"voice": "alba"}, id="pocket"),
+    # Local-model backend on the ptts runtime: no api_key_env, no torch; gated
+    # on the `phonon` extra (_REQUIRED_IMPORT). Default checkpoint and voice,
+    # language defaulting to English.
+    pytest.param("phonon", {}, id="phonon"),
     pytest.param("gradium", _GRADIUM_CONFIG, id="gradium"),
     # Fixture modules: no key, no extra — these rows never skip.
     pytest.param("tone", {}, id="tone"),

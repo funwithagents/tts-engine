@@ -103,7 +103,7 @@ Both methods are abstract: every module implements both. A backend whose API acc
 
 ## Module registry
 
-Each backend is a **package of its own** under `src/tts_engine/modules/` — `elevenlabs/`, `pocket/`, `gradium/`, `tone/`, `audiofile/` — never a loose file next to `base.py`. The `TTSModule` subclass lives in `<backend>/module.py` and the package `__init__.py` re-exports it, so `from tts_engine.modules.<backend> import <Class>` is the import path everywhere (registry, tests, callers). Each backend is specced by `specs/modules/<backend>.md`.
+Each backend is a **package of its own** under `src/tts_engine/modules/` — `elevenlabs/`, `pocket/`, `gradium/`, `phonon/`, `tone/`, `audiofile/` — never a loose file next to `base.py`. The `TTSModule` subclass lives in `<backend>/module.py` and the package `__init__.py` re-exports it, so `from tts_engine.modules.<backend> import <Class>` is the import path everywhere (registry, tests, callers). Each backend is specced by `specs/modules/<backend>.md`.
 
 `modules/__init__.py` maintains a `REGISTRY` dict mapping type strings to module classes:
 
@@ -111,6 +111,7 @@ Each backend is a **package of its own** under `src/tts_engine/modules/` — `el
 REGISTRY: dict[str, type[TTSModule]] = {
     "elevenlabs": ElevenLabsModule,  # provider, behind the `elevenlabs` extra
     "pocket": PocketModule,  # provider, behind the `pocket` extra
+    "phonon": PhononModule,  # provider, behind the `phonon` extra
     "gradium": GradiumModule,  # provider, behind the `gradium` extra
     "tone": ToneModule,  # fixture, base install
     "audiofile": AudioFileModule,  # fixture, base install
@@ -126,7 +127,7 @@ There is **no default module**. `type` is required, and no module is privileged 
 | Kind | Modules | Installed by | Purpose |
 |---|---|---|---|
 | **Provider** (API-backed) | `elevenlabs`, `gradium` | the `elevenlabs` / `gradium` extra | Real speech from a cloud API |
-| **Provider** (local model) | `pocket` | the `pocket` extra | Real speech from an in-process model |
+| **Provider** (local model) | `pocket`, `phonon` | the `pocket` / `phonon` extra | Real speech from an in-process model |
 | **Fixture** | `tone`, `audiofile` | base install | No synthesis; deterministic audio for tests, demos, and downstream integration suites |
 
 Fixture modules implement the full contract (declared rate, PCM format, cancellation) and are first-class members of the registry, but the documentation must never present them as TTS: users wanting speech install a provider extra. See [tone-module.md](modules/tone.md) and [audiofile-module.md](modules/audiofile.md).
@@ -206,7 +207,7 @@ A pure, lazy generator — it works equally on an in-memory list and on the brid
 - Pieces are concatenated verbatim into a buffer. A sentence is yielded (stripped) when the buffer holds a **sentence end**: `.`, `!`, `?` or `…` — optionally followed by a closing quote or bracket — **followed by whitespace**, or a newline. "Followed by whitespace" is what keeps `3.14` and `v2.5` whole; it also means `Hello.` is yielded when the next piece starts (or at end of input), not the instant the period arrives.
 - **Length cap.** Once the buffer exceeds `max_chars` with no sentence end, it is cut at the last **clause boundary** (`,`, `;`, `:` followed by whitespace), else at the last whitespace — never inside a word — so a long LLM sentence cannot stall playback. `max_chars` is a fixed default in v1 (not configurable); modules pass nothing.
 - At end of input the remainder is yielded if it is not blank. Blank segments are never yielded.
-- Known limitation, accepted: abbreviations such as `Dr. Smith` split as a sentence. The backends that use this (pocket, audiofile) tolerate a short segment; correctness of the audio is unaffected.
+- Known limitation, accepted: abbreviations such as `Dr. Smith` split as a sentence. The backends that use this (pocket, phonon, audiofile) tolerate a short segment; correctness of the audio is unaffected.
 
 ## Local-model modules
 

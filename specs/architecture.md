@@ -70,6 +70,11 @@ A library user stops at layer 1 or 2; an agent embeds layer 2 directly; an MCP c
 │    stream grouped     │
 │    into sentences     │
 │                       │
+│ phonon/               │
+│  • Runs Phonon via    │
+│    ptts (no torch);   │
+│    same grouping      │
+│                       │
 │ tone/ audiofile/      │
 │  • fixture modules:   │
 │    sine / WAV files   │
@@ -83,7 +88,7 @@ A library user stops at layer 1 or 2; an agent embeds layer 2 directly; an MCP c
 │ ElevenLabs / Gradium  │
 └───────────────────────┘
 
-Providers (`elevenlabs`, `pocket`) each ship behind a packaging extra; the fixture modules ship in the base install; no module is the default (see [tts-module-interface.md](tts-module-interface.md), "Module kinds").
+Providers (`elevenlabs`, `gradium`, `pocket`, `phonon`) each ship behind a packaging extra; the fixture modules ship in the base install; no module is the default (see [tts-module-interface.md](tts-module-interface.md), "Module kinds").
 The MCP layer ships behind the `mcp` extra; layers 1 and 2 need only the base install (see [project.md](project.md), "Dependency strategy for transports").
 ```
 
@@ -151,6 +156,7 @@ await engine.say_stream(llm_tokens())
 | `modules/elevenlabs/module.py` | ElevenLabs API interaction over HTTPS (complete text) and the stream-input WebSocket (text stream), MP3→PCM decoding via miniaudio (behind the `elevenlabs` extra, lazy import), config parsing |
 | `modules/gradium/module.py` | Gradium realtime WebSocket (both input shapes; the text stream is forwarded as it arrives), raw PCM output (behind the `gradium` extra, lazy import), config parsing |
 | `modules/pocket/module.py` | Local pocket-tts inference (behind the `pocket` extra, lazy import), sentence grouping for the text stream, float→int16 conversion, config parsing |
+| `modules/phonon/module.py` | Local Phonon inference through the `ptts` Rust runtime (behind the `phonon` extra, lazy import, no torch), sentence grouping for the text stream, float→int16 conversion, config parsing |
 | `modules/tone/module.py` | Fixture module: sine tone proportional to text length, no dependencies beyond numpy |
 | `modules/audiofile/module.py` | Fixture module: text → WAV file mapping with a default file, paths relative to `base_dir` |
 | `audio.py` | Defines the `AudioSink` Protocol; `AudioPlayer` (its default impl): `sounddevice` output stream management, lazily imported; provider-agnostic consumer of the fixed PCM format contract |
