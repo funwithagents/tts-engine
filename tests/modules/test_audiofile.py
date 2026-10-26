@@ -5,6 +5,7 @@ committed.
 """
 
 import asyncio
+import time
 import wave
 
 import pytest
@@ -237,3 +238,63 @@ def test_text_stream_unmatched_sentence_without_default_raises_after_earlier_fil
             module.synthesize_text_stream(source(), TTSOptions(), received.extend)
         )
     assert bytes(received) == bytes([1]) * 600
+
+
+# --- cancellation ------------------------------------------------------------
+
+
+def _slow_counting_callback(loop, first_chunk):
+    """A sink that is slow enough for audio to still be flowing at cancel time;
+    returns (callback, count) where count() is the number of chunks so far."""
+    n = 0
+
+    def callback(_chunk: bytes) -> None:
+        nonlocal n
+        n += 1
+        time.sleep(0.005)
+        loop.call_soon_threadsafe(first_chunk.set)
+
+    return callback, lambda: n
+
+
+async def _assert_cancel_stops_callbacks(task, first_chunk, count):
+    await first_chunk.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    settled = count()
+    await asyncio.sleep(0.05)
+    assert count() == settled
+
+
+async def test_cancel_stops_callbacks_before_synthesize_text_raises(tmp_path):
+    # 400k frames = ~100 chunks: the file outlasts the cancel.
+    path = _write_wav(tmp_path / "long.wav", frames=400_000)
+    module = AudioFileModule({"type": "audiofile", "default_file": path})
+    loop = asyncio.get_running_loop()
+    first_chunk = asyncio.Event()
+    callback, count = _slow_counting_callback(loop, first_chunk)
+
+    task = asyncio.create_task(
+        module.synthesize_text("anything", TTSOptions(), callback)
+    )
+    await _assert_cancel_stops_callbacks(task, first_chunk, count)
+
+
+async def test_text_stream_cancel_mid_audio_stops_callbacks_before_raising(tmp_path):
+    path = _write_wav(tmp_path / "long.wav", frames=400_000)
+    module = AudioFileModule(
+        {"type": "audiofile", "files": [{"text": "Hello, world!", "file": path}]}
+    )
+    loop = asyncio.get_running_loop()
+    first_chunk = asyncio.Event()
+    callback, count = _slow_counting_callback(loop, first_chunk)
+
+    async def source():
+        yield "Hello, world! "  # a complete sentence: its file starts playing
+        await asyncio.Event().wait()  # then the source stays open
+
+    task = asyncio.create_task(
+        module.synthesize_text_stream(source(), TTSOptions(), callback)
+    )
+    await _assert_cancel_stops_callbacks(task, first_chunk, count)

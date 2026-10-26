@@ -448,3 +448,44 @@ def test_text_stream_source_error_propagates_unchanged(fake_gradium):
     # Aborted: the request is dropped without an end-of-stream.
     assert fake_gradium.tts.eos is False
     assert fake_gradium.tts.closed is True
+
+
+async def test_text_stream_cancel_mid_audio_stops_callbacks_before_raising(
+    fake_gradium,
+):
+    # Endless audio from the server while the sender is still blocked waiting
+    # for text: cancel must stop the receiver, release the sender's executor
+    # thread, and close the socket, all before CancelledError surfaces.
+    def endless():
+        while True:
+            time.sleep(0.005)
+            yield _audio(b"\x01\x00")
+
+    fake_gradium.messages = endless()
+    loop = asyncio.get_running_loop()
+    first_chunk = asyncio.Event()
+    count = 0
+
+    def callback(_chunk: bytes) -> None:
+        nonlocal count
+        count += 1
+        loop.call_soon_threadsafe(first_chunk.set)
+
+    async def source():
+        yield "Hello "
+        await asyncio.Event().wait()  # the source stays open
+
+    module = GradiumModule(VALID_CONFIG)
+    task = asyncio.create_task(
+        module.synthesize_text_stream(source(), TTSOptions(), callback)
+    )
+    await first_chunk.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=5)
+
+    settled = count
+    await asyncio.sleep(0.05)  # ~10 chunk periods: a leaked worker would show
+    assert count == settled
+    assert fake_gradium.tts.closed is True
+    assert fake_gradium.tts.eos is False  # dropped, not finished

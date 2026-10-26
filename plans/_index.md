@@ -37,6 +37,7 @@ Implementation plans for TTS Engine — each plan turns a settled part of a spec
 | [CI on GitHub runners](202610131500_ci-on-github-runners.md) | `.github/workflows/ci.yml`: static gate, fast tier on Linux x86_64/arm64, macOS and Windows, live tier on Linux against a PulseAudio null sink; torch from the CPU index on Linux | Done |
 | [Streaming text input](202610261140_streaming-text-input.md) | `TTSModule.synthesize_text` (renamed from `stream`) + abstract `synthesize_text_stream`; `run_text_stream_worker` and `segment_sentences` helpers; `TTSEngine.say_stream`; native stream-to-stream for Gradium and ElevenLabs, sentence grouping for pocket and audiofile, tone per piece; third live conformance scenario | Done |
 | [Phonon module](202610261213_phonon-module.md) | Local-model `phonon` backend on `ptts` (no torch): `phonon` extra, lazy import, native 24 kHz, sentence grouping for the text stream, faked-library unit tests + live `MODULES` row that runs in CI with no key | Done |
+| [Cancellation tests + ElevenLabs stream-input loop](202610261310_cancellation-tests-and-elevenlabs-stream-loop.md) | Mid-audio cancellation tests for `synthesize_text_stream` on every module, audiofile and engine cancellation tests, two live cancel scenarios; the ElevenLabs text stream moves off the SDK's `convert_realtime` (no audio while the source pauses) to the module's own sender/receiver loop over the stream-input WebSocket; `split_at_last_space` shared in `base.py` | Done |
 
 ## Status legend
 

@@ -179,6 +179,7 @@ Registered in `REGISTRY` as `"phonon"` ([modules/__init__.py](../../src/tts_engi
   - `synthesize_text`: float chunks (including out-of-range values) become whole little-endian int16 samples, clipped; `stream` gets the text and the configured voice; the stream is closed afterwards;
   - an error while iterating → `TTSError` and the stream closed; a callback error propagates unchanged and the stream is closed;
   - cancellation while a chunk is pending closes the stream before `CancelledError` surfaces (event-driven, no sleeps);
+  - the same for `synthesize_text_stream`, cancelled mid-sentence with the source still open: the stream is closed, no callback runs after `CancelledError` surfaces;
   - `synthesize_text_stream`: one `stream()` call per sentence, and audio reaches the callback before the source finishes (the shared test shape from the streaming-text-input plan).
 - **Lazy imports (`tests/modules/test_lazy_imports.py`)** — `ptts` joins the poisoned libraries, `phonon` joins the expected registry keys, and constructing `{"type": "phonon"}` must raise the `tts-engine[phonon]` hint.
 - **Live (`tests-e2e/test_modules.py`)** — one `MODULES` row, `pytest.param("phonon", {}, id="phonon")`, plus `_REQUIRED_IMPORT["phonon"] = "ptts"`, so the three conformance scenarios run against the real runtime and default checkpoint. No key is needed, so the row **runs in CI** (the extra comes with the `dev` group); its weights land in the Hugging Face cache the live job already caches. Robust properties only (PCM produced, drained once), never audio content.

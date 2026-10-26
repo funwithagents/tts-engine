@@ -1,6 +1,7 @@
 """Tests for TTSEngine."""
 
 import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -305,3 +306,57 @@ async def test_say_and_say_stream_share_one_lock(engine, mock_module, mock_playe
 
     assert maximum_active == 1
     assert mock_player.drain.call_count == 2
+
+
+# --- cancellation through the engine, on a real module ----------------------
+
+
+class _SlowCaptureSink(CaptureSink):
+    """A capture sink paced like a sound device, so audio is still flowing
+    when the call is cancelled."""
+
+    def feed(self, chunk: bytes) -> None:
+        super().feed(chunk)
+        time.sleep(0.005)
+
+
+def _tone_engine(sink: CaptureSink) -> TTSEngine:
+    # The real tone module through a capture sink: no fakes in the loop.
+    return TTSEngine(
+        TTSEngineConfig(module={"type": "tone"}, player=PlayerConfig()), sink=sink
+    )
+
+
+async def _assert_cancel_stops_feeding_and_drains_once(task, sink):
+    while not sink.chunks:
+        await asyncio.sleep(0.001)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    settled = len(sink.chunks)
+    await asyncio.sleep(0.05)
+    assert len(sink.chunks) == settled
+    assert sink.drains == 1
+
+
+@pytest.mark.asyncio
+async def test_cancelling_say_stops_feeding_and_drains_once():
+    sink = _SlowCaptureSink()
+    engine = _tone_engine(sink)
+
+    task = asyncio.create_task(engine.say("x" * 2000))  # ~100 s of tone
+    await _assert_cancel_stops_feeding_and_drains_once(task, sink)
+
+
+@pytest.mark.asyncio
+async def test_cancelling_say_stream_stops_feeding_and_drains_once():
+    sink = _SlowCaptureSink()
+    engine = _tone_engine(sink)
+
+    async def source():
+        yield "x" * 2000
+        await asyncio.Event().wait()  # the source stays open
+
+    task = asyncio.create_task(engine.say_stream(source()))
+    await _assert_cancel_stops_feeding_and_drains_once(task, sink)

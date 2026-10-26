@@ -244,6 +244,20 @@ def _forced_cut(buffer: str) -> int | None:
     return last
 
 
+def split_at_last_space(buffer: str) -> tuple[str, str]:
+    """Split `buffer` after its last whitespace: (complete words, the rest).
+
+    For backends that take text incrementally: forwarding only up to the last
+    whitespace holds a possibly unfinished last word back, so a sub-word token
+    never reaches the server on its own, whichever side the tokenizer puts its
+    spaces on. The rest is sent with the next piece or at end of stream.
+    """
+    for i in range(len(buffer) - 1, -1, -1):
+        if buffer[i].isspace():
+            return buffer[: i + 1], buffer[i + 1 :]
+    return "", buffer
+
+
 def resolve_path(config: dict, value: str) -> Path:
     """Resolve a file path from a module config field.
 

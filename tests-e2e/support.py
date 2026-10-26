@@ -82,6 +82,14 @@ def require_module(module_type: str, config: dict) -> None:
         )
 
 
+def spoken_text(module_type: str) -> str:
+    """The sentence the audible live test says for a backend: it names the
+    module, so a listener can tell the backends apart during a run. The
+    `audiofile` row maps this exact sentence to its `hello.wav` so the
+    matched-file path is the one that plays."""
+    return f"Hello from the {module_type} module, speaking through the TTS engine."
+
+
 # Config for the `elevenlabs` row of `MODULES`. It carries `api_key_env` (the
 # *name* of the env var holding the key), never the key itself — the row is
 # turned on by exporting that variable.
@@ -137,9 +145,7 @@ MODULES = [
         {
             "base_dir": str(Path(__file__).parent / "fixtures"),
             "default_file": "default.wav",
-            "files": [
-                {"text": "Hello directly from the TTS engine", "file": "hello.wav"}
-            ],
+            "files": [{"text": spoken_text("audiofile"), "file": "hello.wav"}],
         },
         id="audiofile",
     ),
