@@ -29,6 +29,7 @@ _SCRIPT = textwrap.dedent(
         "mistralai",
         "deepgram",
         "google.genai",
+        "cartesia",
         "qwentts_cpp",
     ):
         sys.modules[name] = None
@@ -45,6 +46,7 @@ _SCRIPT = textwrap.dedent(
         "mistral",
         "deepgram",
         "gemini",
+        "cartesia",
         "qwen3",
         "tone",
         "audiofile",
@@ -58,6 +60,7 @@ _SCRIPT = textwrap.dedent(
         ("mistral", {"type": "mistral", "api_key": "k", "voice_id": "v"}),
         ("deepgram", {"type": "deepgram", "api_key": "k"}),
         ("gemini", {"type": "gemini", "api_key": "k"}),
+        ("cartesia", {"type": "cartesia", "api_key": "k", "voice_id": "v"}),
         ("qwen3", {"type": "qwen3"}),
     ):
         try:

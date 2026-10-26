@@ -51,6 +51,12 @@ deepgram = [
 gemini = [
     "google-genai>=2.33,<3",
 ]
+# The official SDK with its websockets extra (sync WebSocket client); raw
+# pcm_s16le output, so no codec. <5: the 4.x websocket_connect / context API the
+# module drives — see specs/modules/cartesia.md.
+cartesia = [
+    "cartesia[websockets]>=4.2,<5",
+]
 # Gradium's Phonon on-device models through the ptts Rust runtime: numpy only,
 # no torch. <0.5: pre-1.0 and fast-moving, validated on 0.4.2 — see specs/modules/phonon.md.
 phonon = [
@@ -72,7 +78,7 @@ mcp = [
     "uvicorn",
 ]
 all = [
-    "tts-engine[elevenlabs,pocket,gradium,phonon,mistral,deepgram,gemini,qwen3,mcp]",
+    "tts-engine[elevenlabs,pocket,gradium,phonon,mistral,deepgram,gemini,cartesia,qwen3,mcp]",
 ]
 
 [dependency-groups]

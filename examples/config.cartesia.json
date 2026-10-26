@@ -1,0 +1,17 @@
+{
+  "engine": {
+    "module": {
+      "type": "cartesia",
+      "api_key_env": "CARTESIA_API_KEY",
+      "voice_id": "6ccbfb76-1fc6-48f7-b71d-91ac6298247b",
+      "model": "sonic-3.6"
+    },
+    "player": {
+      "device": null
+    }
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000
+  }
+}

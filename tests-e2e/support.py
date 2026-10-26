@@ -56,6 +56,7 @@ _REQUIRED_IMPORT: dict[str, str] = {
     "mistral": "mistralai",
     "deepgram": "deepgram",
     "gemini": "google.genai",
+    "cartesia": "cartesia",
     "qwen3": "qwentts_cpp",
 }
 
@@ -145,6 +146,14 @@ _GEMINI_CONFIG = {
 }
 
 
+# Config for the `cartesia` row of `MODULES` — same shape as the other API rows:
+# `api_key_env` names the variable, never the key. "Tessa", an English voice.
+_CARTESIA_CONFIG = {
+    "api_key_env": "CARTESIA_API_KEY",
+    "voice_id": "6ccbfb76-1fc6-48f7-b71d-91ac6298247b",
+}
+
+
 def default_module() -> tuple[str, dict]:
     """Module type + config for the module-agnostic live tests (the MCP
     transport in `test_mcp.py`; per-module conformance lives in `test_modules.py`
@@ -182,6 +191,7 @@ MODULES = [
     pytest.param("mistral", _MISTRAL_CONFIG, id="mistral"),
     pytest.param("deepgram", _DEEPGRAM_CONFIG, id="deepgram"),
     pytest.param("gemini", _GEMINI_CONFIG, id="gemini"),
+    pytest.param("cartesia", _CARTESIA_CONFIG, id="cartesia"),
     # Fixture modules: no key, no extra — these rows never skip.
     pytest.param("tone", {}, id="tone"),
     pytest.param(

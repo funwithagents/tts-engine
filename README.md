@@ -2,7 +2,7 @@
 
 A streaming text-to-speech engine for Python. Choose a TTS module, construct a `TTSEngine`, and call `await engine.say(text)`, or `await engine.say_stream(text_stream)` to speak an LLM response while it is still being generated.
 
-Audio is synthesized and consumed chunk by chunk, minimizing the delay before playback begins. Speech comes from a provider module you install as an extra: the ElevenLabs, Gradium, Mistral, Deepgram or Gemini cloud APIs, or the local pocket-tts, Phonon or Qwen3-TTS models. There is no default provider. Two built-in fixture modules, `tone` and `audiofile`, stand in for a provider in tests and demos. By default, audio plays on the machine running the engine; applications can instead provide their own audio sink to capture or route the PCM stream.
+Audio is synthesized and consumed chunk by chunk, minimizing the delay before playback begins. Speech comes from a provider module you install as an extra: the ElevenLabs, Gradium, Mistral, Deepgram, Gemini or Cartesia cloud APIs, or the local pocket-tts, Phonon or Qwen3-TTS models. There is no default provider. Two built-in fixture modules, `tone` and `audiofile`, stand in for a provider in tests and demos. By default, audio plays on the machine running the engine; applications can instead provide their own audio sink to capture or route the PCM stream.
 
 Agent-friendly tools are included as an optional interface over the same engine, and an MCP server is available through the `mcp` extra.
 
@@ -35,6 +35,7 @@ uv sync --no-dev --extra gradium      # Gradium cloud API
 uv sync --no-dev --extra mistral      # Mistral cloud API (Voxtral TTS)
 uv sync --no-dev --extra deepgram     # Deepgram cloud API (Aura-2)
 uv sync --no-dev --extra gemini       # Google Gemini API (Gemini TTS)
+uv sync --no-dev --extra cartesia     # Cartesia cloud API (Sonic)
 uv sync --no-dev --extra mcp          # MCP server (tts-engine-mcp)
 uv sync --no-dev --all-extras         # every extra
 
@@ -47,6 +48,7 @@ pip install "tts-engine[gradium]"
 pip install "tts-engine[mistral]"
 pip install "tts-engine[deepgram]"
 pip install "tts-engine[gemini]"
+pip install "tts-engine[cartesia]"
 pip install "tts-engine[mcp,pocket]"
 pip install "tts-engine[all]"
 ```
@@ -110,7 +112,7 @@ The module declares its output sample rate, and the engine configures the defaul
 
 Pass that object directly to a loader; do not add an outer `"engine"` key. A larger application can store it under any key it chooses, while the optional MCP server format specifically stores it under `"engine"`.
 
-The [`examples/`](examples/) directory holds one complete MCP-server config per module (`config.pocket.json`, `config.phonon.json`, `config.qwen3.json`, `config.elevenlabs.json`, `config.gradium.json`, `config.mistral.json`, `config.deepgram.json`, `config.gemini.json`, `config.tone.json`, `config.audiofile.json`). No single example is the default.
+The [`examples/`](examples/) directory holds one complete MCP-server config per module (`config.pocket.json`, `config.phonon.json`, `config.qwen3.json`, `config.elevenlabs.json`, `config.gradium.json`, `config.mistral.json`, `config.deepgram.json`, `config.gemini.json`, `config.cartesia.json`, `config.tone.json`, `config.audiofile.json`). No single example is the default.
 
 | Source | Constructor | Expected shape |
 |---|---|---|
@@ -157,6 +159,7 @@ A module is a swappable synthesis backend. Its `type` selects an entry from the 
 | `mistral` | Provider | Mistral cloud API (Voxtral TTS) | `tts-engine[mistral]` | API key |
 | `deepgram` | Provider | Deepgram cloud API (Aura-2) | `tts-engine[deepgram]` | API key |
 | `gemini` | Provider | Google Gemini API (Gemini TTS) | `tts-engine[gemini]` | API key |
+| `cartesia` | Provider | Cartesia cloud API (Sonic) | `tts-engine[cartesia]` | API key |
 | `tone` | Fixture | Sine tone, no synthesis | Base installation | None |
 | `audiofile` | Fixture | Pre-recorded WAV files, no synthesis | Base installation | None |
 
@@ -442,6 +445,41 @@ The module emits mono PCM at 24,000 Hz. Text is sent verbatim as the prompt, so 
 - Each sentence starts after a short pause (median ~0.8 s, up to ~1 s), the time to first audio of one request.
 - The Gemini API limits requests per model per minute (10 on Tier 1). A text stream of more than ~10 sentences within a minute fails partway with a `TTSError` reporting `429 RESOURCE_EXHAUSTED`; a higher usage tier raises the limit.
 
+### `cartesia`
+
+The Cartesia module streams speech from Cartesia's Sonic models through the official `cartesia` SDK and its realtime WebSocket. Install it with the `cartesia` extra:
+
+```bash
+uv sync --extra cartesia
+# For an installed package:
+pip install "tts-engine[cartesia]"
+```
+
+```json
+{
+  "module": {
+    "type": "cartesia",
+    "api_key_env": "CARTESIA_API_KEY",
+    "voice_id": "6ccbfb76-1fc6-48f7-b71d-91ac6298247b"
+  }
+}
+```
+
+| Field | Required | Default | Description |
+|---|---|---|---|
+| `api_key_env` | one of `api_key_env` or `api_key` | — | Name of the environment variable holding the API key. Recommended for file-based configuration. |
+| `api_key` | one of `api_key_env` or `api_key` | — | Literal API key. A non-empty literal key takes precedence over `api_key_env`. |
+| `voice_id` | yes | — | Cartesia voice ID (a UUID from the voice library or a cloned voice); the example is "Tessa", an English voice. |
+| `model` | no | `sonic-3.6` | Sonic model ID, e.g. `sonic-3`, a dated snapshot, or `sonic-latest`. |
+| `sample_rate` | no | `24000` | Output rate: `8000`, `16000`, `22050`, `24000`, `44100`, or `48000`. |
+| `language` | no | API default | Language code of the text, e.g. `en` or `fr`. |
+| `speed` | no | API default | Speaking-rate multiplier, `0.6`–`1.5`. |
+| `volume` | no | API default | Volume multiplier, `0.5`–`2.0`. |
+| `emotion` | no | neutral | An emotion name such as `happy`, `calm` or `sympathetic`. |
+| `max_buffer_delay_ms` | no | API default (3000) | How long the server may wait for more text before speaking a fragment with no sentence end, `0`–`5000`. |
+
+The module emits mono PCM at the configured `sample_rate`. A text stream goes to the socket as it arrives. If the text source pauses for several seconds, the module continues on a fresh Cartesia context, so the rest of the text is still spoken.
+
 ### `tone`
 
 A fixture module for tests and demos, not a TTS backend. For any text it plays a sine tone whose length is proportional to the text length. It needs no key, no extra, no model, and no files, and it is deterministic. That makes it a good module for an integration test suite, or for checking audio output.
@@ -506,7 +544,7 @@ async def llm_tokens():
 await engine.say_stream(llm_tokens())
 ```
 
-Pieces are concatenated verbatim (tokens carry their own spaces). The ElevenLabs, Gradium and Deepgram modules forward the text to their realtime sockets as it arrives; `pocket`, `phonon`, `qwen3`, `mistral`, `gemini` and `audiofile` synthesize sentence by sentence as each one completes; `tone` plays a tone per piece. A plain list is accepted for in-memory sequences, and a bare string is rejected. If the text source raises, playback stops and that exception propagates unchanged. A long pause in the source is heard as silence, not an error.
+Pieces are concatenated verbatim (tokens carry their own spaces). The ElevenLabs, Gradium, Deepgram and Cartesia modules forward the text to their realtime sockets as it arrives; `pocket`, `phonon`, `qwen3`, `mistral`, `gemini` and `audiofile` synthesize sentence by sentence as each one completes; `tone` plays a tone per piece. A plain list is accepted for in-memory sequences, and a bare string is rejected. If the text source raises, playback stops and that exception propagates unchanged. A long pause in the source is heard as silence, not an error.
 
 ## Audio output and custom sinks
 
@@ -621,7 +659,7 @@ engine = TTSEngine(mcp_config.engine)
 
 ### A provider module requires its extra
 
-A `ConfigError` such as `The 'pocket' module requires the pocket extra` means that provider's libraries are not installed. Run `uv sync --extra <name>` (or `pip install "tts-engine[<name>]"`), e.g. `--extra pocket`, `--extra phonon`, `--extra qwen3`, `--extra elevenlabs`, `--extra gradium`, `--extra mistral`, `--extra deepgram`, or `--extra gemini`.
+A `ConfigError` such as `The 'pocket' module requires the pocket extra` means that provider's libraries are not installed. Run `uv sync --extra <name>` (or `pip install "tts-engine[<name>]"`), e.g. `--extra pocket`, `--extra phonon`, `--extra qwen3`, `--extra elevenlabs`, `--extra gradium`, `--extra mistral`, `--extra deepgram`, `--extra gemini`, or `--extra cartesia`.
 
 ### pocket-tts
 
@@ -669,6 +707,12 @@ A `ConfigError` such as `The 'pocket' module requires the pocket extra` means th
 - A `TTSError` containing `No matching speaker voice` means `voice` is not a prebuilt voice; `NOT_FOUND` means the `model` ID is wrong; `Invalid language_code` means `language_code` is not a BCP-47 code the API accepts.
 - A `TTSError` containing `429 RESOURCE_EXHAUSTED` means the per-minute request quota of the model is spent (one request per sentence): wait a minute, shorten the text, or move the Google account to a higher tier.
 - A `TTSError` reporting that Gemini stopped synthesis early or blocked the prompt carries the API's reason, e.g. `SAFETY`.
+
+### Cartesia
+
+- Verify that the environment variable named by `api_key_env` is set in the process running the engine.
+- A `TTSError` reporting HTTP 401 means the key was rejected; `Voice not found` or `Model not found` (status 404) means `voice_id` or `model` is wrong.
+- An unknown `emotion` is not rejected by the API: speech is produced without it.
 
 ## Development
 
