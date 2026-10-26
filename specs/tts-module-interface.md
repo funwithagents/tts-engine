@@ -103,7 +103,7 @@ Both methods are abstract: every module implements both. A backend whose API acc
 
 ## Module registry
 
-Each backend is a **package of its own** under `src/tts_engine/modules/` — `elevenlabs/`, `pocket/`, `gradium/`, `phonon/`, `mistral/`, `deepgram/`, `gemini/`, `cartesia/`, `openai/`, `qwen3/`, `kokoro/`, `tone/`, `audiofile/` — never a loose file next to `base.py`. The `TTSModule` subclass lives in `<backend>/module.py` and the package `__init__.py` re-exports it, so `from tts_engine.modules.<backend> import <Class>` is the import path everywhere (registry, tests, callers). Each backend is specced by `specs/modules/<backend>.md`.
+Each backend is a **package of its own** under `src/tts_engine/modules/` — `elevenlabs/`, `pocket/`, `gradium/`, `phonon/`, `mistral/`, `deepgram/`, `gemini/`, `cartesia/`, `openai/`, `qwen3/`, `kokoro/`, `piper/`, `tone/`, `audiofile/` — never a loose file next to `base.py`. The `TTSModule` subclass lives in `<backend>/module.py` and the package `__init__.py` re-exports it, so `from tts_engine.modules.<backend> import <Class>` is the import path everywhere (registry, tests, callers). Each backend is specced by `specs/modules/<backend>.md`.
 
 `modules/__init__.py` maintains a `REGISTRY` dict mapping type strings to module classes:
 
@@ -120,6 +120,7 @@ REGISTRY: dict[str, type[TTSModule]] = {
     "openai": OpenAIModule,  # provider, behind the `openai` extra
     "qwen3": Qwen3Module,  # provider, behind the `qwen3` extra
     "kokoro": KokoroModule,  # provider, behind the `kokoro` extra
+    "piper": PiperModule,  # provider, behind the `piper` extra
     "tone": ToneModule,  # fixture, base install
     "audiofile": AudioFileModule,  # fixture, base install
 }
@@ -134,7 +135,7 @@ There is **no default module**. `type` is required, and no module is privileged 
 | Kind | Modules | Installed by | Purpose |
 |---|---|---|---|
 | **Provider** (API-backed) | `elevenlabs`, `gradium`, `mistral`, `deepgram`, `gemini`, `cartesia`, `openai` | the `elevenlabs` / `gradium` / `mistral` / `deepgram` / `gemini` / `cartesia` / `openai` extra | Real speech from a cloud API |
-| **Provider** (local model) | `pocket`, `phonon`, `qwen3`, `kokoro` | the `pocket` / `phonon` / `qwen3` / `kokoro` extra | Real speech from an in-process model |
+| **Provider** (local model) | `pocket`, `phonon`, `qwen3`, `kokoro`, `piper` | the `pocket` / `phonon` / `qwen3` / `kokoro` / `piper` extra | Real speech from an in-process model |
 | **Fixture** | `tone`, `audiofile` | base install | No synthesis; deterministic audio for tests, demos, and downstream integration suites |
 
 Fixture modules implement the full contract (declared rate, PCM format, cancellation) and are first-class members of the registry, but the documentation must never present them as TTS: users wanting speech install a provider extra. See [tone-module.md](modules/tone.md) and [audiofile-module.md](modules/audiofile.md).
@@ -223,7 +224,32 @@ A pure, lazy generator — it works equally on an in-memory list and on the brid
 - Pieces are concatenated verbatim into a buffer. A sentence is yielded (stripped) when the buffer holds a **sentence end**: `.`, `!`, `?` or `…` — optionally followed by a closing quote or bracket — **followed by whitespace**, or a newline. "Followed by whitespace" is what keeps `3.14` and `v2.5` whole; it also means `Hello.` is yielded when the next piece starts (or at end of input), not the instant the period arrives.
 - **Length cap.** Once the buffer exceeds `max_chars` with no sentence end, it is cut at the last **clause boundary** (`,`, `;`, `:` followed by whitespace), else at the last whitespace — never inside a word — so a long LLM sentence cannot stall playback. `max_chars` is a fixed default in v1 (not configurable); modules pass nothing.
 - At end of input the remainder is yielded if it is not blank. Blank segments are never yielded.
-- Known limitation, accepted: abbreviations such as `Dr. Smith` split as a sentence. The backends that use this (pocket, phonon, qwen3, kokoro, mistral, gemini, audiofile) tolerate a short segment; correctness of the audio is unaffected.
+- Known limitation, accepted: abbreviations such as `Dr. Smith` split as a sentence.
+
+### `feed_with_lookahead` — whole-sentence backends
+
+```python
+def feed_with_lookahead(
+    sentences: Iterable[str],
+    synthesize: Callable[[str], Iterable[bytes]],
+    callback: Callable[[bytes], None],
+    stop: threading.Event,
+    *,
+    slice_bytes: int,
+) -> None:
+    """Synthesize `sentences` one step ahead of playback and feed the PCM in slices."""
+```
+
+Some local runtimes return a sentence's audio **all at once** rather than frame by frame (kokoro-onnx's `create`, Piper's per-sentence `AudioChunk`). Fed directly, two problems follow: the default sink's `feed` blocks for the whole chunk, so `stop` would not be seen until the sentence has played; and the next sentence would only be synthesized after the previous one finished playing, leaving a silence of one inference between sentences. This helper, called from inside a module's worker, solves both:
+
+- A **producer thread** iterates `sentences`, calls `synthesize(sentence)` and puts each PCM chunk it yields on a queue. The calling (worker) thread takes chunks and feeds them to `callback` in slices of at most `slice_bytes` (modules pass 100 ms), checking `stop` before each slice. `callback` is only ever called from the worker thread, and the producer never calls it.
+- The producer stays **at most one chunk ahead** of the chunk being played: it takes a single slot (a `threading.Semaphore(1)`) before synthesizing each chunk, and the worker gives the slot back when it takes a chunk to play. While sentence one plays, sentence two is synthesized and waits; sentence three starts only once sentence two starts playing. (A one-slot queue alone would allow two ahead: one queued, one being synthesized.) This bounds memory and the work a cancellation wastes. `synthesize` is called only once the slot is held, so a function that does its work eagerly (kokoro's) is bounded too.
+- `sentences` is consumed by the producer, so a lazy iterator (`segment_sentences(pieces)` over the text-stream bridge) blocks the producer, never the worker.
+- An exception from `sentences` or `synthesize` is handed to the worker through the queue and raised there unchanged; `synthesize` wraps library errors in `TTSError` itself. Callback exceptions propagate unchanged.
+- The producer stops before taking the slot for its next chunk once `stop` is set or the worker has finished (a local `done` event set in a `finally`). The slot wait and the worker's queue `get` wake every 50 ms to recheck, so neither thread can wait on the other forever.
+- **The producer is not joined** on cancellation or failure: a running inference call usually cannot be interrupted, and waiting for it would add up to one sentence's inference to every cancellation. It is a daemon thread that finishes that one call, sees the flag and exits. On a normal end it has already exited, since the worker returns only after receiving its end marker.
+
+Users: kokoro and piper. A runtime that streams frames itself (pocket, phonon, qwen3) does not need it. The backends that use this (pocket, phonon, qwen3, kokoro, piper, mistral, gemini, audiofile) tolerate a short segment; correctness of the audio is unaffected.
 
 ## Local-model modules
 
@@ -233,7 +259,7 @@ The API-backed pattern (ElevenLabs) is one shape; a second shape is a **local-mo
 - **`sample_rate` reports the module's native rate** (commonly 24000 for these models), so no resampling is needed unless the backend itself varies.
 - **Inference runs off the event loop.** Local inference is blocking and CPU/GPU-bound; run it inside `asyncio.to_thread` (as ElevenLabs does for its blocking SDK iterator), driving `callback` from that single worker thread so calls never overlap.
 - **Float → int16 conversion** happens in the module before the callback (clip to ±1.0, scale to the int16 range), since these libraries yield float waveforms.
-- **Cancellation and errors** follow the same rules as any module: stop calling `callback` before returning/raising, and wrap backend/inference failures in `TTSError`. When the library accepts a stop signal of its own (pocket-tts's `stop` event, Phonon's stream `close()`, closing the qwentts.cpp generator), the worker hands it the cancellation so inference stops too, not just the callbacks. A library with no stop signal and whole-sentence output (kokoro-onnx) stops between sentences and between 100 ms feed slices instead.
+- **Cancellation and errors** follow the same rules as any module: stop calling `callback` before returning/raising, and wrap backend/inference failures in `TTSError`. When the library accepts a stop signal of its own (pocket-tts's `stop` event, Phonon's stream `close()`, closing the qwentts.cpp generator), the worker hands it the cancellation so inference stops too, not just the callbacks. A library with no stop signal and whole-sentence output (kokoro-onnx, piper-tts) stops between sentences and between 100 ms feed slices instead, through `feed_with_lookahead`.
 - **Text stream = sentence grouping.** A local model conditions on its whole prompt before emitting a frame, so there is no token-in/audio-out mode to call. `synthesize_text_stream` runs one worker through `run_text_stream_worker`, groups the pieces with `segment_sentences`, and runs inference per sentence inside that single worker — audio for one sentence plays while the stream is still delivering the next. The reference is [pocket-module.md](modules/pocket.md).
 
 Concrete config fields and dependencies for a specific local-model module are specced alongside its code when it lands, following this contract.

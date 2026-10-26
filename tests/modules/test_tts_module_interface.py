@@ -1,4 +1,5 @@
 import asyncio
+import threading
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,7 @@ from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    feed_with_lookahead,
     resolve_path,
     run_text_stream_worker,
     segment_sentences,
@@ -216,3 +218,85 @@ async def test_text_stream_worker_cancel_waits_for_the_thread_then_raises():
         await task
     assert exited is True
     assert closed == [True]
+
+
+# --- feed_with_lookahead -----------------------------------------------------
+
+
+def test_lookahead_feeds_every_chunk_in_order_in_slices():
+    fed: list[bytes] = []
+    feed_with_lookahead(
+        ["a", "b"],
+        lambda s: [s.encode() * 5, s.encode() * 2],
+        fed.append,
+        threading.Event(),
+        slice_bytes=2,
+    )
+    assert fed == [b"aa", b"aa", b"a", b"aa", b"bb", b"bb", b"b", b"bb"]
+
+
+def test_lookahead_synthesizes_the_next_sentence_while_feeding():
+    started = {s: threading.Event() for s in ("one", "two")}
+
+    def synthesize(sentence: str) -> list[bytes]:
+        started[sentence].set()
+        return [b"xx"]
+
+    overlapped: list[bool] = []
+
+    def callback(_chunk: bytes) -> None:
+        if not overlapped:
+            overlapped.append(started["two"].wait(timeout=2))
+
+    feed_with_lookahead(
+        ["one", "two"], synthesize, callback, threading.Event(), slice_bytes=2
+    )
+    assert overlapped == [True]
+
+
+def test_lookahead_raises_a_synthesis_error_unchanged():
+    def synthesize(sentence: str) -> list[bytes]:
+        if sentence == "bad":
+            raise TTSError("boom")
+        return [b"xx"]
+
+    fed: list[bytes] = []
+    with pytest.raises(TTSError, match="boom"):
+        feed_with_lookahead(
+            ["ok", "bad", "never"],
+            synthesize,
+            fed.append,
+            threading.Event(),
+            slice_bytes=2,
+        )
+    assert fed == [b"xx"]
+
+
+def test_lookahead_propagates_a_callback_error():
+    def callback(_chunk: bytes) -> None:
+        raise ValueError("playback failed")
+
+    with pytest.raises(ValueError, match="playback failed"):
+        feed_with_lookahead(
+            ["a"], lambda s: [b"xx"], callback, threading.Event(), slice_bytes=2
+        )
+
+
+def test_lookahead_stop_ends_feeding_and_further_synthesis():
+    stop = threading.Event()
+    calls: list[str] = []
+    fed: list[bytes] = []
+
+    def synthesize(sentence: str) -> list[bytes]:
+        calls.append(sentence)
+        return [b"x" * 100]
+
+    def callback(chunk: bytes) -> None:
+        fed.append(chunk)
+        stop.set()  # cancelled while the first slice plays
+
+    feed_with_lookahead(
+        [str(i) for i in range(10)], synthesize, callback, stop, slice_bytes=10
+    )
+    assert fed == [b"x" * 10]
+    assert len(calls) <= 2  # the one played and at most one ahead

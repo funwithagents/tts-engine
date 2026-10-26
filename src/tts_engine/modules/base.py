@@ -244,6 +244,82 @@ def _forced_cut(buffer: str) -> int | None:
     return last
 
 
+def feed_with_lookahead(
+    sentences: Iterable[str],
+    synthesize: Callable[[str], Iterable[bytes]],
+    callback: Callable[[bytes], None],
+    stop: threading.Event,
+    *,
+    slice_bytes: int,
+) -> None:
+    """Synthesize ``sentences`` one step ahead of playback and feed the PCM.
+
+    For runtimes that return a whole sentence of audio at once. Called from a
+    module's worker thread: a producer thread iterates ``sentences`` and
+    ``synthesize(sentence)``, handing each PCM chunk over a queue at most one
+    chunk ahead: the next is synthesized while this thread feeds the current
+    one to ``callback`` in slices of at most ``slice_bytes``, checking
+    ``stop`` between slices. ``callback`` is only called from this thread.
+
+    An exception from ``sentences`` or ``synthesize`` is raised here
+    unchanged. The producer is not joined: a running inference call usually
+    cannot be interrupted, so it finishes in the background, then sees
+    ``stop`` (or this call's end) and exits without feeding anything.
+    """
+    chunks: queue.Queue[object] = queue.Queue()
+    # One slot: the producer takes it before synthesizing a chunk, the feeder
+    # gives it back when it starts playing one, so at most one chunk is ever
+    # synthesized ahead of the chunk being played.
+    slot = threading.Semaphore(1)
+    done = threading.Event()
+
+    def take_slot() -> bool:
+        while not (stop.is_set() or done.is_set()):
+            if slot.acquire(timeout=_POLL_SECONDS):
+                return True
+        return False
+
+    def produce() -> None:
+        last: object = _END
+        try:
+            for sentence in sentences:
+                if not take_slot():
+                    return
+                pcm_chunks = iter(synthesize(sentence))
+                while True:
+                    try:
+                        pcm = next(pcm_chunks)
+                    except StopIteration:
+                        slot.release()  # held for a chunk that never came
+                        break
+                    chunks.put(pcm)
+                    if not take_slot():
+                        return
+        except Exception as exc:  # noqa: BLE001  (raised by the caller)
+            last = exc
+        chunks.put(last)
+
+    threading.Thread(target=produce, name="tts-lookahead", daemon=True).start()
+    try:
+        while not stop.is_set():
+            try:
+                item = chunks.get(timeout=_POLL_SECONDS)
+            except queue.Empty:
+                continue
+            if item is _END:
+                return
+            if isinstance(item, Exception):
+                raise item
+            assert isinstance(item, bytes)
+            slot.release()  # playing this one: the next may be synthesized
+            for start in range(0, len(item), slice_bytes):
+                if stop.is_set():
+                    return
+                callback(item[start : start + slice_bytes])
+    finally:
+        done.set()
+
+
 def split_at_last_space(buffer: str) -> tuple[str, str]:
     """Split `buffer` after its last whitespace: (complete words, the rest).
 

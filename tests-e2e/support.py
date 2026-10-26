@@ -60,6 +60,7 @@ _REQUIRED_IMPORT: dict[str, str] = {
     "openai": "openai",
     "qwen3": "qwentts_cpp",
     "kokoro": "kokoro_onnx",
+    "piper": "piper",
 }
 
 
@@ -202,6 +203,10 @@ MODULES = [
     # api_key_env; gated on the `kokoro` extra (_REQUIRED_IMPORT). Default
     # pinned model files and voice (af_heart, American English).
     pytest.param("kokoro", {}, id="kokoro"),
+    # Local-model backend on piper-tts (onnxruntime, no torch): no api_key_env;
+    # gated on the `piper` extra (_REQUIRED_IMPORT). Default pinned voice
+    # (en_US-ljspeech-medium, public domain).
+    pytest.param("piper", {}, id="piper"),
     pytest.param("gradium", _GRADIUM_CONFIG, id="gradium"),
     pytest.param("mistral", _MISTRAL_CONFIG, id="mistral"),
     pytest.param("deepgram", _DEEPGRAM_CONFIG, id="deepgram"),

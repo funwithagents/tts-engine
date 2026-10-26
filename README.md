@@ -2,7 +2,7 @@
 
 A streaming text-to-speech engine for Python. Choose a TTS module, construct a `TTSEngine`, and call `await engine.say(text)`, or `await engine.say_stream(text_stream)` to speak an LLM response while it is still being generated.
 
-Audio is synthesized and consumed chunk by chunk, minimizing the delay before playback begins. Speech comes from a provider module you install as an extra: the ElevenLabs, Gradium, Mistral, Deepgram, Gemini, Cartesia or OpenAI cloud APIs (the OpenAI module also reaches OpenAI-compatible servers), or the local pocket-tts, Phonon, Qwen3-TTS or Kokoro models. There is no default provider. Two built-in fixture modules, `tone` and `audiofile`, stand in for a provider in tests and demos. By default, audio plays on the machine running the engine; applications can instead provide their own audio sink to capture or route the PCM stream.
+Audio is synthesized and consumed chunk by chunk, minimizing the delay before playback begins. Speech comes from a provider module you install as an extra: the ElevenLabs, Gradium, Mistral, Deepgram, Gemini, Cartesia or OpenAI cloud APIs (the OpenAI module also reaches OpenAI-compatible servers), or the local pocket-tts, Phonon, Qwen3-TTS, Kokoro or Piper models. There is no default provider. Two built-in fixture modules, `tone` and `audiofile`, stand in for a provider in tests and demos. By default, audio plays on the machine running the engine; applications can instead provide their own audio sink to capture or route the PCM stream.
 
 Agent-friendly tools are included as an optional interface over the same engine, and an MCP server is available through the `mcp` extra.
 
@@ -31,6 +31,7 @@ uv sync --no-dev --extra pocket       # local pocket-tts model (pulls in torch)
 uv sync --no-dev --extra phonon       # local Phonon model (no torch)
 uv sync --no-dev --extra qwen3        # local Qwen3-TTS model (Apple silicon)
 uv sync --no-dev --extra kokoro       # local Kokoro model (no torch)
+uv sync --no-dev --extra piper        # local Piper voices (no torch, GPL)
 uv sync --no-dev --extra elevenlabs   # ElevenLabs cloud API
 uv sync --no-dev --extra gradium      # Gradium cloud API
 uv sync --no-dev --extra mistral      # Mistral cloud API (Voxtral TTS)
@@ -46,6 +47,7 @@ pip install "tts-engine[pocket]"
 pip install "tts-engine[phonon]"
 pip install "tts-engine[qwen3]"
 pip install "tts-engine[kokoro]"
+pip install "tts-engine[piper]"
 pip install "tts-engine[elevenlabs]"
 pip install "tts-engine[gradium]"
 pip install "tts-engine[mistral]"
@@ -116,7 +118,7 @@ The module declares its output sample rate, and the engine configures the defaul
 
 Pass that object directly to a loader; do not add an outer `"engine"` key. A larger application can store it under any key it chooses, while the optional MCP server format specifically stores it under `"engine"`.
 
-The [`examples/`](examples/) directory holds one complete MCP-server config per module (`config.pocket.json`, `config.phonon.json`, `config.qwen3.json`, `config.kokoro.json`, `config.elevenlabs.json`, `config.gradium.json`, `config.mistral.json`, `config.deepgram.json`, `config.gemini.json`, `config.cartesia.json`, `config.openai.json`, `config.tone.json`, `config.audiofile.json`). No single example is the default.
+The [`examples/`](examples/) directory holds one complete MCP-server config per module (`config.pocket.json`, `config.phonon.json`, `config.qwen3.json`, `config.kokoro.json`, `config.piper.json`, `config.elevenlabs.json`, `config.gradium.json`, `config.mistral.json`, `config.deepgram.json`, `config.gemini.json`, `config.cartesia.json`, `config.openai.json`, `config.tone.json`, `config.audiofile.json`). No single example is the default.
 
 | Source | Constructor | Expected shape |
 |---|---|---|
@@ -159,6 +161,7 @@ A module is a swappable synthesis backend. Its `type` selects an entry from the 
 | `phonon` | Provider | Local, in-process model | `tts-engine[phonon]` | None |
 | `qwen3` | Provider | Local, in-process model (Apple silicon) | `tts-engine[qwen3]` | None |
 | `kokoro` | Provider | Local, in-process model | `tts-engine[kokoro]` | None |
+| `piper` | Provider | Local, in-process model | `tts-engine[piper]` | None |
 | `elevenlabs` | Provider | ElevenLabs cloud API | `tts-engine[elevenlabs]` | API key |
 | `gradium` | Provider | Gradium cloud API | `tts-engine[gradium]` | API key |
 | `mistral` | Provider | Mistral cloud API (Voxtral TTS) | `tts-engine[mistral]` | API key |
@@ -316,6 +319,40 @@ The default files are kokoro-onnx's own release files, from the `fastrtc/kokoro-
 The module emits mono PCM at 24,000 Hz. It synthesizes one sentence per call, for a complete text as well as a text stream, and synthesizes the next sentence while the current one plays, so there is no gap between sentences.
 
 **License note.** The model, `kokoro-onnx` and onnxruntime are permissively licensed, but the pronunciation step is not: `phonemizer` is GPLv3+ and the bundled espeak-ng is GPL-3.0. The official `kokoro` package uses espeak-ng too. If you redistribute an application that includes this extra, check what the GPL requires of you.
+
+### `piper`
+
+The piper module runs [Piper](https://github.com/OHF-Voice/piper1-gpl) voices in process through the `piper-tts` package: small VITS models on onnxruntime, with espeak-ng built in. It needs no API key and no PyTorch, and it is the fastest local module: on an Apple M5 Pro CPU the default voice makes about 50 seconds of audio per second, with first audio in well under 0.1 s, and Piper runs in real time on a Raspberry Pi. There are 178 voices in 58 locales in [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) ([samples](https://rhasspy.github.io/piper-samples/)). They sound less natural than Kokoro. The first use of a voice downloads it into the Hugging Face cache (63 MB for the default). It installs on Linux (x86_64 and arm64), Apple-silicon macOS and Windows, but not on Intel Macs, which have no onnxruntime wheel.
+
+```bash
+uv sync --extra piper
+# For an installed package:
+pip install "tts-engine[piper]"
+```
+
+Then select the module:
+
+```json
+{
+  "module": {
+    "type": "piper",
+    "voice": "en_US-ljspeech-medium"
+  }
+}
+```
+
+| Field | Required | Default | Description |
+|---|---|---|---|
+| `voice` | no | `en_US-ljspeech-medium` | A voice key from rhasspy/piper-voices, `<locale>-<name>-<quality>`: `en_GB-alba-medium`, `fr_FR-siwis-medium`, `de_DE-thorsten-high`, … Not with `model`. |
+| `model` | no | None | A voice outside the catalog: `hf://owner/repo/path/voice.onnx[@revision]` or a local `.onnx` path (relative to `base_dir`), with its `.onnx.json` next to it. Not with `voice`. |
+| `speaker` | no | The voice's default | For a multi-speaker voice (`en_US-libritts_r-medium`, `en_US-arctic-medium`): a speaker name or index. |
+| `speed` | no | The voice's own pace | Speaking rate, from 0.5 to 2.0. |
+
+Catalog voices are pinned to one commit of the repository. The module emits mono PCM at the voice's rate: 22,050 Hz for `medium` and `high` voices, 16,000 Hz for `low` ones. It synthesizes one sentence at a time and prepares the next one while the current one plays. The Japanese, Thai and two of the Chinese voices (`zh_CN-chaowen-medium`, `zh_CN-xiao_ya-medium`) need extra packages and are not supported; the module says so when it loads them.
+
+**Voice licenses.** Each voice is trained on a dataset with its own license, named in the voice's `MODEL_CARD` on Hugging Face. Read it before you ship a voice. For example, `en_US-ljspeech-*` (the default), `bryce`, `john`, `kristin` and `norman` are public domain; `en_US-libritts_r-medium`, `en_GB-alba-medium` and `fr_FR-siwis-medium` are CC BY 4.0 (credit required). The popular `en_US-lessac-*` voices come from a dataset under a *research* license.
+
+**License note.** `piper-tts` is GPL-3.0-or-later, with espeak-ng (GPL-3.0) built in. Using it, locally or on a server, is not restricted. If you redistribute an application that includes this extra, check what the GPL requires of you.
 
 ### `elevenlabs`
 
@@ -620,7 +657,7 @@ async def llm_tokens():
 await engine.say_stream(llm_tokens())
 ```
 
-Pieces are concatenated verbatim (tokens carry their own spaces). The ElevenLabs, Gradium, Deepgram and Cartesia modules forward the text to their realtime sockets as it arrives; `pocket`, `phonon`, `qwen3`, `kokoro`, `mistral`, `gemini`, `openai` and `audiofile` synthesize sentence by sentence as each one completes; `tone` plays a tone per piece. A plain list is accepted for in-memory sequences, and a bare string is rejected. If the text source raises, playback stops and that exception propagates unchanged. A long pause in the source is heard as silence, not an error.
+Pieces are concatenated verbatim (tokens carry their own spaces). The ElevenLabs, Gradium, Deepgram and Cartesia modules forward the text to their realtime sockets as it arrives; `pocket`, `phonon`, `qwen3`, `kokoro`, `piper`, `mistral`, `gemini`, `openai` and `audiofile` synthesize sentence by sentence as each one completes; `tone` plays a tone per piece. A plain list is accepted for in-memory sequences, and a bare string is rejected. If the text source raises, playback stops and that exception propagates unchanged. A long pause in the source is heard as silence, not an error.
 
 ## Audio output and custom sinks
 
@@ -735,7 +772,7 @@ engine = TTSEngine(mcp_config.engine)
 
 ### A provider module requires its extra
 
-A `ConfigError` such as `The 'pocket' module requires the pocket extra` means that provider's libraries are not installed. Run `uv sync --extra <name>` (or `pip install "tts-engine[<name>]"`), e.g. `--extra pocket`, `--extra phonon`, `--extra qwen3`, `--extra kokoro`, `--extra elevenlabs`, `--extra gradium`, `--extra mistral`, `--extra deepgram`, `--extra gemini`, `--extra cartesia`, or `--extra openai`.
+A `ConfigError` such as `The 'pocket' module requires the pocket extra` means that provider's libraries are not installed. Run `uv sync --extra <name>` (or `pip install "tts-engine[<name>]"`), e.g. `--extra pocket`, `--extra phonon`, `--extra qwen3`, `--extra kokoro`, `--extra piper`, `--extra elevenlabs`, `--extra gradium`, `--extra mistral`, `--extra deepgram`, `--extra gemini`, `--extra cartesia`, or `--extra openai`.
 
 ### pocket-tts
 
@@ -761,6 +798,13 @@ A `ConfigError` such as `The 'pocket' module requires the pocket extra` means th
 - Ensure the `kokoro` extra is installed. It does not install on Intel Macs or on Python 3.14, because `kokoro-onnx` does not support them yet.
 - Allow network access for the first download (about 350 MB). A `TTSError` reporting a model load failure usually means the Hugging Face Hub was unreachable and the files are not cached yet.
 - A `ConfigError` naming `voice` means the voice is not in the voices file. A `ConfigError` naming `language` means espeak-ng does not know that code. A custom voice whose first letter is not a known language needs an explicit `language`.
+
+### Piper
+
+- Ensure the `piper` extra is installed. It does not install on Intel Macs.
+- A `ConfigError` starting with `Piper module: 404` means the `voice` key is not in the catalog; check the spelling against [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices).
+- A `TTSError` reporting a model load failure on first use usually means the Hugging Face Hub was unreachable and the voice is not cached yet.
+- A `ConfigError` naming `speaker` lists how many speakers the voice has; a single-speaker voice takes no `speaker`.
 
 ### ElevenLabs
 

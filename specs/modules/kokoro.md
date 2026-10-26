@@ -137,15 +137,7 @@ One `log.info` after the load names the model, the voice, the language and the o
 
 ### Lookahead
 
-Synthesizing a sentence only after the previous one has finished playing would leave a silence of one sentence's inference time (0.2–1.3 s measured) between sentences. The module overlaps them, which is also what `kokoro-onnx`'s own `create_stream` does:
-
-- Inside the worker, a **producer thread** iterates the sentences, calls `create` for each, and puts the audio on a `queue.Queue(maxsize=1)`. The worker thread takes from the queue and feeds slices to the callback, so `callback` is still only ever called from the worker thread.
-- The one-slot queue lets the producer synthesize at most one sentence ahead of the one being played, so memory and wasted work after a cancellation stay bounded.
-- The producer wraps a `create` failure in `TTSError` and hands it to the worker through the queue; the worker raises it. The text stream is consumed by the producer, so a failing source still reaches `run_text_stream_worker` as before (it sets `stop`, and the bridge raises the source's own error).
-- The producer stops before its next sentence and before each queue put once `stop` is set or the worker has finished (a local `done` event set in a `finally`). Its blocking `put`/`get` calls use a 50 ms timeout and recheck these flags, so neither thread can block on the other forever.
-- **The worker does not join the producer** on cancellation or failure. A `create` call already running cannot be interrupted (onnxruntime's `run` has no cancel), and waiting for it would add up to one sentence's inference time to every cancellation. The producer is a daemon thread that never calls `callback`, finishes that one call, sees the flag and exits. A new utterance started in that window runs concurrently with it, which onnxruntime sessions support (`kokoro-onnx` serializes the espeak-ng calls with its own lock).
-
-On a normal end the producer has already exited: the worker returns after receiving the end marker.
+Synthesizing a sentence only after the previous one has finished playing would leave a silence of one sentence's inference time (0.2–1.3 s measured) between sentences. The module overlaps them, as `kokoro-onnx`'s own `create_stream` does, through the shared `feed_with_lookahead` helper ([tts-module-interface.md](../tts-module-interface.md), "Text-stream helpers"): the worker passes it the segments and a `synthesize` function returning `[self._create(sentence)]` (one int16 chunk per sentence, `create` failures already wrapped in `TTSError`), with 100 ms slices. The helper's producer thread synthesizes at most one sentence ahead of playback and is not joined on cancellation, because onnxruntime's `run` has no cancel. A new utterance started while that last call finishes runs concurrently with it, which onnxruntime sessions support (`kokoro-onnx` serializes the espeak-ng calls with its own lock).
 
 ### Cancellation
 

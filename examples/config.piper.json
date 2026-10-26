@@ -1,0 +1,15 @@
+{
+  "engine": {
+    "module": {
+      "type": "piper",
+      "voice": "en_US-ljspeech-medium"
+    },
+    "player": {
+      "device": null
+    }
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000
+  }
+}

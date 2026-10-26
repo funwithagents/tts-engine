@@ -8,7 +8,6 @@ never require the `kokoro` extra — a missing extra becomes a clear `ConfigErro
 """
 
 import logging
-import queue
 import threading
 from collections.abc import AsyncIterator, Callable, Iterable, Iterator
 from pathlib import Path
@@ -20,6 +19,7 @@ from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    feed_with_lookahead,
     resolve_path,
     run_cancellable_worker,
     run_text_stream_worker,
@@ -51,8 +51,6 @@ _SAMPLE_RATE = 24000
 # 100 ms per callback: `AudioPlayer.feed` blocks for the whole chunk, and
 # `stop` is polled between slices.
 _SLICE_BYTES = 2 * (_SAMPLE_RATE // 10)
-_POLL_SECONDS = 0.05
-_END = object()
 
 # A model or voices file: (repo_id, filename, revision) on the Hub, or a path.
 _FileRef = tuple[str, str, str | None] | Path
@@ -205,63 +203,21 @@ class KokoroModule(TTSModule):
             )
         return _to_int16_pcm(audio)
 
-    def _speak(
+    def _feed(
         self,
         sentences: Iterable[str],
         callback: Callable[[bytes], None],
         stop: threading.Event,
     ) -> None:
-        """Synthesize `sentences` one ahead of playback and feed their PCM.
-
-        A producer thread runs `create` and hands each sentence's audio over a
-        one-slot queue, so the next sentence is synthesized while this (worker)
-        thread feeds the current one; `callback` is only called from here. The
-        producer is not joined: a running `create` cannot be interrupted, so it
-        finishes in the background, then sees `stop`/`done` and exits.
-        """
-        audio_q: queue.Queue[object] = queue.Queue(maxsize=1)
-        done = threading.Event()
-
-        def halted() -> bool:
-            return stop.is_set() or done.is_set()
-
-        def put(item: object) -> bool:
-            while not halted():
-                try:
-                    audio_q.put(item, timeout=_POLL_SECONDS)
-                except queue.Full:
-                    continue
-                return True
-            return False
-
-        def produce() -> None:
-            last: object = _END
-            try:
-                for sentence in sentences:
-                    if halted() or not put(self._create(sentence)):
-                        return
-            except Exception as exc:  # noqa: BLE001  (raised by the worker)
-                last = exc
-            put(last)
-
-        threading.Thread(target=produce, name="kokoro-synth", daemon=True).start()
-        try:
-            while not stop.is_set():
-                try:
-                    item = audio_q.get(timeout=_POLL_SECONDS)
-                except queue.Empty:
-                    continue
-                if item is _END:
-                    return
-                if isinstance(item, Exception):
-                    raise item
-                assert isinstance(item, bytes)
-                for start in range(0, len(item), _SLICE_BYTES):
-                    if stop.is_set():
-                        return
-                    callback(item[start : start + _SLICE_BYTES])
-        finally:
-            done.set()
+        # `create` returns a whole sentence: synthesize the next one while
+        # this one plays (no gap), and feed in slices (prompt cancellation).
+        feed_with_lookahead(
+            sentences,
+            lambda sentence: [self._create(sentence)],
+            callback,
+            stop,
+            slice_bytes=_SLICE_BYTES,
+        )
 
     async def synthesize_text(
         self,
@@ -272,7 +228,7 @@ class KokoroModule(TTSModule):
         # A sentence per call even for a complete text: `create` returns
         # nothing until its whole input is synthesized.
         def _worker(stop: threading.Event) -> None:
-            self._speak(segment_sentences([text]), callback, stop)
+            self._feed(segment_sentences([text]), callback, stop)
 
         await run_cancellable_worker(_worker)
 
@@ -285,6 +241,6 @@ class KokoroModule(TTSModule):
         # kokoro-onnx needs a whole prompt per call: group the pieces into
         # sentences as they arrive and synthesize each, one ahead of playback.
         def _worker(pieces: Iterator[str], stop: threading.Event) -> None:
-            self._speak(segment_sentences(pieces), callback, stop)
+            self._feed(segment_sentences(pieces), callback, stop)
 
         await run_text_stream_worker(text_stream, _worker)
