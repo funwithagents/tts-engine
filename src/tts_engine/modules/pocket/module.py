@@ -1,11 +1,12 @@
 """Pocket TTS local-model module.
 
 Wraps kyutai-labs/pocket-tts directly (not the huggingface/speech-to-speech
-handler): a ~100M-parameter model that runs in-process. `torch` and `pocket_tts`
+handler): a family of small models that run in-process. `torch` and `pocket_tts`
 are imported lazily inside `__init__` so `import tts_engine` and `load_module`
 never require the `pocket` extra — a missing extra becomes a clear `ConfigError`.
 """
 
+import logging
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator
 
@@ -22,7 +23,11 @@ from tts_engine.modules.base import (
     segment_sentences,
 )
 
+log = logging.getLogger(__name__)
+
 _VALID_DEVICES = {"auto", "cpu", "cuda", "mps"}
+_VOICE_FILE_SUFFIXES = (".wav", ".mp3", ".flac", ".safetensors")
+_URL_PREFIXES = ("hf://", "http://", "https://")
 
 
 def _to_int16_pcm(chunk) -> bytes:
@@ -33,24 +38,52 @@ def _to_int16_pcm(chunk) -> bytes:
     return (arr * 32767.0).astype("<i2").tobytes()
 
 
+def _optional_string(config: dict, key: str) -> str | None:
+    value = config.get(key)
+    if value is not None and (not isinstance(value, str) or not value):
+        raise ConfigError(f"Pocket module '{key}' must be a non-empty string")
+    return value
+
+
 class PocketModule(TTSModule):
     def __init__(self, config: dict) -> None:
-        voice = config.get("voice", "alba")
-        if not isinstance(voice, str) or not voice:
+        voice = config.get("voice")
+        if "voice" in config and (not isinstance(voice, str) or not voice):
             raise ConfigError("Pocket module 'voice' must be a non-empty string")
-        if voice.endswith(".wav") and "://" not in voice:
+        if (
+            voice is not None
+            and voice.endswith(_VOICE_FILE_SUFFIXES)
+            and "://" not in voice
+        ):
             # A local voice file: relative to the config file (base_dir).
             voice = str(resolve_path(config, voice))
 
-        language = config.get("language")
-        if language is not None and (not isinstance(language, str) or not language):
-            raise ConfigError("Pocket module 'language' must be a non-empty string")
+        language = _optional_string(config, "language")
+        model_config = _optional_string(config, "config")
+        if language is not None and model_config is not None:
+            raise ConfigError("Pocket module accepts 'language' or 'config', not both")
+        if model_config is not None and not model_config.startswith(_URL_PREFIXES):
+            model_config = str(resolve_path(config, model_config))
 
         device = config.get("device", "auto")
         if device not in _VALID_DEVICES:
             raise ConfigError(
                 f"Pocket module 'device' must be one of {sorted(_VALID_DEVICES)}"
             )
+
+        quantize = config.get("quantize", False)
+        if not isinstance(quantize, bool):
+            raise ConfigError("Pocket module 'quantize' must be a boolean")
+        if quantize and device in ("cuda", "mps"):
+            raise ConfigError("Pocket module 'quantize' is CPU-only")
+
+        temperature = config.get("temperature")
+        if temperature is not None and (
+            isinstance(temperature, bool)
+            or not isinstance(temperature, int | float)
+            or temperature < 0
+        ):
+            raise ConfigError("Pocket module 'temperature' must be a number >= 0")
 
         max_tokens = config.get("max_tokens")
         if max_tokens is not None and (
@@ -63,6 +96,7 @@ class PocketModule(TTSModule):
         try:
             import torch
             from pocket_tts import TTSModel
+            from pocket_tts.default_parameters import get_default_voice_for_language
         except ImportError as exc:
             raise ConfigError(
                 "The 'pocket' module requires the pocket extra: "
@@ -70,17 +104,41 @@ class PocketModule(TTSModule):
             ) from exc
 
         if device == "auto":
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            if quantize:
+                device = "cpu"
+            else:
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        # Only the set fields, so the library's own defaults apply otherwise.
+        load_kwargs: dict = {}
+        if language is not None:
+            load_kwargs["language"] = language
+        if model_config is not None:
+            load_kwargs["config"] = model_config
+        if temperature is not None:
+            load_kwargs["temp"] = float(temperature)
+        if quantize:
+            load_kwargs["quantize"] = True
+        if voice is None:
+            voice = get_default_voice_for_language(language, model_config)
 
         try:
-            if language is None:
-                model = TTSModel.load_model().to(device)
-            else:
-                model = TTSModel.load_model(language=language).to(device)
+            model = TTSModel.load_model(**load_kwargs).to(device)
             self._voice_state = model.get_state_for_audio_prompt(voice)
+        except (ValueError, FileNotFoundError) as exc:
+            # The library rejecting a value: unknown language, a non-YAML
+            # config, a missing file, a preset voice with custom weights, an
+            # audio voice without the gated cloning weights.
+            raise ConfigError(f"Pocket module: {exc}") from exc
         except Exception as exc:
             raise TTSError(f"pocket-tts model load failed: {exc}") from exc
 
+        log.info(
+            "pocket-tts loaded: model=%s device=%s quantize=%s",
+            language or model_config or "default",
+            device,
+            quantize,
+        )
         self._model = model
         self._max_tokens: int | None = max_tokens
         self._sample_rate = int(model.sample_rate)
@@ -92,15 +150,17 @@ class PocketModule(TTSModule):
     def _generate(
         self, text: str, callback: Callable[[bytes], None], stop: threading.Event
     ) -> None:
-        """Run inference for one text and feed its PCM, polling `stop`."""
-        # Pass max_tokens only when configured, else the library's own
-        # default (50) applies — None would override it and is rejected.
-        if self._max_tokens is None:
-            stream_iter = self._model.generate_audio_stream(self._voice_state, text)
-        else:
-            stream_iter = self._model.generate_audio_stream(
-                self._voice_state, text, max_tokens=self._max_tokens
-            )
+        """Run inference for one text and feed its PCM until done or `stop`."""
+        # The library takes the stop event itself, so cancellation also halts
+        # its generation thread mid-sentence.
+        kwargs: dict = {"stop": stop}
+        if self._max_tokens is not None:
+            # Only when configured, else the library's own default (50) applies.
+            kwargs["max_tokens"] = self._max_tokens
+        stream_iter = self._model.generate_audio_stream(
+            self._voice_state, text, **kwargs
+        )
+        # Still poll `stop`: the decoder may hand back frames it already queued.
         while not stop.is_set():
             # Advance the generator inside the provider try so inference
             # errors become TTSError; feed the callback outside it so a

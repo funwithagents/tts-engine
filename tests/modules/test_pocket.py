@@ -45,8 +45,10 @@ class _FakeModel:
         self.stream_kwargs: dict = {}
         self.chunks = [_FakeChunk([0.0, 0.5, -0.5, 1.0]), _FakeChunk([0.25])]
         self.raise_on_stream: Exception | None = None
+        self.raise_on_voice: Exception | None = None
         self.endless = False
         self.texts: list[str] = []
+        self.stops: list = []
 
     def to(self, device):
         self.moved_to = device
@@ -54,17 +56,22 @@ class _FakeModel:
 
     def get_state_for_audio_prompt(self, voice):
         self.voice = voice
+        if self.raise_on_voice is not None:
+            raise self.raise_on_voice
         return {"voice": voice}
 
-    def generate_audio_stream(self, state, text, **kwargs):
+    def generate_audio_stream(self, state, text, *, stop=None, **kwargs):
         self.stream_kwargs = kwargs
+        self.stops.append(stop)
         self.texts.append(text)
         if self.raise_on_stream is not None:
             raise self.raise_on_stream
         if self.endless:
-            while True:
+            # Like the library: generation ends once the stop event is set.
+            while stop is None or not stop.is_set():
                 time.sleep(0.005)
                 yield _FakeChunk([0.1])
+            return
         yield from self.chunks
 
 
@@ -72,11 +79,21 @@ class _FakeTTSModel:
     """Fake `pocket_tts.TTSModel`; `load_model` returns a shared `_FakeModel`."""
 
     instance = _FakeModel()
+    raise_on_load: Exception | None = None
 
     @classmethod
     def load_model(cls, **kwargs):
         cls.instance.load_kwargs = kwargs
+        if cls.raise_on_load is not None:
+            raise cls.raise_on_load
         return cls.instance
+
+
+def _default_voice(language, config=None, checkpoint=None):
+    """Fake `get_default_voice_for_language`: echoes what it was asked for."""
+    if config is not None:
+        return "custom-default"
+    return "alba" if language is None else f"default-{language}"
 
 
 def _install_fakes(monkeypatch, *, cuda: bool = False, pocket: bool = True) -> None:
@@ -87,8 +104,14 @@ def _install_fakes(monkeypatch, *, cuda: bool = False, pocket: bool = True) -> N
     )
     monkeypatch.setitem(sys.modules, "torch", torch_mod)
     if pocket:
-        pocket_mod = types.SimpleNamespace(TTSModel=_FakeTTSModel)
+        defaults_mod = types.SimpleNamespace(
+            get_default_voice_for_language=_default_voice
+        )
+        pocket_mod = types.SimpleNamespace(
+            TTSModel=_FakeTTSModel, default_parameters=defaults_mod
+        )
         monkeypatch.setitem(sys.modules, "pocket_tts", pocket_mod)
+        monkeypatch.setitem(sys.modules, "pocket_tts.default_parameters", defaults_mod)
     else:
         monkeypatch.setitem(sys.modules, "pocket_tts", None)  # -> ImportError
 
@@ -118,6 +141,35 @@ def test_invalid_language_raises():
 def test_invalid_device_raises():
     with pytest.raises(ConfigError, match="device"):
         PocketModule({"type": "pocket", "device": "gpu"})
+
+
+@pytest.mark.parametrize("bad", ["", 7])
+def test_invalid_config_raises(bad):
+    with pytest.raises(ConfigError, match="config"):
+        PocketModule({"type": "pocket", "config": bad})
+
+
+def test_language_and_config_together_raise():
+    with pytest.raises(ConfigError, match="not both"):
+        PocketModule({"type": "pocket", "language": "french", "config": "m.yaml"})
+
+
+@pytest.mark.parametrize("bad", [1, "yes", None])
+def test_invalid_quantize_raises(bad):
+    with pytest.raises(ConfigError, match="quantize"):
+        PocketModule({"type": "pocket", "quantize": bad})
+
+
+@pytest.mark.parametrize("device", ["cuda", "mps"])
+def test_quantize_on_a_gpu_device_raises(device):
+    with pytest.raises(ConfigError, match="CPU-only"):
+        PocketModule({"type": "pocket", "quantize": True, "device": device})
+
+
+@pytest.mark.parametrize("bad", [-0.1, True, "0.3"])
+def test_invalid_temperature_raises(bad):
+    with pytest.raises(ConfigError, match="temperature"):
+        PocketModule({"type": "pocket", "temperature": bad})
 
 
 @pytest.mark.parametrize("bad", [0, -1, True, "5"])
@@ -150,6 +202,13 @@ def test_device_auto_resolves_to_cuda_when_available(monkeypatch, fresh_model):
     assert fresh_model.moved_to == "cuda"
 
 
+def test_device_auto_resolves_to_cpu_under_quantize(monkeypatch, fresh_model):
+    _install_fakes(monkeypatch, cuda=True)
+    PocketModule({"type": "pocket", "quantize": True})
+    assert fresh_model.moved_to == "cpu"
+    assert fresh_model.load_kwargs == {"quantize": True}
+
+
 def test_explicit_device_used_verbatim(monkeypatch, fresh_model):
     _install_fakes(monkeypatch, cuda=False)
     PocketModule({"type": "pocket", "device": "mps"})
@@ -165,11 +224,57 @@ def test_defaults_and_forwarding(monkeypatch, fresh_model):
     assert fresh_model.load_kwargs == {}
 
 
-def test_wav_voice_resolves_against_base_dir(monkeypatch, fresh_model):
+@pytest.mark.parametrize("name", ["me.wav", "me.mp3", "me.flac", "me.safetensors"])
+def test_voice_file_resolves_against_base_dir(monkeypatch, fresh_model, name):
     _install_fakes(monkeypatch)
-    PocketModule({"type": "pocket", "voice": "me.wav", "base_dir": "/some/dir"})
+    PocketModule({"type": "pocket", "voice": name, "base_dir": "/some/dir"})
     # Platform-native separators: resolve_path joins with pathlib.
-    assert fresh_model.voice == str(Path("/some/dir") / "me.wav")
+    assert fresh_model.voice == str(Path("/some/dir") / name)
+
+
+def test_voice_url_passed_through(monkeypatch, fresh_model):
+    _install_fakes(monkeypatch)
+    url = "hf://kyutai/tts-voices/alba-mackenna/casual.wav"
+    PocketModule({"type": "pocket", "voice": url, "base_dir": "/some/dir"})
+    assert fresh_model.voice == url
+
+
+def test_default_voice_follows_the_language(monkeypatch, fresh_model):
+    _install_fakes(monkeypatch)
+    PocketModule({"type": "pocket", "language": "french"})
+    assert fresh_model.voice == "default-french"
+
+
+def test_local_config_resolves_and_picks_the_custom_default_voice(
+    monkeypatch, fresh_model
+):
+    _install_fakes(monkeypatch)
+    PocketModule({"type": "pocket", "config": "m.yaml", "base_dir": "/some/dir"})
+    assert fresh_model.load_kwargs == {"config": str(Path("/some/dir") / "m.yaml")}
+    assert fresh_model.voice == "custom-default"
+
+
+def test_url_config_and_temperature_forwarded(monkeypatch, fresh_model):
+    _install_fakes(monkeypatch)
+    PocketModule(
+        {"type": "pocket", "config": "hf://me/repo/m.yaml@v1", "temperature": 0.5}
+    )
+    assert fresh_model.load_kwargs == {"config": "hf://me/repo/m.yaml@v1", "temp": 0.5}
+
+
+@pytest.mark.parametrize("exc", [ValueError("no cloning"), FileNotFoundError("x")])
+def test_library_rejection_at_load_is_a_config_error(monkeypatch, fresh_model, exc):
+    _install_fakes(monkeypatch)
+    fresh_model.raise_on_voice = exc
+    with pytest.raises(ConfigError, match=str(exc)):
+        PocketModule({"type": "pocket"})
+
+
+def test_other_load_failure_is_a_tts_error(monkeypatch, fresh_model):
+    _install_fakes(monkeypatch)
+    monkeypatch.setattr(_FakeTTSModel, "raise_on_load", RuntimeError("hub down"))
+    with pytest.raises(TTSError, match="hub down"):
+        PocketModule({"type": "pocket"})
 
 
 def test_language_and_max_tokens_forwarded(monkeypatch, fresh_model):
@@ -183,6 +288,7 @@ def test_language_and_max_tokens_forwarded(monkeypatch, fresh_model):
     assert fresh_model.voice == "marius"
     assert fresh_model.load_kwargs == {"language": "fr"}
     assert fresh_model.stream_kwargs == {"max_tokens": 200}
+    assert fresh_model.stops[0] is not None
 
 
 # --- streaming ---------------------------------------------------------------
@@ -250,6 +356,7 @@ async def test_cancel_stops_callbacks_before_stream_raises(monkeypatch, fresh_mo
     settled = count
     await asyncio.sleep(0.05)
     assert count == settled
+    assert fresh_model.stops[0].is_set()  # the library's generation was told too
 
 
 def _signal(loop: asyncio.AbstractEventLoop, event: asyncio.Event):
@@ -330,3 +437,4 @@ async def test_text_stream_cancel_mid_audio_stops_callbacks_before_raising(
     await asyncio.sleep(0.05)
     assert count == settled
     assert fresh_model.texts == ["Hello world."]
+    assert fresh_model.stops[0].is_set()

@@ -177,12 +177,17 @@ Then select the module:
 
 | Field | Required | Default | Description |
 |---|---|---|---|
-| `voice` | no | `alba` | Preset name, local `.wav` path (relative to `base_dir`), or supported Hugging Face URL. |
-| `language` | no | Model default (`english`) | `english`, `german`, `italian`, `portuguese`, `spanish`, or `french_24l`. |
-| `device` | no | `auto` | `auto`, `cpu`, `cuda`, or experimental `mps`. `auto` selects CUDA when available and otherwise CPU. |
+| `voice` | no | The model's default voice (`alba` for English, `estelle` for French, …) | Preset name, a local audio file (`.wav`, `.mp3`, `.flac`) or `.safetensors` voice state (relative to `base_dir`), or an `hf://`/`https://` URL to one. Cloning from audio needs the gated weights (below). |
+| `language` | no | pocket-tts default (`english`, the `english_2026-10` model) | The model: `english`, `french`, `german`, `italian`, `portuguese`, `spanish`, `dutch`, a `<language>_24l` variant, a dated English model such as `english_2026-09`, or a tiny one: `english_18m_2026-10`, `english_7m_2026-10`, `english_2m_2026-10`. Not together with `config`. |
+| `config` | no | — | A custom model config YAML (`hf://…/file.yaml`, `https://…`, or a local path relative to `base_dir`) for community or fine-tuned weights. Preset voices do not work with it; use an audio voice. |
+| `device` | no | `auto` | `auto`, `cpu`, `cuda`, or experimental `mps`. `auto` selects CUDA when available and otherwise CPU, and always CPU with `quantize`. |
+| `quantize` | no | `false` | Int8 quantization of the transformer: about half the memory and faster on x86 CPUs. CPU only. |
+| `temperature` | no | Model default (0.3) | Sampling temperature. |
 | `max_tokens` | no | pocket-tts default | Per-text-chunk token cap. Increase only for unusually long unbroken text. |
 
-The module emits mono PCM at the model's native sample rate, typically 24,000 Hz. On Apple Silicon, `auto` intentionally uses CPU; `mps` remains explicit and experimental.
+The module emits mono PCM at the model's native sample rate, 24,000 Hz. On Apple Silicon, `auto` intentionally uses CPU; `mps` remains explicit and experimental.
+
+Preset voices work out of the box. Cloning a voice from an audio file needs the gated weights: accept the terms at [kyutai/pocket-tts](https://huggingface.co/kyutai/pocket-tts), then set `HF_TOKEN` (or run `hf auth login`). Without them, an audio voice is rejected at construction with a `ConfigError`.
 
 ### `phonon`
 
@@ -481,6 +486,7 @@ A `ConfigError` such as `The 'pocket' module requires the pocket extra` means th
 - Ensure the `pocket` extra is installed.
 - Allow network access and sufficient disk space when model weights are downloaded for the first time.
 - On Apple Silicon, keep `device` set to `auto` or `cpu` unless explicitly testing the experimental `mps` path.
+- A `ConfigError` starting with `Pocket module:` is pocket-tts rejecting a value: an unknown `language`, a missing file, a preset voice with a custom `config`, or an audio voice without the gated cloning weights.
 
 ### Phonon
 

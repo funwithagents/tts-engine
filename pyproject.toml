@@ -28,7 +28,7 @@ elevenlabs = [
 ]
 # pocket-tts pulls in torch (~hundreds of MB) + a model download — see specs/modules/pocket.md.
 pocket = [
-    "pocket-tts>=3.1.0",
+    "pocket-tts>=4.0.1,<5",
 ]
 # The official async SDK (aiohttp WebSocket); raw PCM output, so no codec — see specs/modules/gradium.md.
 gradium = [
