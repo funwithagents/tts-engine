@@ -30,13 +30,19 @@ def _make_chunk_source_class(miniaudio_mod):
             self._buf = bytearray()
 
         def read(self, num_bytes: int) -> bytes:
-            while len(self._buf) < num_bytes:
+            # Short reads on purpose: serve whatever is buffered (pulling one
+            # provider chunk when empty) instead of blocking until `num_bytes`
+            # have arrived. The decoder asks for ~64 KB at a time, about 4 s of
+            # 128 kbps MP3, so filling the request would delay the first PCM
+            # chunk by that much audio. Only an empty return means end of
+            # stream.
+            while not self._buf:
                 try:
                     self._buf.extend(next(self._chunks))
                 except StopIteration:
-                    break
+                    return b""
             data = bytes(self._buf[:num_bytes])
-            self._buf = self._buf[num_bytes:]
+            del self._buf[:num_bytes]
             return data
 
     return _ChunkSource

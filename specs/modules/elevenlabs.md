@@ -45,7 +45,9 @@ Use the official `elevenlabs` Python SDK. Its `client.text_to_speech.stream(...)
 
 Request `output_format="mp3_44100_128"` from the ElevenLabs API (128 kbps MP3 at 44100 Hz). MP3 chunks are then decoded to raw signed 16-bit PCM mono using `miniaudio.stream_any` before being passed to the callback — so `AudioPlayer` always receives PCM regardless of the upstream format.
 
-The ElevenLabs SDK streaming interface yields `bytes` chunks of MP3 data. `miniaudio.stream_any` requires a `miniaudio.StreamableSource` (a `read(num_bytes)` interface), not a bare generator, so the MP3 chunk iterator is wrapped in a small `StreamableSource` adapter (`_ChunkSource`) that buffers chunks and serves the requested byte counts. `stream_any` decodes to PCM `array.array` chunks; call `callback(pcm_chunk.tobytes())` for each.
+The ElevenLabs SDK streaming interface yields `bytes` chunks of MP3 data. `miniaudio.stream_any` requires a `miniaudio.StreamableSource` (a `read(num_bytes)` interface), not a bare generator, so the MP3 chunk iterator is wrapped in a small `StreamableSource` adapter (`_ChunkSource`). `stream_any` decodes to PCM `array.array` chunks; call `callback(pcm_chunk.tobytes())` for each.
+
+The adapter **serves short reads**: `read(num_bytes)` returns whatever is buffered (pulling one provider chunk when the buffer is empty), never blocking until `num_bytes` have arrived, and returns `b""` only at end of stream. This is what keeps the module streaming — the MP3 decoder requests about 64 KB per read, roughly 4 s of audio at 128 kbps, so an adapter that filled each request would hold back the first PCM chunk until that much audio had been downloaded (a 4 s start delay at real-time delivery, hidden only when the API runs far ahead of real time). miniaudio's `StreamableSource` contract allows short reads and the MP3 decoder resumes across them, so the decoded output is identical.
 
 ```python
 class _ChunkSource(miniaudio.StreamableSource):
@@ -56,13 +58,15 @@ class _ChunkSource(miniaudio.StreamableSource):
         self._buf = bytearray()
 
     def read(self, num_bytes: int) -> bytes:
-        while len(self._buf) < num_bytes:
+        # Short reads: serve what is buffered, pull one chunk when empty;
+        # b"" only at end of stream. Never block until num_bytes arrive.
+        while not self._buf:
             try:
                 self._buf.extend(next(self._chunks))
             except StopIteration:
-                break
+                return b""
         data = bytes(self._buf[:num_bytes])
-        self._buf = self._buf[num_bytes:]
+        del self._buf[:num_bytes]
         return data
 
 

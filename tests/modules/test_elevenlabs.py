@@ -184,6 +184,41 @@ def test_stream_skips_empty_elevenlabs_chunks(mock_elevenlabs_cls, mock_stream_a
 
 @patch("miniaudio.stream_any")
 @patch("elevenlabs.ElevenLabs")
+def test_chunk_source_serves_short_reads_without_waiting_for_more_chunks(
+    mock_elevenlabs_cls, mock_stream_any
+):
+    # The decoder asks for far more bytes than one provider chunk holds. The
+    # adapter must hand back the first chunk at once rather than pull further
+    # chunks to fill the request — otherwise playback waits for ~4 s of audio.
+    pulled: list[bytes] = []
+
+    def provider_chunks():
+        for chunk in (b"first", b"second", b"third"):
+            pulled.append(chunk)
+            yield chunk
+
+    reads: list[bytes] = []
+
+    def capture_source(source, **kwargs):
+        reads.append(source.read(65536))
+        assert pulled == [b"first"]  # the request was not filled from later chunks
+        while chunk := source.read(65536):
+            reads.append(chunk)
+        return iter([])
+
+    mock_client = MagicMock()
+    mock_client.text_to_speech.stream.return_value = provider_chunks()
+    mock_elevenlabs_cls.return_value = mock_client
+    mock_stream_any.side_effect = capture_source
+
+    module = ElevenLabsModule(VALID_CONFIG)
+    asyncio.run(module.stream("hello", TTSOptions(), MagicMock()))
+
+    assert reads == [b"first", b"second", b"third"]
+
+
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
 def test_stream_wraps_elevenlabs_exception_in_tts_error(
     mock_elevenlabs_cls, mock_stream_any
 ):
