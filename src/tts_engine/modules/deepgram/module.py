@@ -1,17 +1,23 @@
-"""Deepgram Aura streaming TTS module.
+"""Deepgram streaming TTS module: Aura-2 on speak v1, Flux TTS on speak v2.
 
 Behind the `deepgram` extra: the SDK is imported lazily inside `__init__` so
 `import tts_engine` and `load_module` never require it — a missing extra
 becomes a clear `ConfigError`.
 
-Both input shapes run over the SDK's speak v1 WebSocket (`speak.v1.connect`),
-which takes text incrementally: a complete text is sent in small slices, a
+The model picks the API: a `flux-` model runs on the speak v2 WebSocket
+(`speak.v2.connect`), anything else on speak v1. The two sockets share one
+shape and differ in three places: the text message (`Speak` through
+`send_speak` on v2, `send_text` on v1), the answer that marks a flushed
+segment fully generated (v2's `SpeechMetadata`, v1's `Flushed` — v2's own
+`Flushed` arrives before the audio), and v2's `Error` event.
+
+Both input shapes run over that WebSocket, which takes text incrementally: a complete text is sent in small slices, a
 text stream is forwarded as it arrives, so this is a true stream-to-stream
 pass. Three threads share the socket: a sender (text, `Flush`, `Close`), a
 reader (the SDK's blocking message iterator, into a queue) and the worker,
 which polls that queue so it can honor `stop` while the server is silent. The
-sender keeps at most one `Flush` unanswered, which bounds the text the server
-holds unspoken under its limit, and admits a text message only while the audio
+sender starts a segment only once the previous one is fully generated, which
+bounds the text the server holds unspoken under its limit, and admits a text message only while the audio
 read but not yet fed stays under `_MAX_UNREAD_SECONDS`, which bounds how far
 the provider runs ahead of playback (see specs/modules/deepgram.md,
 "Pending-text backpressure" and "Bounded unread audio").
@@ -46,7 +52,13 @@ log = logging.getLogger(__name__)
 
 _DEFAULT_MODEL = "aura-2-thalia-en"
 _SAMPLE_RATES = (8000, 16000, 24000, 32000, 48000)
+# A `flux-` model selects speak v2 (Flux TTS); anything else speak v1 (Aura).
+_FLUX_PREFIX = "flux-"
 _SPEED_RANGE = (0.7, 1.5)
+# Flux accepts 0.5–1.5 in steps of 0.05 (anything else is HTTP 400).
+_FLUX_SPEED_RANGE = (0.5, 1.5)
+_FLUX_SPEED_STEP = 0.05
+_EXPRESSIVITY_RANGE = (-2, 2)
 _DEFAULT_TIMEOUT = 30.0
 _LABEL = "Deepgram module"
 # A segment (the text between two Flushes) is flushed at the first sentence end
@@ -86,16 +98,25 @@ class _Session:
         self.sender_errors: list[Exception] = []
 
     def done(self) -> bool:
-        """Every Flush answered after the final one was sent: all audio is in."""
+        """Every flushed segment finished after the final Flush was sent: all
+        audio is in."""
         with self.changed:
             return self.close_sent and self.flushes_answered >= self.flushes_sent
 
 
 class DeepgramModule(TTSModule):
     def __init__(self, config: dict) -> None:
+        # Read first (unvalidated) only to pick the SDK type to import; it is
+        # validated below with the other fields.
+        model_name = config.get("model", _DEFAULT_MODEL)
+        model_name = model_name if isinstance(model_name, str) else ""
         try:
             from deepgram import DeepgramClient
-            from deepgram.speak.v1.types import SpeakV1Text
+
+            if model_name.startswith(_FLUX_PREFIX):
+                from deepgram.speak.v2.types import SpeakV2Speak as speak_type
+            else:
+                from deepgram.speak.v1.types import SpeakV1Text as speak_type
         except ImportError as exc:
             raise ConfigError(
                 "The 'deepgram' module requires the deepgram extra: "
@@ -105,6 +126,7 @@ class DeepgramModule(TTSModule):
         api_key = resolve_api_key(config, label=_LABEL)
 
         model = optional_str(config, "model", label=_LABEL, default=_DEFAULT_MODEL)
+        flux = model.startswith(_FLUX_PREFIX)
 
         sample_rate = config.get("sample_rate", 24000)
         if (
@@ -122,15 +144,32 @@ class DeepgramModule(TTSModule):
             "encoding": "linear16",
             "sample_rate": sample_rate,
         }
-        speed = finite_number(
-            config,
-            "speed",
-            label=_LABEL,
-            minimum=_SPEED_RANGE[0],
-            maximum=_SPEED_RANGE[1],
-        )
+        low, high = _FLUX_SPEED_RANGE if flux else _SPEED_RANGE
+        speed = finite_number(config, "speed", label=_LABEL, minimum=low, maximum=high)
         if speed is not None:
+            steps = speed / _FLUX_SPEED_STEP
+            if flux and abs(steps - round(steps)) > 1e-6:
+                raise ConfigError(
+                    "Deepgram module 'speed' must be a multiple of 0.05 "
+                    "with a Flux model"
+                )
             connect_kwargs["speed"] = speed
+        expressivity = config.get("expressivity")
+        if expressivity is not None:
+            if not flux:
+                raise ConfigError(
+                    "Deepgram module 'expressivity' requires a Flux model "
+                    f"('{_FLUX_PREFIX}…')"
+                )
+            if (
+                isinstance(expressivity, bool)
+                or not isinstance(expressivity, int)
+                or not _EXPRESSIVITY_RANGE[0] <= expressivity <= _EXPRESSIVITY_RANGE[1]
+            ):
+                raise ConfigError(
+                    "Deepgram module 'expressivity' must be an integer from -2 to 2"
+                )
+            connect_kwargs["expressivity"] = expressivity
         mip_opt_out = config.get("mip_opt_out")
         if mip_opt_out is not None:
             if not isinstance(mip_opt_out, bool):
@@ -150,7 +189,12 @@ class DeepgramModule(TTSModule):
         self._timeout = float(timeout)
         self._max_unread = int(_MAX_UNREAD_SECONDS * 2 * sample_rate)
         self._slice_bytes = slice_bytes_for(sample_rate)
-        self._speak_text = SpeakV1Text
+        self._flux = flux
+        self._speak_type = speak_type
+        # The answer that marks a flushed segment fully generated: v2 sends
+        # `Flushed` when it starts the turn and `SpeechMetadata` after its
+        # last audio; v1's `Flushed` comes after the audio.
+        self._segment_done = "SpeechMetadata" if flux else "Flushed"
         # The key is always passed explicitly: the SDK's own DEEPGRAM_API_KEY
         # fallback is never relied on, so this module's key rules are the only
         # ones in force.
@@ -160,18 +204,17 @@ class DeepgramModule(TTSModule):
     def sample_rate(self) -> int:
         return self._sample_rate
 
-    @staticmethod
-    def _read(socket, session: _Session) -> None:
+    def _read(self, socket, session: _Session) -> None:
         """Reader thread: move the SDK's messages into the inbox, counting the
-        audio it holds and answering Flushes as they come, so the sender's
-        gates open without the worker."""
+        audio it holds and the segments the server has finished, so the
+        sender's gates open without the worker."""
         try:
             for message in socket:
                 with session.changed:
                     session.last_message = time.monotonic()
                     if isinstance(message, bytes):
                         session.unread += len(message)
-                    elif getattr(message, "type", None) == "Flushed":
+                    elif getattr(message, "type", None) == self._segment_done:
                         session.flushes_answered += 1
                     session.changed.notify_all()
                 session.inbox.put(message)
@@ -216,7 +259,11 @@ class DeepgramModule(TTSModule):
                 ):
                     session.changed.wait(_POLL_SECONDS)
             if not stop.is_set():
-                socket.send_text(self._speak_text(text=text))
+                message = self._speak_type(text=text)
+                if self._flux:
+                    socket.send_speak(message)
+                else:
+                    socket.send_text(message)
 
         def send(text: str) -> None:
             nonlocal since_flush
@@ -271,7 +318,8 @@ class DeepgramModule(TTSModule):
         boundary so a downstream playback failure keeps its own identity.
         """
         try:
-            connection = self._client.speak.v1.connect(**self._connect_kwargs)
+            api = self._client.speak.v2 if self._flux else self._client.speak.v1
+            connection = api.connect(**self._connect_kwargs)
             socket = open_cancellable(
                 connection.__enter__,
                 lambda _socket: self._close(connection),
@@ -364,6 +412,12 @@ class DeepgramModule(TTSModule):
                     return
                 continue
             kind = getattr(message, "type", None)
+            if kind == "Error":  # v2 only; v1 reports errors as a close code
+                raise TTSError(
+                    "Deepgram request failed: "
+                    f"{getattr(message, 'code', '?')} "
+                    f"{getattr(message, 'description', '')}".rstrip()
+                )
             if kind == "Warning":
                 log.warning(
                     "Deepgram warning %s: %s",

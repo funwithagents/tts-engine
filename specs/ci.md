@@ -62,7 +62,7 @@ The job used to run a PulseAudio null sink behind ALSA's `pulse` plugin. That ne
 | every `test_modules.py` scenario's `[elevenlabs]` row | only when the `ELEVENLABS_API_KEY` secret is absent (or on a fork's pull request) |
 | every `test_modules.py` scenario's `[gradium]` row | only when the `GRADIUM_API_KEY` secret is absent (or on a fork's pull request) |
 | every `test_modules.py` scenario's `[mistral]` row | only when the `MISTRAL_API_KEY` secret is absent (or on a fork's pull request) |
-| every `test_modules.py` scenario's `[deepgram]` row | only when the `DEEPGRAM_API_KEY` secret is absent (or on a fork's pull request) |
+| every `test_modules.py` scenario's `[deepgram]` and `[deepgram-flux]` rows | only when the `DEEPGRAM_API_KEY` secret is absent (or on a fork's pull request) |
 | every `test_modules.py` scenario's `[gemini]` row | only when the `GEMINI_API_KEY` secret is absent (or on a fork's pull request) |
 | every `test_modules.py` scenario's `[cartesia]` row | only when the `CARTESIA_API_KEY` secret is absent (or on a fork's pull request) |
 | every `test_modules.py` scenario's `[openai-compatible]` row | only when the `OPENAI_API_KEY` secret is absent (or on a fork's pull request) |

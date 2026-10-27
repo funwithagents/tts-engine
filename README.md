@@ -35,7 +35,7 @@ uv sync --no-dev --extra piper        # local Piper voices (no torch, GPL)
 uv sync --no-dev --extra elevenlabs   # ElevenLabs cloud API
 uv sync --no-dev --extra gradium      # Gradium cloud API
 uv sync --no-dev --extra mistral      # Mistral cloud API (Voxtral TTS)
-uv sync --no-dev --extra deepgram     # Deepgram cloud API (Aura-2)
+uv sync --no-dev --extra deepgram     # Deepgram cloud API (Aura-2, Flux)
 uv sync --no-dev --extra gemini       # Google Gemini API (Gemini TTS)
 uv sync --no-dev --extra cartesia     # Cartesia cloud API (Sonic)
 uv sync --no-dev --extra openai-compatible  # OpenAI API or an OpenAI-compatible server
@@ -125,7 +125,7 @@ async with TTSEngine(config) as engine:
 
 Pass that object directly to a loader; do not add an outer `"engine"` key. A larger application can store it under any key it chooses, while the optional MCP server format specifically stores it under `"engine"`.
 
-The [`examples/`](examples/) directory holds one complete MCP-server config per module (`config.pocket.json`, `config.phonon.json`, `config.qwen3.json`, `config.kokoro.json`, `config.piper.json`, `config.elevenlabs.json`, `config.gradium.json`, `config.mistral.json`, `config.deepgram.json`, `config.gemini.json`, `config.cartesia.json`, `config.openai-compatible.json`, `config.tone.json`, `config.audiofile.json`). No single example is the default.
+The [`examples/`](examples/) directory holds one complete MCP-server config per module (`config.pocket.json`, `config.phonon.json`, `config.qwen3.json`, `config.kokoro.json`, `config.piper.json`, `config.elevenlabs.json`, `config.gradium.json`, `config.mistral.json`, `config.deepgram.json`, `config.deepgram-flux.json`, `config.gemini.json`, `config.cartesia.json`, `config.openai-compatible.json`, `config.tone.json`, `config.audiofile.json`). No single example is the default.
 
 | Source | Constructor | Expected shape |
 |---|---|---|
@@ -172,7 +172,7 @@ A module is a swappable synthesis backend. Its `type` selects an entry from the 
 | `elevenlabs` | Provider | ElevenLabs cloud API | `tts-engine[elevenlabs]` | API key |
 | `gradium` | Provider | Gradium cloud API | `tts-engine[gradium]` | API key |
 | `mistral` | Provider | Mistral cloud API (Voxtral TTS) | `tts-engine[mistral]` | API key |
-| `deepgram` | Provider | Deepgram cloud API (Aura-2) | `tts-engine[deepgram]` | API key |
+| `deepgram` | Provider | Deepgram cloud API (Aura-2, Flux TTS) | `tts-engine[deepgram]` | API key |
 | `gemini` | Provider | Google Gemini API (Gemini TTS) | `tts-engine[gemini]` | API key |
 | `cartesia` | Provider | Cartesia cloud API (Sonic) | `tts-engine[cartesia]` | API key |
 | `openai-compatible` | Provider | OpenAI's `/v1/audio/speech` (`gpt-4o-mini-tts`, `tts-1`) or an OpenAI-compatible server | `tts-engine[openai-compatible]` | API key |
@@ -473,7 +473,7 @@ The module emits mono PCM at 24,000 Hz. Text is sent verbatim, so the model's in
 
 ### `deepgram`
 
-The Deepgram module streams speech from Deepgram's hosted Aura-2 voices over the official `deepgram-sdk` WebSocket. Install it with the `deepgram` extra:
+The Deepgram module streams speech from Deepgram's hosted voices over the official `deepgram-sdk` WebSockets: the Aura-2 voices, or the newer Flux TTS voices when `model` starts with `flux-` (e.g. `flux-haley-en`; see [`examples/config.deepgram-flux.json`](examples/config.deepgram-flux.json)). Install it with the `deepgram` extra:
 
 ```bash
 uv sync --no-dev --extra deepgram
@@ -495,9 +495,10 @@ pip install "tts-engine[deepgram]"
 |---|---|---|---|
 | `api_key_env` | one of `api_key_env` or `api_key` | — | Name of the environment variable holding the API key. Recommended for file-based configuration. |
 | `api_key` | one of `api_key_env` or `api_key` | — | Literal API key. A non-empty literal key takes precedence over `api_key_env`. |
-| `model` | no | `aura-2-thalia-en` | The Aura model, which is also the voice: `aura-2-<voice>-<language>`, e.g. `aura-2-hector-fr`. |
+| `model` | no | `aura-2-thalia-en` | The model, which is also the voice: an Aura model, `aura-2-<voice>-<language>` (e.g. `aura-2-hector-fr`), or a Flux model, `flux-<voice>-<language>` (e.g. `flux-haley-en`). |
 | `sample_rate` | no | `24000` | Output rate: `8000`, `16000`, `24000`, `32000` or `48000`. |
-| `speed` | no | API default (1.0) | Speaking-rate multiplier, 0.7 to 1.5. |
+| `speed` | no | API default (1.0) | Speaking-rate multiplier: 0.7 to 1.5 with an Aura model; 0.5 to 1.5 in steps of 0.05 with a Flux model. |
+| `expressivity` | no | API default | Flux models only: how expressive the delivery is, an integer from -2 to 2. |
 | `mip_opt_out` | no | API default | `true` opts out of Deepgram's Model Improvement Program. |
 | `timeout` | no | `30` | Seconds to wait for the provider before a stalled request fails; also how long a cancel issued during such a stall can take. |
 
@@ -839,7 +840,7 @@ A `ConfigError` such as `The 'pocket' module requires the pocket extra` means th
 ### Deepgram
 
 - Verify that the environment variable named by `api_key_env` is set in the process running the engine.
-- A `TTSError` reporting HTTP 401 means the key was rejected; HTTP 403 usually means the `model` does not exist or the account cannot use it; HTTP 400 means a value such as `speed` is out of range.
+- A `TTSError` reporting HTTP 401 means the key was rejected; HTTP 403 usually means the `model` does not exist or the account cannot use it; HTTP 400 means a value such as `speed` is out of range. A Flux model may also reject a particular `speed` for its voice (`SPEED_NOT_SUPPORTED`).
 
 ### Gemini
 

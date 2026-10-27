@@ -1,10 +1,13 @@
 """Unit tests for DeepgramModule with the deepgram SDK faked.
 
 The fast tier never opens a socket, so `deepgram` (and the
-`deepgram.speak.v1.types` path the module imports `SpeakV1Text` from) is faked
-via `sys.modules`. The fake socket answers the way the live API was observed
-to: audio after each `Speak`, `Flushed` per `Flush` (optionally held back to
-exercise the module's gate), and a server-side close after `Close`.
+`deepgram.speak.v1.types` / `deepgram.speak.v2.types` paths the module imports
+`SpeakV1Text` / `SpeakV2Speak` from) is faked via `sys.modules`. The fake
+socket answers the way the live API was observed to: audio after each
+`Speak`, and per `Flush` the answer that marks the segment generated —
+`Flushed` on v1; on v2 `Flushed` at once (the turn started), then
+`SpeechMetadata` — optionally held back to exercise the module's gate, and a
+server-side close after `Close`.
 """
 
 import asyncio
@@ -23,12 +26,15 @@ from tts_engine.modules.deepgram import DeepgramModule
 from tts_engine.modules.deepgram import module as deepgram_module
 
 _BASE = {"type": "deepgram", "api_key": "k"}
+_FLUX = {**_BASE, "model": "flux-haley-en"}
+# Both APIs, for the tests whose behaviour must not depend on the model.
+_BOTH = pytest.mark.parametrize("config", [_BASE, _FLUX], ids=["aura", "flux"])
 _AUDIO = b"\x01\x00\x02\x00"
 _END = object()
 
 
 class _Text:
-    """Stands in for `SpeakV1Text`."""
+    """Stands in for `SpeakV1Text` and `SpeakV2Speak`."""
 
     def __init__(self, *, text: str) -> None:
         self.text = text
@@ -41,14 +47,23 @@ class _FakeSocket:
         self._backend = backend
         self._outbox: queue.Queue = queue.Queue()
         self.sent: list = []  # str for Speak text, "FLUSH", "CLOSE"
+        self.text_methods: set[str] = set()
+        self._close_pending = False
         self.closed = threading.Event()
         self.flushes_delivered = 0
         self.max_unanswered_at_flush = 0
 
     # -- what the module sends ------------------------------------------------
 
-    def send_text(self, message: _Text) -> None:
+    def send_text(self, message: _Text) -> None:  # v1
+        self._speak(message, "send_text")
+
+    def send_speak(self, message: _Text) -> None:  # v2
+        self._speak(message, "send_speak")
+
+    def _speak(self, message: _Text, method: str) -> None:
         self._check_send()
+        self.text_methods.add(method)
         self.sent.append(message.text)
         if self._backend.audio_per_text:
             self._outbox.put(self._backend.audio_per_text)
@@ -58,15 +73,22 @@ class _FakeSocket:
         unanswered = self.sent.count("FLUSH") - self.flushes_delivered
         self.max_unanswered_at_flush = max(self.max_unanswered_at_flush, unanswered)
         self.sent.append("FLUSH")
+        if self._backend.api == "v2":
+            # Flux confirms the flush when it starts the turn, before the audio.
+            self._outbox.put(types.SimpleNamespace(type="Flushed", speech_id="s"))
         if self._backend.hold_flushed is None:
-            self._outbox.put(types.SimpleNamespace(type="Flushed"))
+            self._outbox.put(self._backend.segment_done())
         else:
             self._backend.held += 1
 
     def send_close(self) -> None:
         self._check_send()
         self.sent.append("CLOSE")
-        self._outbox.put(_END)
+        # The server closes once it has answered every Flush, as live.
+        if self._backend.held:
+            self._close_pending = True
+        else:
+            self._outbox.put(_END)
 
     def _check_send(self) -> None:
         if self._backend.raise_on_send is not None:
@@ -76,10 +98,14 @@ class _FakeSocket:
 
     # -- what the server sends ------------------------------------------------
 
-    def release_flushed(self) -> None:
+    def release_flushed(self, audio: bytes | None = None) -> None:
         for _ in range(self._backend.held):
-            self._outbox.put(types.SimpleNamespace(type="Flushed"))
+            if audio is not None:
+                self._outbox.put(audio)
+            self._outbox.put(self._backend.segment_done())
         self._backend.held = 0
+        if self._close_pending:
+            self._outbox.put(_END)
 
     def __iter__(self):
         if self._backend.script is not None:
@@ -103,7 +129,7 @@ class _FakeSocket:
                 return
             if isinstance(message, Exception):
                 raise message
-            if getattr(message, "type", None) == "Flushed":
+            if getattr(message, "type", None) == self._backend.segment_done().type:
                 self.flushes_delivered += 1
             yield message
 
@@ -140,6 +166,7 @@ class _FakeBackend:
     def __init__(self) -> None:
         self.client_kwargs: dict | None = None
         self.connect_kwargs: list[dict] = []
+        self.api: str | None = None  # "v1" or "v2", set by the last connect
         self.sockets: list[_FakeSocket] = []
         self.preamble: list = []  # messages the server sends on connect
         self.script: list | None = None
@@ -151,6 +178,12 @@ class _FakeBackend:
         self.raise_on_send: Exception | None = None
         self.connect_gate: threading.Event | None = None  # holds the handshake
         self.connecting = threading.Event()
+
+    def segment_done(self) -> types.SimpleNamespace:
+        """The answer marking a flushed segment generated, per API."""
+        if self.api == "v2":
+            return types.SimpleNamespace(type="SpeechMetadata", speech_id="s")
+        return types.SimpleNamespace(type="Flushed")
 
     @property
     def socket(self) -> _FakeSocket:
@@ -165,24 +198,32 @@ class _FakeBackend:
 def fake(monkeypatch) -> _FakeBackend:
     backend = _FakeBackend()
 
-    class V1:
+    class Api:
+        def __init__(self, name: str) -> None:
+            self._name = name
+
         def connect(self, **kwargs):
+            backend.api = self._name
             backend.connect_kwargs.append(kwargs)
             return _FakeConnection(backend)
 
     class DeepgramClient:
         def __init__(self, **kwargs) -> None:
             backend.client_kwargs = kwargs
-            self.speak = types.SimpleNamespace(v1=V1())
+            self.speak = types.SimpleNamespace(v1=Api("v1"), v2=Api("v2"))
 
     package = types.ModuleType("deepgram")
     package.DeepgramClient = DeepgramClient  # type: ignore[attr-defined]
     speak_types = types.ModuleType("deepgram.speak.v1.types")
     speak_types.SpeakV1Text = _Text  # type: ignore[attr-defined]
+    speak_v2_types = types.ModuleType("deepgram.speak.v2.types")
+    speak_v2_types.SpeakV2Speak = _Text  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "deepgram", package)
     monkeypatch.setitem(sys.modules, "deepgram.speak", types.ModuleType("x"))
     monkeypatch.setitem(sys.modules, "deepgram.speak.v1", types.ModuleType("x"))
     monkeypatch.setitem(sys.modules, "deepgram.speak.v1.types", speak_types)
+    monkeypatch.setitem(sys.modules, "deepgram.speak.v2", types.ModuleType("x"))
+    monkeypatch.setitem(sys.modules, "deepgram.speak.v2.types", speak_v2_types)
     # The worker and a gated sender poll on this interval: tests wait on the
     # module's logic, not on wall-clock ticks.
     monkeypatch.setattr(deepgram_module, "_POLL_SECONDS", 0.005)
@@ -238,6 +279,13 @@ def test_api_key_from_env(fake, monkeypatch):
         ({"speed": 0.5}, "speed"),
         ({"speed": 2.0}, "speed"),
         ({"timeout": 0}, "timeout"),
+        # Flux (speak v2): its own speed range and step, expressivity.
+        ({"model": "flux-haley-en", "speed": 0.45}, "speed"),
+        ({"model": "flux-haley-en", "speed": 0.53}, "speed"),
+        ({"model": "flux-haley-en", "expressivity": 3}, "expressivity"),
+        ({"model": "flux-haley-en", "expressivity": 1.0}, "expressivity"),
+        ({"model": "flux-haley-en", "expressivity": True}, "expressivity"),
+        ({"expressivity": 1}, "requires a Flux model"),
     ],
 )
 def test_invalid_field_raises_config_error(fake, override, field):
@@ -308,10 +356,11 @@ def test_odd_byte_is_carried_and_audio_is_fed_in_100ms_slices(fake):
     assert received == [b"\x01" + b"\x02" * 1599, b"\x02" * 1600, b"\x02\x03"]
 
 
-def test_long_text_is_cut_into_flushed_segments_at_sentence_ends(fake):
+@_BOTH
+def test_long_text_is_cut_into_flushed_segments_at_sentence_ends(fake, config):
     sentence = "The quick brown fox jumps over the lazy dog near the bank. "
     text = sentence * 40  # ~2400 characters: over the server's pending limit
-    _say(DeepgramModule(_BASE), text)
+    _say(DeepgramModule(config), text)
 
     sent = fake.socket.sent
     assert "".join(fake.texts) == text
@@ -328,12 +377,15 @@ def test_word_longer_than_a_segment_is_hard_cut(fake):
     assert [len(t) for t in fake.texts] == [900, 900, 200]
 
 
-async def test_sender_waits_for_flushed_before_the_next_segment(fake):
+@_BOTH
+async def test_sender_waits_for_the_segment_before_the_next_one(fake, config):
+    # v1: until `Flushed`; v2: until `SpeechMetadata` — its `Flushed`, sent at
+    # once by the fake as by the live API, must not open the gate.
     fake.hold_flushed = True
     sentence = "The quick brown fox jumps over the lazy dog near the bank. "
     text = sentence * 40
     task = asyncio.create_task(
-        DeepgramModule(_BASE).synthesize_text(text, TTSOptions(), lambda _b: None)
+        DeepgramModule(config).synthesize_text(text, TTSOptions(), lambda _b: None)
     )
     while not fake.sockets or "FLUSH" not in fake.sockets[-1].sent:
         await asyncio.sleep(0.005)
@@ -341,7 +393,7 @@ async def test_sender_waits_for_flushed_before_the_next_segment(fake):
 
     sent = list(fake.socket.sent)
     assert sent.count("FLUSH") == 1
-    assert sent[-1] == "FLUSH"  # nothing of the next segment until Flushed
+    assert sent[-1] == "FLUSH"  # nothing of the next segment until it is done
 
     while not task.done():  # answer each held Flush as the sender reaches it
         fake.socket.release_flushed()
@@ -485,6 +537,82 @@ async def test_text_stream_cancel_while_the_server_is_silent_stops_promptly(fake
         await asyncio.wait_for(task, timeout=1)
     assert await asyncio.to_thread(fake.socket.closed.wait, 1)
     assert "CLOSE" not in fake.socket.sent
+
+
+# --- Flux TTS (speak v2) -----------------------------------------------------
+
+
+def test_flux_model_runs_on_speak_v2(fake):
+    module = DeepgramModule(
+        {**_FLUX, "speed": 0.5, "expressivity": -2, "mip_opt_out": False}
+    )
+    _run(
+        module.synthesize_text_stream(
+            _source("Hel", "lo wor", "ld. How", " are you?"),
+            TTSOptions(),
+            lambda _b: None,
+        )
+    )
+    assert fake.api == "v2"
+    assert fake.connect_kwargs == [
+        {
+            "model": "flux-haley-en",
+            "encoding": "linear16",
+            "sample_rate": 24000,
+            "speed": 0.5,
+            "expressivity": -2,
+            "mip_opt_out": False,
+        }
+    ]
+    assert fake.socket.text_methods == {"send_speak"}
+    # Flux joins a turn's Speak texts verbatim: the word groups keep their
+    # spaces, so they concatenate back to the source text.
+    assert fake.socket.sent[-2:] == ["FLUSH", "CLOSE"]
+    assert "".join(fake.texts) == "Hello world. How are you?"
+
+
+def test_aura_model_runs_on_speak_v1(fake):
+    _say(DeepgramModule(_BASE), "Hi.")
+    assert fake.api == "v1"
+    assert fake.socket.text_methods == {"send_text"}
+
+
+async def test_flux_utterance_ends_on_speech_metadata_not_flushed(fake):
+    # Flux's `Flushed` arrives before the turn's audio: the utterance must
+    # keep reading until `SpeechMetadata`, and feed the audio in between.
+    fake.audio_per_text = None
+    fake.hold_flushed = True
+    received: list[bytes] = []
+    task = asyncio.create_task(
+        DeepgramModule(_FLUX).synthesize_text("Hi.", TTSOptions(), received.append)
+    )
+    while not fake.sockets or "CLOSE" not in fake.sockets[-1].sent:
+        await asyncio.sleep(0.005)
+    await asyncio.sleep(0.05)
+    assert not task.done()
+
+    fake.socket.release_flushed(audio=_AUDIO)
+    await asyncio.wait_for(task, timeout=5)
+    assert received == [_AUDIO]
+
+
+def test_flux_error_event_is_tts_error(fake, caplog):
+    fake.script = [
+        types.SimpleNamespace(type="Connected", request_id="r"),
+        types.SimpleNamespace(
+            type="Warning", code="SYNTHESIS_RETRYING", description="retrying"
+        ),
+        _AUDIO,
+        types.SimpleNamespace(
+            type="Error", code="DATA-0002", description="invalid control"
+        ),
+    ]
+    with (
+        caplog.at_level(logging.WARNING, logger="tts_engine.modules.deepgram"),
+        pytest.raises(TTSError, match="DATA-0002 invalid control"),
+    ):
+        _say(DeepgramModule(_FLUX), "Hi.")
+    assert "SYNTHESIS_RETRYING" in caplog.text
 
 
 # --- connection setup --------------------------------------------------------
