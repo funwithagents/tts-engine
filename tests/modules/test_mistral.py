@@ -79,7 +79,7 @@ class _FakeBackend:
         self.events: list = [
             _delta([0.0, 0.5]),
             types.SimpleNamespace(event="speech.other", data=None),  # skipped
-            _delta([-0.5, 1.5, -2.0]),  # out of range: clipped
+            _delta([-0.5, 0.25, -1.0]),
             _DONE,
             _delta([0.25]),  # after done: never read
         ]
@@ -146,66 +146,26 @@ def test_missing_extra_raises_config_error(monkeypatch):
 # --- config ------------------------------------------------------------------
 
 
-def test_missing_api_key_raises(fake):
-    with pytest.raises(ConfigError, match="api_key"):
-        MistralModule({"type": "mistral", "voice_id": "v"})
-
-
-def test_empty_api_key_raises(fake):
-    with pytest.raises(ConfigError, match="api_key"):
-        MistralModule({"type": "mistral", "api_key": "", "voice_id": "v"})
-
-
 def test_api_key_from_env(fake, monkeypatch):
     monkeypatch.setenv("MY_MISTRAL_KEY", "from-env")
     MistralModule({"type": "mistral", "api_key_env": "MY_MISTRAL_KEY", "voice_id": "v"})
     assert fake.client_kwargs == {"api_key": "from-env"}
 
 
-def test_literal_api_key_takes_precedence_over_env(fake, monkeypatch):
-    monkeypatch.setenv("MY_MISTRAL_KEY", "from-env")
-    MistralModule({**_BASE, "api_key_env": "MY_MISTRAL_KEY"})
-    assert fake.client_kwargs == {"api_key": "k"}
-
-
-def test_api_key_env_pointing_to_unset_var_raises(fake, monkeypatch):
-    monkeypatch.delenv("MY_MISTRAL_KEY", raising=False)
-    with pytest.raises(ConfigError, match="MY_MISTRAL_KEY"):
-        MistralModule(
-            {"type": "mistral", "api_key_env": "MY_MISTRAL_KEY", "voice_id": "v"}
-        )
-
-
 @pytest.mark.parametrize(
     ("override", "field"),
     [
-        ({"api_key": 3}, "api_key"),
-        ({"api_key": None, "api_key_env": 3}, "api_key_env"),
         ({"voice_id": None}, "voice_id"),
         ({"voice_id": ""}, "voice_id"),
         ({"model": ""}, "model"),
-        ({"model": 3}, "model"),
         ({"expressiveness": 0.5}, "expressiveness"),
-        ({"expressiveness": True}, "expressiveness"),
-        ({"expressiveness": "2"}, "expressiveness"),
-        ({"expressiveness": float("inf")}, "expressiveness"),
         ({"server_url": ""}, "server_url"),
-        ({"server_url": 3}, "server_url"),
         ({"timeout": 0}, "timeout"),
-        ({"timeout": True}, "timeout"),
-        ({"timeout": "30"}, "timeout"),
-        ({"timeout": float("inf")}, "timeout"),
     ],
 )
 def test_invalid_field_raises_config_error(fake, override, field):
     with pytest.raises(ConfigError, match=field):
         MistralModule({**_BASE, **override})
-
-
-def test_timeout_reaches_the_request_in_milliseconds(fake):
-    module = MistralModule({**_BASE, "timeout": 2.5})
-    _run(module.synthesize_text("Hi.", TTSOptions(), lambda _b: None))
-    assert fake.requests[0]["timeout_ms"] == 2500
 
 
 def test_server_url_reaches_the_client_only_when_set(fake):
@@ -215,12 +175,10 @@ def test_server_url_reaches_the_client_only_when_set(fake):
     assert fake.client_kwargs == {"api_key": "k", "server_url": "https://eu.example"}
 
 
-def test_sample_rate_is_24k(fake):
-    assert MistralModule(_BASE).sample_rate == 24000
-
-
 def test_defaults_reach_the_request(fake):
-    _run(MistralModule(_BASE).synthesize_text("Hi.", TTSOptions(), lambda _b: None))
+    module = MistralModule(_BASE)
+    _run(module.synthesize_text("Hi.", TTSOptions(), lambda _b: None))
+    assert module.sample_rate == 24000
     assert fake.requests == [
         {
             "input": "Hi.",
@@ -234,42 +192,38 @@ def test_defaults_reach_the_request(fake):
 
 
 def test_custom_values_reach_the_request(fake):
-    module = MistralModule({**_BASE, "model": "voxtral-x", "expressiveness": 2})
+    module = MistralModule(
+        {**_BASE, "model": "voxtral-x", "expressiveness": 2, "timeout": 2.5}
+    )
     _run(module.synthesize_text("Hi.", TTSOptions(), lambda _b: None))
     assert fake.requests[0]["model"] == "voxtral-x"
     assert fake.requests[0]["expressiveness"] == 2.0
+    assert fake.requests[0]["timeout_ms"] == 2500
 
 
 # --- synthesize_text ---------------------------------------------------------
 
 
-def test_deltas_become_clipped_int16_until_done(fake):
+def test_deltas_become_int16_until_done(fake):
     received = bytearray()
     _run(MistralModule(_BASE).synthesize_text("Hi.", TTSOptions(), received.extend))
-    # [0.0, 0.5, -0.5, 1.5→1.0, -2.0→-1.0] * 32767, truncated toward zero; the
-    # unknown event is skipped and the delta after `done` is never read.
-    assert _samples(bytes(received)) == [0, 16383, -16383, 32767, -32767]
+    # The float32 deltas are converted to int16 (the scaling itself is
+    # float_to_int16_pcm's); the unknown event is skipped and the delta after
+    # `done` is never read.
+    assert _samples(bytes(received)) == [0, 16383, -16383, 8191, -32767]
     assert fake.streams[0].closed
 
 
-def test_sample_split_across_deltas_is_carried_over(fake):
-    raw = np.asarray([0.5, -0.5, 0.25], dtype="<f4").tobytes()
-    fake.events = [
-        _delta_bytes(raw[:5]),
-        _delta_bytes(raw[5:9]),
-        _delta_bytes(raw[9:]),
-        _DONE,
-    ]
-    received = bytearray()
-    _run(MistralModule(_BASE).synthesize_text("Hi.", TTSOptions(), received.extend))
-    assert _samples(bytes(received)) == [16383, -16383, 8191]
-
-
-def test_large_delta_is_fed_in_100ms_slices(fake):
-    fake.events = [_delta(np.zeros(48000)), _DONE]  # 2 s at 24 kHz
+def test_split_sample_is_carried_over_and_audio_fed_in_100ms_slices(fake):
+    # 125 ms at 24 kHz, the first delta ending mid-sample past one 100 ms slice:
+    # one feeder spans the utterance, slicing at the declared rate.
+    raw = np.tile(np.asarray([0.5, -0.5, 0.25], dtype="<f4"), 1000).tobytes()
+    split = 4 * 2500 + 2
+    fake.events = [_delta_bytes(raw[:split]), _delta_bytes(raw[split:]), _DONE]
     chunks: list[bytes] = []
     _run(MistralModule(_BASE).synthesize_text("Hi.", TTSOptions(), chunks.append))
-    assert [len(c) for c in chunks] == [4800] * 20  # 2400 int16 samples each
+    assert [len(c) for c in chunks] == [4800, 200, 1000]  # 2400 + 100, then 500
+    assert _samples(b"".join(chunks)) == [16383, -16383, 8191] * 1000
 
 
 def test_request_error_is_tts_error(fake):
@@ -305,17 +259,6 @@ def test_callback_error_propagates_unchanged_and_closes(fake):
     assert fake.streams[0].closed
 
 
-def test_callback_error_wins_over_a_failing_close(fake):
-    fake.raise_on_close = RuntimeError("connection teardown failed")
-
-    def bad_callback(_b: bytes) -> None:
-        raise ValueError("playback failed")
-
-    with pytest.raises(ValueError, match="playback failed"):
-        _run(MistralModule(_BASE).synthesize_text("Hi.", TTSOptions(), bad_callback))
-    assert fake.streams[0].closed
-
-
 async def test_cancel_closes_the_stream_before_cancelled_error(fake):
     module = MistralModule(_BASE)
     fake.block = threading.Event()
@@ -327,76 +270,37 @@ async def test_cancel_closes_the_stream_before_cancelled_error(fake):
     task.cancel()
     fake.block.set()  # let the pending event return so the worker sees `stop`
     with pytest.raises(asyncio.CancelledError):
-        await task
+        await asyncio.wait_for(task, timeout=5)
     assert fake.streams[0].closed
 
 
 # --- synthesize_text_stream --------------------------------------------------
 
 
-def test_text_stream_requests_per_sentence(fake):
-    async def source():
-        for piece in ["Hello wor", "ld. How are", " you? Fine"]:
-            yield piece
-
-    received = bytearray()
-    _run(
-        MistralModule(_BASE).synthesize_text_stream(
-            source(), TTSOptions(), received.extend
-        )
-    )
-
-    assert fake.texts == ["Hello world.", "How are you?", "Fine"]
-    assert len(received) == 3 * 2 * 5  # five int16 samples per fake stream
-    assert all(stream.closed for stream in fake.streams)
-
-
-async def test_text_stream_feeds_first_sentence_before_the_source_finishes(fake):
+async def test_text_stream_requests_per_sentence_as_the_source_arrives(fake):
+    # Split pieces are grouped into sentences, and the first is spoken before
+    # the source finishes: it is gated on that sentence's audio.
     module = MistralModule(_BASE)
     loop = asyncio.get_running_loop()
     got_audio = asyncio.Event()
+    received = bytearray()
 
-    def callback(_chunk: bytes) -> None:
+    def callback(chunk: bytes) -> None:
+        received.extend(chunk)
         loop.call_soon_threadsafe(got_audio.set)
 
     async def source():
-        yield "Hello world. "
+        yield "Hello wor"
+        yield "ld. How are"
         await got_audio.wait()
-        yield "Second one."
+        yield " you? Fine"
 
     await asyncio.wait_for(
         module.synthesize_text_stream(source(), TTSOptions(), callback), timeout=5
     )
-    assert fake.texts == ["Hello world.", "Second one."]
-
-
-async def test_text_stream_cancel_closes_the_stream_before_cancelled_error(fake):
-    module = MistralModule(_BASE)
-    fake.block = threading.Event()
-    count = 0
-
-    def callback(_chunk: bytes) -> None:
-        nonlocal count
-        count += 1
-
-    async def source():
-        yield "Hi. "  # a complete sentence: its request opens
-        await asyncio.Event().wait()  # then the source stays open
-
-    task = asyncio.create_task(
-        module.synthesize_text_stream(source(), TTSOptions(), callback)
-    )
-    await asyncio.to_thread(fake.reached.wait, 5)
-    task.cancel()
-    fake.block.set()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-
-    settled = count
-    await asyncio.sleep(0.05)
-    assert count == settled
-    assert fake.streams[0].closed
-    assert fake.texts == ["Hi."]
+    assert fake.texts == ["Hello world.", "How are you?", "Fine"]
+    assert len(received) == 3 * 2 * 5  # five int16 samples per fake stream
+    assert all(stream.closed for stream in fake.streams)
 
 
 def test_close_closes_the_sdk_client(fake):

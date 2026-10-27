@@ -18,6 +18,7 @@ import pytest
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import TTSError, TTSOptions
 from tts_engine.modules.gradium import GradiumModule
+from tts_engine.modules.gradium import module as gradium_module
 
 VALID_CONFIG = {
     "type": "gradium",
@@ -119,7 +120,11 @@ class SilentFakeTts(FakeTts):
 
 @pytest.fixture
 def fake_gradium(monkeypatch):
-    """Install a fake `gradium` package; returns a recorder of what reached it."""
+    """Install a fake `gradium` package; returns a recorder of what reached it.
+
+    The receive/setup poll is patched down so cancel and timeout tests wait on
+    the module's logic, not on 100 ms wall-clock ticks (testing.md)."""
+    monkeypatch.setattr(gradium_module, "_RECV_POLL_SECONDS", 0.005)
     recorder = MagicMock()
     recorder.messages = []
     recorder.ready = {"type": "ready", "sample_rate": 48000, "request_id": "r1"}
@@ -156,16 +161,6 @@ def test_missing_extra_raises_config_error(monkeypatch):
         GradiumModule(VALID_CONFIG)
 
 
-def test_missing_api_key_raises(fake_gradium):
-    with pytest.raises(ConfigError, match="api_key"):
-        GradiumModule({"type": "gradium", "voice_id": "v"})
-
-
-def test_empty_api_key_raises(fake_gradium):
-    with pytest.raises(ConfigError, match="api_key"):
-        GradiumModule({"type": "gradium", "api_key": "", "voice_id": "v"})
-
-
 def test_missing_voice_id_raises(fake_gradium):
     with pytest.raises(ConfigError, match="voice_id"):
         GradiumModule({"type": "gradium", "api_key": "k"})
@@ -175,18 +170,6 @@ def test_api_key_from_env(fake_gradium, monkeypatch):
     monkeypatch.setenv("MY_TTS_KEY", "env-secret")
     GradiumModule({"type": "gradium", "api_key_env": "MY_TTS_KEY", "voice_id": "v"})
     assert fake_gradium.client_kwargs == {"api_key": "env-secret"}
-
-
-def test_literal_api_key_takes_precedence_over_env(fake_gradium, monkeypatch):
-    monkeypatch.setenv("MY_TTS_KEY", "env-secret")
-    GradiumModule({**VALID_CONFIG, "api_key_env": "MY_TTS_KEY"})
-    assert fake_gradium.client_kwargs == {"api_key": "test-api-key"}
-
-
-def test_api_key_env_pointing_to_unset_var_raises(fake_gradium, monkeypatch):
-    monkeypatch.delenv("MY_TTS_KEY", raising=False)
-    with pytest.raises(ConfigError, match="MY_TTS_KEY"):
-        GradiumModule({"type": "gradium", "api_key_env": "MY_TTS_KEY", "voice_id": "v"})
 
 
 def test_base_url_reaches_the_client_only_when_set(fake_gradium):
@@ -199,37 +182,23 @@ def test_base_url_reaches_the_client_only_when_set(fake_gradium):
 @pytest.mark.parametrize(
     "override, field",
     [
-        ({"api_key": 123}, "api_key"),
-        ({"api_key_env": 5}, "api_key_env"),
         ({"voice_id": 42}, "voice_id"),
         ({"model": ""}, "model"),
-        ({"model": 7}, "model"),
         ({"sample_rate": 22050}, "sample_rate"),
         ({"sample_rate": 48000.0}, "sample_rate"),
-        ({"sample_rate": "48000"}, "sample_rate"),
         ({"sample_rate": True}, "sample_rate"),
         ({"temp": 1.5}, "temp"),
-        ({"temp": True}, "temp"),
         ({"cfg_coef": 0.5}, "cfg_coef"),
-        ({"cfg_coef": "x"}, "cfg_coef"),
         ({"padding_bonus": -5}, "padding_bonus"),
         ({"rewrite_rules": ""}, "rewrite_rules"),
         ({"pronunciation_id": 3}, "pronunciation_id"),
         ({"base_url": ""}, "base_url"),
         ({"timeout": 0}, "timeout"),
-        ({"timeout": True}, "timeout"),
-        ({"timeout": "30"}, "timeout"),
-        ({"timeout": float("nan")}, "timeout"),
     ],
 )
 def test_invalid_field_raises_config_error(fake_gradium, override, field):
     with pytest.raises(ConfigError, match=field):
         GradiumModule({**VALID_CONFIG, **override})
-
-
-def test_sample_rate_reflects_config(fake_gradium):
-    assert GradiumModule(VALID_CONFIG).sample_rate == 48000
-    assert GradiumModule({**VALID_CONFIG, "sample_rate": 24000}).sample_rate == 24000
 
 
 # --- streaming ---------------------------------------------------------------
@@ -239,6 +208,7 @@ async def test_defaults_reach_the_provider_client(fake_gradium):
     module = GradiumModule(VALID_CONFIG)
     await module.synthesize_text("hello", TTSOptions(), MagicMock())
 
+    assert module.sample_rate == 48000
     assert fake_gradium.setup_kwargs == {
         "wait_for_ready_on_start": True,
         "model_name": "default",
@@ -262,8 +232,10 @@ async def test_custom_values_reach_the_provider_client(fake_gradium):
         "rewrite_rules": "none",
         "pronunciation_id": "pron-1",
     }
-    await GradiumModule(config).synthesize_text("hello", TTSOptions(), MagicMock())
+    module = GradiumModule(config)
+    await module.synthesize_text("hello", TTSOptions(), MagicMock())
 
+    assert module.sample_rate == 24000
     kwargs = fake_gradium.setup_kwargs
     assert kwargs["model_name"] == "gradium-tts-beta"
     assert kwargs["output_format"] == "pcm_24000"
@@ -367,9 +339,9 @@ def test_setup_failure_releases_the_partial_connection(fake_gradium):
 
 
 def test_setup_timeout_is_a_tts_error_and_releases_the_connection(fake_gradium):
-    module = GradiumModule({**VALID_CONFIG, "timeout": 0.1})
+    module = GradiumModule({**VALID_CONFIG, "timeout": 0.02})
     _scripted_connection(fake_gradium, hang_enter=True)
-    with pytest.raises(TTSError, match="not ready within 0.1 s"):
+    with pytest.raises(TTSError, match="not ready within 0.02 s"):
         asyncio.run(module.synthesize_text("hello", TTSOptions(), MagicMock()))
     assert fake_gradium.tts.closed is True
 
@@ -383,7 +355,8 @@ async def test_cancel_during_setup_stops_promptly_and_releases_the_connection(
     task = asyncio.create_task(
         module.synthesize_text("hello", TTSOptions(), MagicMock())
     )
-    await asyncio.sleep(0.05)  # the worker is inside the setup wait
+    while fake_gradium.tts is None or not fake_gradium.tts.opened:
+        await asyncio.sleep(0.001)  # until the worker is inside the setup wait
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(task, timeout=5)
@@ -403,19 +376,13 @@ def test_callback_error_wins_over_a_failing_close(fake_gradium):
     assert fake_gradium.tts.closed is True
 
 
-def test_stream_does_not_mask_callback_errors(fake_gradium):
-    fake_gradium.messages = [_audio(b"\x01\x00")]
+def _signal(loop: asyncio.AbstractEventLoop, event: asyncio.Event):
+    """A callback that sets `event` on `loop` from the module's worker thread."""
 
-    def bad_callback(_chunk: bytes) -> None:
-        raise ValueError("playback failed")
+    def callback(_chunk: bytes) -> None:
+        loop.call_soon_threadsafe(event.set)
 
-    with pytest.raises(ValueError, match="playback failed"):
-        asyncio.run(
-            GradiumModule(VALID_CONFIG).synthesize_text(
-                "hello", TTSOptions(), bad_callback
-            )
-        )
-    assert fake_gradium.tts.closed is True
+    return callback
 
 
 async def test_cancel_stops_callbacks_before_stream_raises(fake_gradium):
@@ -430,33 +397,16 @@ async def test_cancel_stops_callbacks_before_stream_raises(fake_gradium):
 
     loop = asyncio.get_running_loop()
     first_chunk = asyncio.Event()
-    count = 0
-
-    def callback(_chunk: bytes) -> None:
-        nonlocal count
-        count += 1
-        loop.call_soon_threadsafe(first_chunk.set)
 
     module = GradiumModule(VALID_CONFIG)
-    task = asyncio.create_task(module.synthesize_text("hello", TTSOptions(), callback))
+    task = asyncio.create_task(
+        module.synthesize_text("hello", TTSOptions(), _signal(loop, first_chunk))
+    )
     await first_chunk.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await task
-
-    settled = count
-    await asyncio.sleep(0.05)  # ~10 chunk periods: a leaked worker would show
-    assert count == settled
+        await asyncio.wait_for(task, timeout=5)
     assert fake_gradium.tts.closed is True
-
-
-def _signal(loop: asyncio.AbstractEventLoop, event: asyncio.Event):
-    """A callback that sets `event` on `loop` from the module's worker thread."""
-
-    def callback(_chunk: bytes) -> None:
-        loop.call_soon_threadsafe(event.set)
-
-    return callback
 
 
 async def test_cancel_while_the_server_is_silent_stops_promptly(fake_gradium):
@@ -582,12 +532,6 @@ async def test_text_stream_cancel_mid_audio_stops_callbacks_before_raising(
     fake_gradium.messages = endless()
     loop = asyncio.get_running_loop()
     first_chunk = asyncio.Event()
-    count = 0
-
-    def callback(_chunk: bytes) -> None:
-        nonlocal count
-        count += 1
-        loop.call_soon_threadsafe(first_chunk.set)
 
     async def source():
         yield "Hello "
@@ -595,15 +539,13 @@ async def test_text_stream_cancel_mid_audio_stops_callbacks_before_raising(
 
     module = GradiumModule(VALID_CONFIG)
     task = asyncio.create_task(
-        module.synthesize_text_stream(source(), TTSOptions(), callback)
+        module.synthesize_text_stream(
+            source(), TTSOptions(), _signal(loop, first_chunk)
+        )
     )
     await first_chunk.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(task, timeout=5)
-
-    settled = count
-    await asyncio.sleep(0.05)  # ~10 chunk periods: a leaked worker would show
-    assert count == settled
     assert fake_gradium.tts.closed is True
     assert fake_gradium.tts.eos is False  # dropped, not finished

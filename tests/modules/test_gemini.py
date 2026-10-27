@@ -144,49 +144,19 @@ def test_missing_extra_raises_config_error(monkeypatch):
 # --- config ------------------------------------------------------------------
 
 
-def test_missing_api_key_raises(fake):
-    with pytest.raises(ConfigError, match="api_key"):
-        GeminiModule({"type": "gemini"})
-
-
-def test_empty_api_key_raises(fake):
-    with pytest.raises(ConfigError, match="api_key"):
-        GeminiModule({"type": "gemini", "api_key": ""})
-
-
 def test_api_key_from_env(fake, monkeypatch):
     monkeypatch.setenv("MY_GEMINI_KEY", "from-env")
     GeminiModule({"type": "gemini", "api_key_env": "MY_GEMINI_KEY"})
     assert fake.client_kwargs == {"api_key": "from-env", **_HTTP_OPTIONS}
 
 
-def test_literal_api_key_takes_precedence_over_env(fake, monkeypatch):
-    monkeypatch.setenv("MY_GEMINI_KEY", "from-env")
-    GeminiModule({**_BASE, "api_key_env": "MY_GEMINI_KEY"})
-    assert fake.client_kwargs == {"api_key": "k", **_HTTP_OPTIONS}
-
-
-def test_api_key_env_pointing_to_unset_var_raises(fake, monkeypatch):
-    monkeypatch.delenv("MY_GEMINI_KEY", raising=False)
-    with pytest.raises(ConfigError, match="MY_GEMINI_KEY"):
-        GeminiModule({"type": "gemini", "api_key_env": "MY_GEMINI_KEY"})
-
-
 @pytest.mark.parametrize(
     ("override", "field"),
     [
-        ({"api_key": 3}, "api_key"),
-        ({"api_key": None, "api_key_env": 3}, "api_key_env"),
         ({"model": ""}, "model"),
-        ({"model": 3}, "model"),
         ({"voice": ""}, "voice"),
-        ({"voice": 3}, "voice"),
         ({"language_code": ""}, "language_code"),
-        ({"language_code": ["en-US"]}, "language_code"),
         ({"timeout": 0}, "timeout"),
-        ({"timeout": True}, "timeout"),
-        ({"timeout": "30"}, "timeout"),
-        ({"timeout": float("inf")}, "timeout"),
     ],
 )
 def test_invalid_field_raises_config_error(fake, override, field):
@@ -194,17 +164,11 @@ def test_invalid_field_raises_config_error(fake, override, field):
         GeminiModule({**_BASE, **override})
 
 
-def test_timeout_reaches_the_client_in_milliseconds(fake):
-    GeminiModule({**_BASE, "timeout": 2.5})
-    assert fake.client_kwargs == {"api_key": "k", "http_options": {"timeout": 2500}}
-
-
-def test_sample_rate_is_24k(fake):
-    assert GeminiModule(_BASE).sample_rate == 24000
-
-
 def test_defaults_reach_the_request(fake):
-    _say(GeminiModule(_BASE))
+    module = GeminiModule(_BASE)
+    _say(module)
+    assert module.sample_rate == 24000
+    assert fake.client_kwargs == {"api_key": "k", **_HTTP_OPTIONS}
     # No voice or language set: no speech_config at all, the API's defaults apply.
     assert fake.requests == [
         {
@@ -217,9 +181,17 @@ def test_defaults_reach_the_request(fake):
 
 def test_custom_values_reach_the_request(fake):
     module = GeminiModule(
-        {**_BASE, "model": "gemini-x-tts", "voice": "Kore", "language_code": "fr-FR"}
+        {
+            **_BASE,
+            "model": "gemini-x-tts",
+            "voice": "Kore",
+            "language_code": "fr-FR",
+            "timeout": 2.5,
+        }
     )
     _say(module)
+    # The timeout reaches the client in the SDK's milliseconds.
+    assert fake.client_kwargs == {"api_key": "k", "http_options": {"timeout": 2500}}
     assert fake.requests[0]["model"] == "gemini-x-tts"
     assert fake.requests[0]["config"]["speech_config"] == {
         "voice_config": {"prebuilt_voice_config": {"voice_name": "Kore"}},
@@ -242,19 +214,17 @@ def test_audio_parts_reach_the_callback_unchanged(fake):
     assert fake.closed == [True]
 
 
-def test_large_part_is_fed_in_100ms_slices(fake):
-    fake.chunks = [_chunk(_part(_pcm([7] * 48000)))]  # 2 s of audio in one part
+def test_split_sample_is_carried_over_and_audio_fed_in_100ms_slices(fake):
+    # 200 ms at 24 kHz, the first part ending mid-sample past one 100 ms slice:
+    # one feeder spans the utterance, slicing at 24 kHz whatever the part size.
+    samples = np.arange(4800) % 1000
+    raw = _pcm(samples)
+    split = 2 * 3600 + 1
+    fake.chunks = [_chunk(_part(raw[:split])), _chunk(_part(raw[split:]))]
     chunks: list[bytes] = []
     _say(GeminiModule(_BASE), chunks.append)
-    assert [len(c) for c in chunks] == [4800] * 20  # 2400 int16 samples each
-
-
-def test_sample_split_across_parts_is_carried_over(fake):
-    raw = _pcm([1000, -1000, 7])
-    fake.chunks = [_chunk(_part(raw[:3])), _chunk(_part(raw[3:]))]
-    received = bytearray()
-    _say(GeminiModule(_BASE), received.extend)
-    assert _samples(bytes(received)) == [1000, -1000, 7]
+    assert [len(c) for c in chunks] == [4800, 2400, 2400]  # 2400 + 1200, then 1200
+    assert _samples(b"".join(chunks)) == samples.tolist()
 
 
 @pytest.mark.parametrize(
@@ -324,17 +294,6 @@ def test_callback_error_propagates_unchanged_and_closes(fake):
     assert fake.closed == [True]
 
 
-def test_callback_error_wins_over_a_failing_close(fake):
-    fake.raise_on_close = RuntimeError("connection teardown failed")
-
-    def bad_callback(_b: bytes) -> None:
-        raise ValueError("playback failed")
-
-    with pytest.raises(ValueError, match="playback failed"):
-        _say(GeminiModule(_BASE), bad_callback)
-    assert fake.closed == [True]
-
-
 async def test_cancel_closes_the_stream_before_cancelled_error(fake):
     module = GeminiModule(_BASE)
     fake.block = threading.Event()
@@ -346,76 +305,37 @@ async def test_cancel_closes_the_stream_before_cancelled_error(fake):
     task.cancel()
     fake.block.set()  # let the pending chunk return so the worker sees `stop`
     with pytest.raises(asyncio.CancelledError):
-        await task
+        await asyncio.wait_for(task, timeout=5)
     assert fake.closed == [True]
 
 
 # --- synthesize_text_stream --------------------------------------------------
 
 
-def test_text_stream_requests_per_sentence(fake):
-    async def source():
-        for piece in ["Hello wor", "ld. How are", " you? Fine"]:
-            yield piece
-
-    received = bytearray()
-    _run(
-        GeminiModule(_BASE).synthesize_text_stream(
-            source(), TTSOptions(), received.extend
-        )
-    )
-
-    assert fake.texts == ["Hello world.", "How are you?", "Fine"]
-    assert len(received) == 3 * 2 * 5  # five int16 samples per fake stream
-    assert fake.closed == [True, True, True]
-
-
-async def test_text_stream_feeds_first_sentence_before_the_source_finishes(fake):
+async def test_text_stream_requests_per_sentence_as_the_source_arrives(fake):
+    # Split pieces are grouped into sentences, and the first is spoken before
+    # the source finishes: it is gated on that sentence's audio.
     module = GeminiModule(_BASE)
     loop = asyncio.get_running_loop()
     got_audio = asyncio.Event()
+    received = bytearray()
 
-    def callback(_chunk: bytes) -> None:
+    def callback(chunk: bytes) -> None:
+        received.extend(chunk)
         loop.call_soon_threadsafe(got_audio.set)
 
     async def source():
-        yield "Hello world. "
+        yield "Hello wor"
+        yield "ld. How are"
         await got_audio.wait()
-        yield "Second one."
+        yield " you? Fine"
 
     await asyncio.wait_for(
         module.synthesize_text_stream(source(), TTSOptions(), callback), timeout=5
     )
-    assert fake.texts == ["Hello world.", "Second one."]
-
-
-async def test_text_stream_cancel_closes_the_stream_before_cancelled_error(fake):
-    module = GeminiModule(_BASE)
-    fake.block = threading.Event()
-    count = 0
-
-    def callback(_chunk: bytes) -> None:
-        nonlocal count
-        count += 1
-
-    async def source():
-        yield "Hi. "  # a complete sentence: its request opens
-        await asyncio.Event().wait()  # then the source stays open
-
-    task = asyncio.create_task(
-        module.synthesize_text_stream(source(), TTSOptions(), callback)
-    )
-    await asyncio.to_thread(fake.reached.wait, 5)
-    task.cancel()
-    fake.block.set()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-
-    settled = count
-    await asyncio.sleep(0.05)
-    assert count == settled
-    assert fake.closed == [True]
-    assert fake.texts == ["Hi."]
+    assert fake.texts == ["Hello world.", "How are you?", "Fine"]
+    assert len(received) == 3 * 2 * 5  # five int16 samples per fake stream
+    assert fake.closed == [True, True, True]
 
 
 def test_close_closes_the_sdk_client(fake):

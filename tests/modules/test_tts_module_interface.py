@@ -8,12 +8,11 @@ import numpy as np
 import pytest
 
 from tts_engine.config import ConfigError
-from tts_engine.modules import REGISTRY, load_module
+from tts_engine.modules import REGISTRY, base, load_module
 from tts_engine.modules.base import (
     PCMFeeder,
     TTSError,
     TTSModule,
-    TTSOptions,
     cleanup,
     feed_with_lookahead,
     finite_number,
@@ -28,6 +27,13 @@ from tts_engine.modules.base import (
     slice_bytes_for,
     slice_text,
 )
+
+
+@pytest.fixture(autouse=True)
+def _fast_poll(monkeypatch):
+    # The helpers poll their stop events and queues; a short interval keeps
+    # the cancel and give-up paths from waiting on wall-clock ticks.
+    monkeypatch.setattr(base, "_POLL_SECONDS", 0.005)
 
 
 def test_load_module_unknown_type_raises():
@@ -57,10 +63,6 @@ def test_load_module_registered_type():
         assert result.config == {"type": "_stub_test", "extra": "value"}
     finally:
         del REGISTRY["_stub_test"]
-
-
-def test_tts_options_default_instantiation():
-    TTSOptions()  # must not raise
 
 
 # --- resolve_path ------------------------------------------------------------
@@ -137,11 +139,10 @@ def test_segment_sentences_prefers_a_sentence_end_inside_the_window():
 
 
 def test_segment_sentences_lets_only_a_long_word_exceed_the_bound():
+    # A word longer than the bound is never cut inside, whether it arrives
+    # with its boundary in the same piece or the boundary comes later.
     out = list(segment_sentences(["x" * 30 + " y"], max_chars=10))
     assert out == ["x" * 30, "y"]
-
-
-def test_segment_sentences_never_cuts_inside_a_word():
     out = list(segment_sentences(["x" * 300, " tail."], max_chars=20))
     assert out == ["x" * 300, "tail."]
 
@@ -263,22 +264,28 @@ async def test_cancellable_worker_repeated_cancel_still_waits_for_the_thread():
     # lock while the worker can still call back.
     loop = asyncio.get_running_loop()
     started = asyncio.Event()
+    feed_done = threading.Event()
     exited = False
 
     def worker(stop):
         nonlocal exited
         loop.call_soon_threadsafe(started.set)
         stop.wait()
-        time.sleep(0.1)  # a feed in progress: `stop` is honored only after it
+        feed_done.wait(5)  # a feed in progress: `stop` is honored only after it
         exited = True
 
     task = asyncio.create_task(run_cancellable_worker(worker))
     await started.wait()
     task.cancel()
-    await asyncio.sleep(0.02)  # the helper is now waiting for the thread
+    for _ in range(5):  # the helper is now waiting for the thread
+        await asyncio.sleep(0)
     task.cancel()
+    for _ in range(5):
+        await asyncio.sleep(0)
+    assert not task.done()  # the second cancel did not cut the wait short
+    feed_done.set()
     with pytest.raises(asyncio.CancelledError):
-        await task
+        await asyncio.wait_for(task, timeout=5)
     assert exited is True
 
 
@@ -468,7 +475,8 @@ async def test_text_stream_worker_cancel_with_an_endless_empty_only_source():
             pass
 
     task = asyncio.create_task(run_text_stream_worker(source(), worker))
-    await asyncio.sleep(0.05)
+    for _ in range(10):  # the pump is spinning on empty pieces
+        await asyncio.sleep(0)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(task, timeout=5)
@@ -512,13 +520,6 @@ def test_cleanup_raises_a_failing_close_when_the_block_succeeded():
 
     with pytest.raises(OSError, match="close failed"), cleanup(close, "thing"):
         pass
-
-
-def test_cleanup_closes_once_on_success():
-    closes: list[bool] = []
-    with cleanup(lambda: closes.append(True), "thing"):
-        pass
-    assert closes == [True]
 
 
 # --- close hook --------------------------------------------------------------
@@ -601,7 +602,7 @@ def test_open_cancellable_times_out_without_stop():
 
     with pytest.raises(TimeoutError, match="not open within"):
         open_cancellable(
-            enter, lambda r: None, stop=threading.Event(), timeout=0.1, what="x"
+            enter, lambda r: None, stop=threading.Event(), timeout=0.01, what="x"
         )
     release.set()
 

@@ -7,10 +7,11 @@ Config-validation tests need no fake — validation runs before the lazy import.
 
 import asyncio
 import enum
+import gc
 import sys
-import threading
 import time
 import types
+import weakref
 from dataclasses import dataclass
 
 import numpy as np
@@ -73,8 +74,6 @@ class _Fakes:
         self.phoneme_type = PhonemeType.ESPEAK
         self.phonemize_error: Exception | None = None
         self.synth_calls: list[tuple[str, SynthesisConfig | None]] = []
-        # Called with the text at the start of each `synthesize`.
-        self.on_synthesize = lambda _text: None
         self.synth_error: Exception | None = None
         self.chunk_rate: int | None = None  # defaults to the voice's rate
         self.pcm = np.array([1, -2, 3], dtype="<i2").tobytes()
@@ -89,7 +88,7 @@ class _Fakes:
         )
 
 
-def _install_fakes(monkeypatch, fakes: _Fakes, *, piper: bool = True) -> None:
+def _install_fakes(monkeypatch, fakes: _Fakes) -> None:
     def hf_hub_download(repo_id, filename, *, revision=None):
         fakes.downloads.append((repo_id, filename, revision))
         if fakes.download_error is not None:
@@ -115,7 +114,6 @@ def _install_fakes(monkeypatch, fakes: _Fakes, *, piper: bool = True) -> None:
 
         def synthesize(self, text, syn_config=None):
             fakes.synth_calls.append((text, syn_config))
-            fakes.on_synthesize(text)
             if fakes.synth_error is not None:
                 raise fakes.synth_error
             yield _Chunk(fakes.chunk_rate or fakes.sample_rate, fakes.pcm)
@@ -128,13 +126,10 @@ def _install_fakes(monkeypatch, fakes: _Fakes, *, piper: bool = True) -> None:
     hub_mod = types.SimpleNamespace(hf_hub_download=hf_hub_download, errors=errors_mod)
     monkeypatch.setitem(sys.modules, "huggingface_hub", hub_mod)
     monkeypatch.setitem(sys.modules, "huggingface_hub.errors", errors_mod)
-    if piper:
-        piper_mod = types.SimpleNamespace(
-            PiperVoice=FakeVoice, SynthesisConfig=SynthesisConfig
-        )
-        monkeypatch.setitem(sys.modules, "piper", piper_mod)
-    else:
-        monkeypatch.setitem(sys.modules, "piper", None)  # -> ImportError
+    piper_mod = types.SimpleNamespace(
+        PiperVoice=FakeVoice, SynthesisConfig=SynthesisConfig
+    )
+    monkeypatch.setitem(sys.modules, "piper", piper_mod)
 
 
 @pytest.fixture
@@ -151,66 +146,38 @@ def _say(module: PiperModule, text: str, callback=lambda _b: None) -> None:
 # --- config validation (before any download) ---------------------------------
 
 
-@pytest.mark.parametrize("key", ["voice", "model"])
-@pytest.mark.parametrize("bad", ["", 5])
-def test_invalid_string_field_raises(fakes, key, bad):
-    with pytest.raises(ConfigError, match=key):
-        PiperModule({"type": "piper", key: bad})
-    assert fakes.downloads == []
-
-
-def test_voice_and_model_together_raise(fakes):
-    with pytest.raises(ConfigError, match="not both"):
-        PiperModule(
-            {"type": "piper", "voice": "en_US-ljspeech-medium", "model": "m.onnx"}
-        )
-
-
 @pytest.mark.parametrize(
-    "bad", ["ljspeech", "en_US-ljspeech", "en_US--medium", "a-b-c-d"]
+    "config, match",
+    [
+        ({"voice": ""}, "voice"),
+        ({"model": ""}, "model"),
+        ({"voice": "en_US-ljspeech-medium", "model": "m.onnx"}, "not both"),
+        ({"voice": "ljspeech"}, "voice"),
+        ({"voice": "en_US-ljspeech"}, "voice"),
+        ({"voice": "en_US--medium"}, "voice"),
+        ({"voice": "a-b-c-d"}, "voice"),
+        ({"model": "hf://owner/repo"}, "model"),
+        ({"model": "hf://o//v.onnx"}, "model"),
+        ({"model": "hf://o/r/v.onnx@"}, "model"),
+        ({"speaker": -1}, "speaker"),
+        ({"speaker": True}, "speaker"),
+        ({"speaker": ""}, "speaker"),
+        ({"speaker": 1.5}, "speaker"),
+        ({"speed": 0.4}, "speed"),
+        ({"speed": 2.5}, "speed"),
+    ],
 )
-def test_malformed_voice_key_raises(fakes, bad):
-    with pytest.raises(ConfigError, match="voice"):
-        PiperModule({"type": "piper", "voice": bad})
+def test_invalid_config_raises_before_any_download(fakes, config, match):
+    with pytest.raises(ConfigError, match=match):
+        PiperModule({"type": "piper", **config})
     assert fakes.downloads == []
-
-
-@pytest.mark.parametrize(
-    "bad", ["hf://owner/repo", "hf://o//v.onnx", "hf://o/r/v.onnx@"]
-)
-def test_malformed_hf_model_raises(fakes, bad):
-    with pytest.raises(ConfigError, match="model"):
-        PiperModule({"type": "piper", "model": bad})
-    assert fakes.downloads == []
-
-
-@pytest.mark.parametrize("bad", [-1, True, "", 1.5])
-def test_invalid_speaker_raises(fakes, bad):
-    with pytest.raises(ConfigError, match="speaker"):
-        PiperModule({"type": "piper", "speaker": bad})
-    assert fakes.downloads == []
-
-
-@pytest.mark.parametrize("bad", [0.4, 2.5, True, "1"])
-def test_invalid_speed_raises(fakes, bad):
-    with pytest.raises(ConfigError, match="speed"):
-        PiperModule({"type": "piper", "speed": bad})
-    assert fakes.downloads == []
-
-
-# --- lazy import gate --------------------------------------------------------
-
-
-def test_missing_extra_raises_config_error(monkeypatch):
-    _install_fakes(monkeypatch, _Fakes(), piper=False)
-    with pytest.raises(ConfigError, match=r"piper extra"):
-        PiperModule({"type": "piper"})
 
 
 # --- voice files -------------------------------------------------------------
 
 
 def test_default_voice_downloads_the_pinned_pair(fakes):
+    fakes.sample_rate = 16000  # not the default voice's 22050: read from the voice
     module = PiperModule({"type": "piper"})
     path = "en/en_US/ljspeech/medium/en_US-ljspeech-medium.onnx"
     assert fakes.downloads == [
@@ -223,7 +190,7 @@ def test_default_voice_downloads_the_pinned_pair(fakes):
             f"/cache/rhasspy/piper-voices/{path}.json",
         )
     ]
-    assert module.sample_rate == 22050
+    assert module.sample_rate == 16000
 
 
 def test_voice_key_maps_to_its_catalog_path(fakes):
@@ -342,11 +309,6 @@ def test_only_set_options_reach_synthesis(fakes):
 # --- synthesize_text ---------------------------------------------------------
 
 
-def test_sample_rate_is_the_voices(fakes):
-    fakes.sample_rate = 16000
-    assert PiperModule({"type": "piper"}).sample_rate == 16000
-
-
 def test_one_call_per_sentence_and_pcm_unchanged(fakes):
     received = bytearray()
     _say(PiperModule({"type": "piper"}), "Hello world. How are you?", received.extend)
@@ -371,14 +333,6 @@ def test_synthesis_error_is_a_tts_error(fakes):
     fakes.synth_error = RuntimeError("inference boom")
     with pytest.raises(TTSError, match="inference boom"):
         _say(PiperModule({"type": "piper"}), "Hi.")
-
-
-def test_callback_error_propagates_unchanged(fakes):
-    def bad_callback(_b):
-        raise ValueError("playback failed")
-
-    with pytest.raises(ValueError, match="playback failed"):
-        _say(PiperModule({"type": "piper"}), "Hi. Bye.", bad_callback)
 
 
 # --- cancellation ------------------------------------------------------------
@@ -409,12 +363,8 @@ async def test_cancel_stops_callbacks_and_further_synthesis(fakes):
     await first.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await task
-
-    settled, calls = count(), len(fakes.synth_calls)
-    await asyncio.sleep(0.15)  # longer than the producer's poll interval
-    assert count() == settled < 1000
-    assert len(fakes.synth_calls) == calls <= 2  # playing one, one ahead at most
+        await asyncio.wait_for(task, timeout=5)
+    assert count() < 1000  # `stop` reached the slice feeder mid-sentence
 
 
 async def test_text_stream_cancel_mid_audio_stops_callbacks(fakes):
@@ -433,26 +383,38 @@ async def test_text_stream_cancel_mid_audio_stops_callbacks(fakes):
     await first.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await task
-
-    settled = count()
-    await asyncio.sleep(0.05)
-    assert count() == settled < 1000
+        await asyncio.wait_for(task, timeout=5)
+    assert count() < 1000
     assert [text for text, _ in fakes.synth_calls] == ["Hello world."]
 
 
 # --- synthesize_text_stream --------------------------------------------------
 
 
-def test_text_stream_synthesizes_once_per_sentence(fakes):
+async def test_text_stream_synthesizes_once_per_sentence_before_the_source_finishes(
+    fakes,
+):
+    # Sentences split across pieces, and a source that only goes on once the
+    # first sentence's audio is fed: a module that waited for the whole text
+    # would deadlock here.
     module = PiperModule({"type": "piper"})
+    loop = asyncio.get_running_loop()
+    got_audio = asyncio.Event()
+    received = bytearray()
+
+    def callback(chunk: bytes) -> None:
+        received.extend(chunk)
+        loop.call_soon_threadsafe(got_audio.set)
 
     async def source():
-        for piece in ["Hello wor", "ld. How are", " you? Fine"]:
-            yield piece
+        yield "Hello wor"
+        yield "ld. How are"
+        await got_audio.wait()
+        yield " you? Fine"
 
-    received = bytearray()
-    asyncio.run(module.synthesize_text_stream(source(), TTSOptions(), received.extend))
+    await asyncio.wait_for(
+        module.synthesize_text_stream(source(), TTSOptions(), callback), timeout=5
+    )
     assert [text for text, _ in fakes.synth_calls] == [
         "Hello world.",
         "How are you?",
@@ -461,40 +423,12 @@ def test_text_stream_synthesizes_once_per_sentence(fakes):
     assert bytes(received) == fakes.pcm * 3
 
 
-async def test_text_stream_feeds_first_sentence_before_the_source_finishes(fakes):
-    module = PiperModule({"type": "piper"})
-    loop = asyncio.get_running_loop()
-    got_audio = asyncio.Event()
-
-    def callback(_chunk: bytes) -> None:
-        loop.call_soon_threadsafe(got_audio.set)
-
-    async def source():
-        yield "Hello world. "
-        await got_audio.wait()
-        yield "Second one."
-
-    await asyncio.wait_for(
-        module.synthesize_text_stream(source(), TTSOptions(), callback), timeout=5
-    )
-    assert [text for text, _ in fakes.synth_calls] == ["Hello world.", "Second one."]
-
-
-def test_next_sentence_is_synthesized_while_the_current_one_plays(fakes):
-    second = threading.Event()
-    fakes.on_synthesize = lambda text: second.set() if text == "Two here." else None
-    overlapped: list[bool] = []
-
-    def callback(_b: bytes) -> None:
-        if not overlapped:
-            overlapped.append(second.wait(timeout=2))
-
-    _say(PiperModule({"type": "piper"}), "One here. Two here.", callback)
-    assert overlapped == [True]
-
-
 def test_close_drops_the_voice(fakes):
     module = PiperModule({"type": "piper"})
-    (voice,) = fakes.instances
+    voice = weakref.ref(fakes.instances.pop())
+    gc.collect()
+    assert voice() is not None  # the module holds it until closed
+
     module.close()
-    assert all(value is not voice for value in vars(module).values())
+    gc.collect()
+    assert voice() is None

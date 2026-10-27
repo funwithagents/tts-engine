@@ -6,9 +6,11 @@ validation runs before the lazy import.
 """
 
 import asyncio
+import gc
 import sys
 import time
 import types
+import weakref
 from pathlib import Path
 
 import numpy as np
@@ -103,24 +105,19 @@ def _default_voice(language, config=None, checkpoint=None):
     return "alba" if language is None else f"default-{language}"
 
 
-def _install_fakes(monkeypatch, *, cuda: bool = False, pocket: bool = True) -> None:
+def _install_fakes(monkeypatch, *, cuda: bool = False) -> None:
     # SimpleNamespace (not ModuleType) so arbitrary attrs assign cleanly; the
     # import machinery returns whatever object sits in sys.modules.
     torch_mod = types.SimpleNamespace(
         cuda=types.SimpleNamespace(is_available=lambda: cuda)
     )
     monkeypatch.setitem(sys.modules, "torch", torch_mod)
-    if pocket:
-        defaults_mod = types.SimpleNamespace(
-            get_default_voice_for_language=_default_voice
-        )
-        pocket_mod = types.SimpleNamespace(
-            TTSModel=_FakeTTSModel, default_parameters=defaults_mod
-        )
-        monkeypatch.setitem(sys.modules, "pocket_tts", pocket_mod)
-        monkeypatch.setitem(sys.modules, "pocket_tts.default_parameters", defaults_mod)
-    else:
-        monkeypatch.setitem(sys.modules, "pocket_tts", None)  # -> ImportError
+    defaults_mod = types.SimpleNamespace(get_default_voice_for_language=_default_voice)
+    pocket_mod = types.SimpleNamespace(
+        TTSModel=_FakeTTSModel, default_parameters=defaults_mod
+    )
+    monkeypatch.setitem(sys.modules, "pocket_tts", pocket_mod)
+    monkeypatch.setitem(sys.modules, "pocket_tts.default_parameters", defaults_mod)
 
 
 @pytest.fixture
@@ -134,93 +131,53 @@ def fresh_model(monkeypatch):
 # --- config validation (no fake needed: runs before the lazy import) ---------
 
 
-@pytest.mark.parametrize("bad", ["", 123, None])
-def test_invalid_voice_raises(bad):
-    with pytest.raises(ConfigError, match="voice"):
-        PocketModule({"type": "pocket", "voice": bad})
-
-
-def test_invalid_language_raises():
-    with pytest.raises(ConfigError, match="language"):
-        PocketModule({"type": "pocket", "language": ""})
-
-
-@pytest.mark.parametrize("device", ["gpu", [], 1])
-def test_invalid_device_raises(device):
-    with pytest.raises(ConfigError, match="device"):
-        PocketModule({"type": "pocket", "device": device})
-
-
-@pytest.mark.parametrize("bad", ["", 7])
-def test_invalid_config_raises(bad):
-    with pytest.raises(ConfigError, match="config"):
-        PocketModule({"type": "pocket", "config": bad})
-
-
-def test_language_and_config_together_raise():
-    with pytest.raises(ConfigError, match="not both"):
-        PocketModule({"type": "pocket", "language": "french", "config": "m.yaml"})
-
-
-@pytest.mark.parametrize("bad", [1, "yes", None])
-def test_invalid_quantize_raises(bad):
-    with pytest.raises(ConfigError, match="quantize"):
-        PocketModule({"type": "pocket", "quantize": bad})
-
-
-@pytest.mark.parametrize("device", ["cuda", "mps"])
-def test_quantize_on_a_gpu_device_raises(device):
-    with pytest.raises(ConfigError, match="CPU-only"):
-        PocketModule({"type": "pocket", "quantize": True, "device": device})
-
-
-@pytest.mark.parametrize("bad", [-0.1, True, "0.3", float("nan"), float("inf")])
-def test_invalid_temperature_raises(bad):
-    with pytest.raises(ConfigError, match="temperature"):
-        PocketModule({"type": "pocket", "temperature": bad})
-
-
-@pytest.mark.parametrize("bad", [0, -1, True, "5"])
-def test_invalid_max_tokens_raises(bad):
-    with pytest.raises(ConfigError, match="max_tokens"):
-        PocketModule({"type": "pocket", "max_tokens": bad})
-
-
-# --- lazy import gate --------------------------------------------------------
-
-
-def test_missing_extra_raises_config_error(monkeypatch):
-    _install_fakes(monkeypatch, pocket=False)
-    with pytest.raises(ConfigError, match=r"pocket extra"):
-        PocketModule({"type": "pocket"})
+@pytest.mark.parametrize(
+    "config, match",
+    [
+        ({"voice": ""}, "voice"),
+        ({"voice": 123}, "voice"),
+        ({"voice": None}, "voice"),
+        ({"language": ""}, "language"),
+        ({"device": "gpu"}, "device"),
+        ({"device": []}, "device"),
+        ({"device": 1}, "device"),
+        ({"config": ""}, "config"),
+        ({"language": "french", "config": "m.yaml"}, "not both"),
+        ({"quantize": 1}, "quantize"),
+        ({"quantize": "yes"}, "quantize"),
+        ({"quantize": None}, "quantize"),
+        ({"quantize": True, "device": "cuda"}, "CPU-only"),
+        ({"quantize": True, "device": "mps"}, "CPU-only"),
+        ({"temperature": -0.1}, "temperature"),
+        ({"max_tokens": 0}, "max_tokens"),
+        ({"max_tokens": -1}, "max_tokens"),
+        ({"max_tokens": True}, "max_tokens"),
+        ({"max_tokens": "5"}, "max_tokens"),
+    ],
+)
+def test_invalid_config_raises(config, match):
+    with pytest.raises(ConfigError, match=match):
+        PocketModule({"type": "pocket", **config})
 
 
 # --- construction & device ---------------------------------------------------
 
 
-def test_device_auto_resolves_to_cpu_without_cuda(monkeypatch, fresh_model):
-    _install_fakes(monkeypatch, cuda=False)
-    PocketModule({"type": "pocket"})
-    assert fresh_model.moved_to == "cpu"
-
-
-def test_device_auto_resolves_to_cuda_when_available(monkeypatch, fresh_model):
-    _install_fakes(monkeypatch, cuda=True)
-    PocketModule({"type": "pocket"})
-    assert fresh_model.moved_to == "cuda"
-
-
-def test_device_auto_resolves_to_cpu_under_quantize(monkeypatch, fresh_model):
-    _install_fakes(monkeypatch, cuda=True)
-    PocketModule({"type": "pocket", "quantize": True})
-    assert fresh_model.moved_to == "cpu"
-    assert fresh_model.load_kwargs == {"quantize": True}
-
-
-def test_explicit_device_used_verbatim(monkeypatch, fresh_model):
-    _install_fakes(monkeypatch, cuda=False)
-    PocketModule({"type": "pocket", "device": "mps"})
-    assert fresh_model.moved_to == "mps"
+@pytest.mark.parametrize(
+    "cuda, config, device, load_kwargs",
+    [
+        (False, {}, "cpu", {}),
+        (True, {}, "cuda", {}),
+        (True, {"quantize": True}, "cpu", {"quantize": True}),
+        (False, {"device": "mps"}, "mps", {}),
+    ],
+    ids=["auto-no-cuda", "auto-cuda", "auto-quantize", "explicit"],
+)
+def test_device_resolution(monkeypatch, fresh_model, cuda, config, device, load_kwargs):
+    _install_fakes(monkeypatch, cuda=cuda)
+    PocketModule({"type": "pocket", **config})
+    assert fresh_model.moved_to == device
+    assert fresh_model.load_kwargs == load_kwargs
 
 
 def test_defaults_and_forwarding(monkeypatch, fresh_model):
@@ -328,19 +285,6 @@ def test_stream_wraps_backend_error_in_tts_error(monkeypatch, fresh_model):
         asyncio.run(module.synthesize_text("hi", TTSOptions(), lambda _b: None))
 
 
-def test_stream_does_not_mask_callback_errors(monkeypatch, fresh_model):
-    _install_fakes(monkeypatch)
-    module = PocketModule({"type": "pocket"})
-
-    def bad_callback(_b):
-        raise ValueError("playback failed")
-
-    import asyncio
-
-    with pytest.raises(ValueError, match="playback failed"):
-        asyncio.run(module.synthesize_text("hi", TTSOptions(), bad_callback))
-
-
 def test_callback_failure_stops_the_library_generation(monkeypatch, fresh_model):
     # A sink failure ends the utterance: the library's generation thread must
     # be told to stop (as on cancel), not left running the sentence out in the
@@ -360,7 +304,9 @@ def test_callback_failure_stops_the_library_generation(monkeypatch, fresh_model)
     assert fresh_model.finished == [True]
 
 
-async def test_cancel_runs_the_library_generator_to_its_end(monkeypatch, fresh_model):
+async def test_cancel_stops_the_library_and_runs_its_generator_to_its_end(
+    monkeypatch, fresh_model
+):
     # The library joins its decoder thread only when its generator completes:
     # abandoning it at a yield would leave that thread decoding while the
     # model is reused for the next utterance. After `stop`, the module drains
@@ -370,49 +316,17 @@ async def test_cancel_runs_the_library_generator_to_its_end(monkeypatch, fresh_m
     module = PocketModule({"type": "pocket"})
     loop = asyncio.get_running_loop()
     first_chunk = asyncio.Event()
-    count = 0
 
-    def callback(_chunk: bytes) -> None:
-        nonlocal count
-        count += 1
-        loop.call_soon_threadsafe(first_chunk.set)
-
-    task = asyncio.create_task(module.synthesize_text("hi", TTSOptions(), callback))
+    task = asyncio.create_task(
+        module.synthesize_text("hi", TTSOptions(), _signal(loop, first_chunk))
+    )
     await first_chunk.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await task
+        await asyncio.wait_for(task, timeout=5)
 
-    assert fresh_model.finished == [True]
-    settled = count
-    await asyncio.sleep(0.05)
-    assert count == settled  # the drained frame was never fed
-
-
-async def test_cancel_stops_callbacks_before_stream_raises(monkeypatch, fresh_model):
-    _install_fakes(monkeypatch)
-    fresh_model.endless = True
-    module = PocketModule({"type": "pocket"})
-
-    loop = asyncio.get_running_loop()
-    first_chunk = asyncio.Event()
-    count = 0
-
-    def callback(_chunk: bytes) -> None:
-        nonlocal count
-        count += 1
-        loop.call_soon_threadsafe(first_chunk.set)
-
-    task = asyncio.create_task(module.synthesize_text("hi", TTSOptions(), callback))
-    await first_chunk.wait()
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-
-    settled = count
-    await asyncio.sleep(0.05)
-    assert count == settled
     assert fresh_model.stops[0].is_set()  # the library's generation was told too
+    assert fresh_model.finished == [True]
 
 
 def _signal(loop: asyncio.AbstractEventLoop, event: asyncio.Event):
@@ -427,77 +341,74 @@ def _signal(loop: asyncio.AbstractEventLoop, event: asyncio.Event):
 # --- text stream -------------------------------------------------------------
 
 
-def test_text_stream_runs_inference_per_sentence(monkeypatch, fresh_model):
-    _install_fakes(monkeypatch)
-    module = PocketModule({"type": "pocket"})
-
-    async def source():
-        for piece in ["Hello wor", "ld. How are", " you? Fine"]:
-            yield piece
-
-    received = bytearray()
-    asyncio.run(module.synthesize_text_stream(source(), TTSOptions(), received.extend))
-
-    assert fresh_model.texts == ["Hello world.", "How are you?", "Fine"]
-    assert len(received) == 3 * 2 * 5  # five int16 samples per fake generation
-
-
-async def test_text_stream_feeds_first_sentence_before_the_source_finishes(
+async def test_text_stream_runs_inference_per_sentence_before_the_source_finishes(
     monkeypatch, fresh_model
 ):
+    # Sentences split across pieces, and a source that only goes on once the
+    # first sentence's audio is fed: a module that waited for the whole text
+    # would deadlock here.
     _install_fakes(monkeypatch)
     module = PocketModule({"type": "pocket"})
     loop = asyncio.get_running_loop()
     got_audio = asyncio.Event()
 
     async def source():
-        yield "Hello world. "
+        yield "Hello wor"
+        yield "ld. How are"
         await got_audio.wait()
-        yield "Second one."
+        yield " you? Fine"
+
+    received = bytearray()
+
+    def callback(chunk: bytes) -> None:
+        received.extend(chunk)
+        loop.call_soon_threadsafe(got_audio.set)
 
     await asyncio.wait_for(
-        module.synthesize_text_stream(source(), TTSOptions(), _signal(loop, got_audio)),
-        timeout=5,
+        module.synthesize_text_stream(source(), TTSOptions(), callback), timeout=5
     )
-    assert fresh_model.texts == ["Hello world.", "Second one."]
+    assert fresh_model.texts == ["Hello world.", "How are you?", "Fine"]
+    assert len(received) == 3 * 2 * 5  # five int16 samples per fake generation
 
 
-async def test_text_stream_cancel_mid_audio_stops_callbacks_before_raising(
-    monkeypatch, fresh_model
-):
+async def test_text_stream_cancel_mid_audio_stops_the_library(monkeypatch, fresh_model):
     _install_fakes(monkeypatch)
     fresh_model.endless = True  # the first sentence's audio never ends
     module = PocketModule({"type": "pocket"})
     loop = asyncio.get_running_loop()
     first_chunk = asyncio.Event()
-    count = 0
-
-    def callback(_chunk: bytes) -> None:
-        nonlocal count
-        count += 1
-        loop.call_soon_threadsafe(first_chunk.set)
 
     async def source():
         yield "Hello world. "  # a complete sentence: inference starts
         await asyncio.Event().wait()  # then the source stays open
 
     task = asyncio.create_task(
-        module.synthesize_text_stream(source(), TTSOptions(), callback)
+        module.synthesize_text_stream(
+            source(), TTSOptions(), _signal(loop, first_chunk)
+        )
     )
     await first_chunk.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await task
+        await asyncio.wait_for(task, timeout=5)
 
-    settled = count
-    await asyncio.sleep(0.05)
-    assert count == settled
     assert fresh_model.texts == ["Hello world."]
     assert fresh_model.stops[0].is_set()
+    assert fresh_model.finished == [True]
 
 
-def test_close_drops_the_model(monkeypatch, fresh_model):
+def test_close_drops_the_model(monkeypatch):
     _install_fakes(monkeypatch)
+    model = _FakeModel()
+    monkeypatch.setattr(_FakeTTSModel, "instance", model)
     module = PocketModule({"type": "pocket"})
+    # Only the module holds the model now (monkeypatch restores the original).
+    _FakeTTSModel.instance = _FakeModel()
+    ref = weakref.ref(model)
+    del model
+    gc.collect()
+    assert ref() is not None
+
     module.close()
-    assert all(value is not fresh_model for value in vars(module).values())
+    gc.collect()
+    assert ref() is None

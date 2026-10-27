@@ -126,70 +126,32 @@ def test_missing_extra_raises_config_error(monkeypatch):
 # --- config ------------------------------------------------------------------
 
 
-def test_missing_api_key_raises(fake):
-    with pytest.raises(ConfigError, match="api_key"):
-        OpenAIModule({"type": "openai", "voice": "v"})
-
-
-def test_empty_api_key_raises(fake):
-    with pytest.raises(ConfigError, match="api_key"):
-        OpenAIModule({"type": "openai", "api_key": "", "voice": "v"})
-
-
 def test_api_key_from_env(fake, monkeypatch):
     monkeypatch.setenv("MY_OPENAI_KEY", "from-env")
     OpenAIModule({"type": "openai", "api_key_env": "MY_OPENAI_KEY", "voice": "v"})
     assert fake.client_kwargs == {"api_key": "from-env"}
 
 
-def test_literal_api_key_takes_precedence_over_env(fake, monkeypatch):
-    monkeypatch.setenv("MY_OPENAI_KEY", "from-env")
-    OpenAIModule({**_BASE, "api_key_env": "MY_OPENAI_KEY"})
-    assert fake.client_kwargs == {"api_key": "k"}
-
-
-def test_api_key_env_pointing_to_unset_var_raises(fake, monkeypatch):
-    monkeypatch.delenv("MY_OPENAI_KEY", raising=False)
-    with pytest.raises(ConfigError, match="MY_OPENAI_KEY"):
-        OpenAIModule({"type": "openai", "api_key_env": "MY_OPENAI_KEY", "voice": "v"})
-
-
 @pytest.mark.parametrize(
     ("override", "field"),
     [
-        ({"api_key": 3}, "api_key"),
-        ({"api_key": None, "api_key_env": 3}, "api_key_env"),
         ({"voice": None}, "voice"),
         ({"voice": ""}, "voice"),
         ({"model": ""}, "model"),
-        ({"model": 3}, "model"),
         ({"instructions": ""}, "instructions"),
-        ({"instructions": 3}, "instructions"),
         ({"speed": 0.2}, "speed"),
         ({"speed": 4.5}, "speed"),
-        ({"speed": True}, "speed"),
-        ({"speed": "1"}, "speed"),
-        ({"speed": float("nan")}, "speed"),
         ({"base_url": ""}, "base_url"),
-        ({"base_url": 3}, "base_url"),
         ({"sample_rate": 0, "base_url": "http://x/v1"}, "sample_rate"),
         ({"sample_rate": 24000.0}, "sample_rate"),
         ({"sample_rate": True}, "sample_rate"),
         ({"sample_rate": 44100}, "base_url"),  # OpenAI itself is fixed at 24 kHz
         ({"timeout": 0}, "timeout"),
-        ({"timeout": True}, "timeout"),
-        ({"timeout": "30"}, "timeout"),
-        ({"timeout": float("nan")}, "timeout"),
     ],
 )
 def test_invalid_field_raises_config_error(fake, override, field):
     with pytest.raises(ConfigError, match=field):
         OpenAIModule({**_BASE, **override})
-
-
-def test_timeout_reaches_the_request(fake):
-    _say(OpenAIModule({**_BASE, "timeout": 5}))
-    assert fake.requests[0]["timeout"] == 5.0
 
 
 def test_base_url_reaches_the_client_only_when_set(fake):
@@ -202,17 +164,10 @@ def test_base_url_reaches_the_client_only_when_set(fake):
     }
 
 
-def test_sample_rate_defaults_to_24k(fake):
-    assert OpenAIModule(_BASE).sample_rate == 24000
-
-
-def test_sample_rate_declares_a_compatible_servers_rate(fake):
-    module = OpenAIModule({**_BASE, "base_url": "http://x/v1", "sample_rate": 44100})
-    assert module.sample_rate == 44100
-
-
 def test_defaults_reach_the_request(fake):
-    _say(OpenAIModule(_BASE))
+    module = OpenAIModule(_BASE)
+    _say(module)
+    assert module.sample_rate == 24000
     assert fake.requests == [
         {
             "input": "Hi.",
@@ -226,13 +181,23 @@ def test_defaults_reach_the_request(fake):
 
 def test_custom_values_reach_the_request(fake):
     module = OpenAIModule(
-        {**_BASE, "model": "tts-1", "instructions": "Whisper.", "speed": 2}
+        {
+            **_BASE,
+            "model": "tts-1",
+            "instructions": "Whisper.",
+            "speed": 2,
+            "timeout": 5,
+            "base_url": "http://x/v1",
+            "sample_rate": 44100,  # declares a compatible server's rate
+        }
     )
     _say(module)
+    assert module.sample_rate == 44100
     request = fake.requests[0]
     assert request["model"] == "tts-1"
     assert request["instructions"] == "Whisper."
     assert request["speed"] == 2.0
+    assert request["timeout"] == 5.0
 
 
 # --- synthesize_text ---------------------------------------------------------
@@ -245,13 +210,32 @@ def test_chunks_reach_the_callback_unchanged(fake):
     assert fake.responses[0].closed
 
 
-def test_odd_byte_is_carried_over_and_trailing_half_sample_dropped(fake):
-    raw = _pcm([100, -200, 300])
-    fake.chunks = [raw[:5], raw[5:], b"\x07"]
+@pytest.mark.parametrize(
+    ("config", "slice_samples"),
+    [
+        pytest.param(_BASE, 2400, id="24k"),
+        pytest.param(
+            {**_BASE, "base_url": "http://x/v1", "sample_rate": 44100},
+            4410,
+            id="declared-44k1",
+        ),
+    ],
+)
+def test_odd_byte_is_carried_over_and_audio_fed_in_100ms_slices(
+    fake, config, slice_samples
+):
+    # 200 ms of audio, the first chunk ending mid-sample past one 100 ms slice,
+    # then a lone trailing byte: one feeder spans the utterance, slicing at the
+    # declared rate, and the half sample at the end is dropped.
+    samples = np.arange(2 * slice_samples) % 1000
+    raw = _pcm(samples)
+    split = 2 * (slice_samples + slice_samples // 2) + 1
+    fake.chunks = [raw[:split], raw[split:], b"\x07"]
     chunks: list[bytes] = []
-    _say(OpenAIModule(_BASE), chunks.append)
-    assert all(len(c) % 2 == 0 for c in chunks)
-    assert _samples(b"".join(chunks)) == [100, -200, 300]
+    _say(OpenAIModule(config), chunks.append)
+    half = slice_samples // 2
+    assert [len(c) for c in chunks] == [2 * slice_samples, 2 * half, 2 * half]
+    assert _samples(b"".join(chunks)) == samples.tolist()
 
 
 def test_body_shorter_than_the_wav_check_is_fed(fake):
@@ -259,21 +243,6 @@ def test_body_shorter_than_the_wav_check_is_fed(fake):
     received = bytearray()
     _say(OpenAIModule(_BASE), received.extend)
     assert _samples(bytes(received)) == [9]
-
-
-def test_large_chunk_is_fed_in_100ms_slices(fake):
-    fake.chunks = [_pcm(np.ones(48000))]  # 2 s at 24 kHz
-    chunks: list[bytes] = []
-    _say(OpenAIModule(_BASE), chunks.append)
-    assert [len(c) for c in chunks] == [4800] * 20  # 2400 int16 samples each
-
-
-def test_slices_follow_the_declared_sample_rate(fake):
-    fake.chunks = [_pcm(np.ones(44100))]  # 1 s at 44.1 kHz
-    module = OpenAIModule({**_BASE, "base_url": "http://x/v1", "sample_rate": 44100})
-    chunks: list[bytes] = []
-    _say(module, chunks.append)
-    assert [len(c) for c in chunks] == [8820] * 10
 
 
 def test_blank_text_makes_no_request(fake):
@@ -314,17 +283,6 @@ def test_callback_error_propagates_unchanged_and_closes(fake):
     assert fake.responses[0].closed
 
 
-def test_callback_error_wins_over_a_failing_close(fake):
-    fake.raise_on_close = RuntimeError("connection teardown failed")
-
-    def bad_callback(_b: bytes) -> None:
-        raise ValueError("playback failed")
-
-    with pytest.raises(ValueError, match="playback failed"):
-        _say(OpenAIModule(_BASE), bad_callback)
-    assert fake.responses[0].closed
-
-
 async def test_cancel_closes_the_response_before_cancelled_error(fake):
     module = OpenAIModule(_BASE)
     fake.block = threading.Event()
@@ -336,76 +294,37 @@ async def test_cancel_closes_the_response_before_cancelled_error(fake):
     task.cancel()
     fake.block.set()  # let the pending chunk return so the worker sees `stop`
     with pytest.raises(asyncio.CancelledError):
-        await task
+        await asyncio.wait_for(task, timeout=5)
     assert fake.responses[0].closed
 
 
 # --- synthesize_text_stream --------------------------------------------------
 
 
-def test_text_stream_requests_per_sentence(fake):
-    async def source():
-        for piece in ["Hello wor", "ld. How are", " you? Fine"]:
-            yield piece
-
-    received = bytearray()
-    _run(
-        OpenAIModule(_BASE).synthesize_text_stream(
-            source(), TTSOptions(), received.extend
-        )
-    )
-
-    assert fake.texts == ["Hello world.", "How are you?", "Fine"]
-    assert len(received) == 3 * 2 * 5  # five int16 samples per fake response
-    assert all(response.closed for response in fake.responses)
-
-
-async def test_text_stream_feeds_first_sentence_before_the_source_finishes(fake):
+async def test_text_stream_requests_per_sentence_as_the_source_arrives(fake):
+    # Split pieces are grouped into sentences, and the first is spoken before
+    # the source finishes: it is gated on that sentence's audio.
     module = OpenAIModule(_BASE)
     loop = asyncio.get_running_loop()
     got_audio = asyncio.Event()
+    received = bytearray()
 
-    def callback(_chunk: bytes) -> None:
+    def callback(chunk: bytes) -> None:
+        received.extend(chunk)
         loop.call_soon_threadsafe(got_audio.set)
 
     async def source():
-        yield "Hello world. "
+        yield "Hello wor"
+        yield "ld. How are"
         await got_audio.wait()
-        yield "Second one."
+        yield " you? Fine"
 
     await asyncio.wait_for(
         module.synthesize_text_stream(source(), TTSOptions(), callback), timeout=5
     )
-    assert fake.texts == ["Hello world.", "Second one."]
-
-
-async def test_text_stream_cancel_closes_the_response_before_cancelled_error(fake):
-    module = OpenAIModule(_BASE)
-    fake.block = threading.Event()
-    count = 0
-
-    def callback(_chunk: bytes) -> None:
-        nonlocal count
-        count += 1
-
-    async def source():
-        yield "Hi. "  # a complete sentence: its request opens
-        await asyncio.Event().wait()  # then the source stays open
-
-    task = asyncio.create_task(
-        module.synthesize_text_stream(source(), TTSOptions(), callback)
-    )
-    await asyncio.to_thread(fake.reached.wait, 5)
-    task.cancel()
-    fake.block.set()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-
-    settled = count
-    await asyncio.sleep(0.05)
-    assert count == settled
-    assert fake.responses[0].closed
-    assert fake.texts == ["Hi."]
+    assert fake.texts == ["Hello world.", "How are you?", "Fine"]
+    assert len(received) == 3 * 2 * 5  # five int16 samples per fake response
+    assert all(response.closed for response in fake.responses)
 
 
 def test_close_closes_the_sdk_client(fake):

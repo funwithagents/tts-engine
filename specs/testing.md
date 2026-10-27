@@ -59,6 +59,20 @@ The `tests/` tier mirrors the `src/tts_engine/` module layout (`test_<module>.py
 
 Delete or merge a test if it: asserts a private implementation attribute; is fully subsumed by another test in the same file; checks something that cannot break independently; or is one of N near-identical tests differing only in which field they check. Tests should drive public methods such as `FastMCP.call_tool`; provider configuration is observed through the arguments sent to the provider client.
 
+### Shared helpers are tested once
+
+The helpers in `modules/base.py` (the worker runners, `segment_sentences`, `feed_with_lookahead`, `cleanup`, `open_cancellable`, `resolve_path`, `resolve_api_key`, `optional_str`/`finite_number`, `float_to_int16_pcm`, `PCMFeeder`) carry their full behavioural matrix in `tests/modules/test_tts_module_interface.py`. A module's test file does **not** repeat that matrix; it keeps only what the module itself decides:
+
+- **One wiring test per helper the module uses**, proving it calls the helper with its own arguments — the resolved key reaches the SDK client; the feeder spans the whole utterance (a sample split across two chunks) and slices at the module's declared rate; the text stream is consumed incrementally (the first sentence is spoken before the source ends).
+- **One validation row per field and per bound** the module chooses (plus its `null` policy where it picked one); not the helper's bool/string/NaN/infinity variants.
+- **Every path the module handles itself** — protocol messages, ordering, error mapping, its own close/teardown.
+
+The same discipline applies when the suite changes: a refactor that moves code into a shared helper deletes, in the same change, the module tests the helper's tests now cover; a fix for a reviewed path extends the existing test for that path rather than adding a near-copy beside it.
+
+### No settle sleeps, no real poll intervals
+
+A cancel test does not sleep after `CancelledError` to check that nothing more is fed: the worker runners join the thread before raising, and the interface tests prove it. It asserts what the module does on cancel (the stream closed, `stop` reached the library) and wraps the call in `asyncio.wait_for` so a regression fails instead of hanging. A module that polls (`_POLL_SECONDS`, `_RECV_POLL_SECONDS`) has the constant patched down in its test fixture, so a test waits on the module's logic, not on wall-clock ticks.
+
 ### Speed budget
 
 The full unit tier (`uv run pytest tests/`) must complete in under 5 seconds. If a test needs the network, a real device, or a sleep to pass, it belongs in `tests-e2e/`, not here.
