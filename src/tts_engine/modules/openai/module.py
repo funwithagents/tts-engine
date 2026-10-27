@@ -12,7 +12,6 @@ complete input per request, so a text stream is grouped into sentences (see
 specs/modules/openai.md).
 """
 
-import contextlib
 import logging
 import math
 import os
@@ -24,6 +23,7 @@ from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    cleanup,
     run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
@@ -33,6 +33,7 @@ log = logging.getLogger(__name__)
 
 _DEFAULT_SAMPLE_RATE = 24000
 _DEFAULT_MODEL = "gpt-4o-mini-tts"
+_DEFAULT_TIMEOUT = 30.0
 _MIN_SPEED, _MAX_SPEED = 0.25, 4.0
 # A WAV body (some compatible servers ignore `response_format`) starts with this.
 _WAV_MAGIC = b"RIFF"
@@ -81,6 +82,15 @@ class OpenAIModule(TTSModule):
 
         base_url = _optional_str(config, "base_url")
 
+        timeout = config.get("timeout", _DEFAULT_TIMEOUT)
+        if (
+            isinstance(timeout, bool)
+            or not isinstance(timeout, int | float)
+            or not math.isfinite(timeout)
+            or timeout <= 0
+        ):
+            raise ConfigError("OpenAI module 'timeout' must be a finite number > 0")
+
         sample_rate = config.get("sample_rate", _DEFAULT_SAMPLE_RATE)
         if (
             isinstance(sample_rate, bool)
@@ -100,11 +110,15 @@ class OpenAIModule(TTSModule):
         # whole chunk, and `stop` is polled between slices.
         self._slice_bytes = 2 * max(1, sample_rate // 10)
 
-        # Only the fields that were set: the server's own defaults apply to the rest.
+        # Only the fields that were set: the server's own defaults apply to the
+        # rest. `timeout` bounds the wait for the response and for each read
+        # of the body, so a stalled request fails instead of holding the
+        # worker (and a cancel) for the SDK's 600 s default.
         self._request_kwargs: dict = {
             "model": model,
             "voice": voice,
             "response_format": "pcm",
+            "timeout": float(timeout),
         }
         if instructions is not None:
             self._request_kwargs["instructions"] = instructions
@@ -155,14 +169,18 @@ class OpenAIModule(TTSModule):
         if not text.strip():
             return  # the API rejects an empty input; nothing to say
 
-        # Leaving the stack closes the HTTP response, on every path.
-        with contextlib.ExitStack() as stack:
+        try:
+            response_cm = self._client.audio.speech.with_streaming_response.create(
+                input=text, **self._request_kwargs
+            )
+            response = response_cm.__enter__()
+        except Exception as exc:
+            raise TTSError(f"OpenAI request failed: {exc}") from exc
+
+        # Leaving the response closes it, on every path; a failing close never
+        # hides the utterance's own error.
+        with cleanup(lambda: response_cm.__exit__(None, None, None), "OpenAI response"):
             try:
-                response = stack.enter_context(
-                    self._client.audio.speech.with_streaming_response.create(
-                        input=text, **self._request_kwargs
-                    )
-                )
                 chunks = response.iter_bytes()
             except Exception as exc:
                 raise TTSError(f"OpenAI request failed: {exc}") from exc

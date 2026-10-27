@@ -19,6 +19,8 @@ from tts_engine.modules.base import TTSError, TTSOptions
 from tts_engine.modules.gemini import GeminiModule
 
 _BASE = {"type": "gemini", "api_key": "k"}
+# The client's default request timeout (30 s, in the SDK's milliseconds).
+_HTTP_OPTIONS = {"http_options": {"timeout": 30000}}
 _MIME = "audio/l16; rate=24000; channels=1"
 
 
@@ -60,6 +62,7 @@ class _FakeBackend:
         ]
         self.raise_on_first: Exception | None = None
         self.raise_after: tuple[int, Exception] | None = None
+        self.raise_on_close: Exception | None = None
         self.block: threading.Event | None = None
         self.reached = threading.Event()
 
@@ -84,6 +87,8 @@ class _FakeBackend:
                 yield chunk
         finally:
             self.closed[index] = True
+            if self.raise_on_close is not None:
+                raise self.raise_on_close
 
 
 @pytest.fixture
@@ -148,13 +153,13 @@ def test_empty_api_key_raises(fake):
 def test_api_key_from_env(fake, monkeypatch):
     monkeypatch.setenv("MY_GEMINI_KEY", "from-env")
     GeminiModule({"type": "gemini", "api_key_env": "MY_GEMINI_KEY"})
-    assert fake.client_kwargs == {"api_key": "from-env"}
+    assert fake.client_kwargs == {"api_key": "from-env", **_HTTP_OPTIONS}
 
 
 def test_literal_api_key_takes_precedence_over_env(fake, monkeypatch):
     monkeypatch.setenv("MY_GEMINI_KEY", "from-env")
     GeminiModule({**_BASE, "api_key_env": "MY_GEMINI_KEY"})
-    assert fake.client_kwargs == {"api_key": "k"}
+    assert fake.client_kwargs == {"api_key": "k", **_HTTP_OPTIONS}
 
 
 def test_api_key_env_pointing_to_unset_var_raises(fake, monkeypatch):
@@ -174,11 +179,20 @@ def test_api_key_env_pointing_to_unset_var_raises(fake, monkeypatch):
         ({"voice": 3}, "voice"),
         ({"language_code": ""}, "language_code"),
         ({"language_code": ["en-US"]}, "language_code"),
+        ({"timeout": 0}, "timeout"),
+        ({"timeout": True}, "timeout"),
+        ({"timeout": "30"}, "timeout"),
+        ({"timeout": float("inf")}, "timeout"),
     ],
 )
 def test_invalid_field_raises_config_error(fake, override, field):
     with pytest.raises(ConfigError, match=field):
         GeminiModule({**_BASE, **override})
+
+
+def test_timeout_reaches_the_client_in_milliseconds(fake):
+    GeminiModule({**_BASE, "timeout": 2.5})
+    assert fake.client_kwargs == {"api_key": "k", "http_options": {"timeout": 2500}}
 
 
 def test_sample_rate_is_24k(fake):
@@ -233,7 +247,13 @@ def test_sample_split_across_parts_is_carried_over(fake):
 
 
 @pytest.mark.parametrize(
-    "mime", ["audio/mpeg", "audio/l16; rate=16000; channels=1", None]
+    "mime",
+    [
+        "audio/mpeg",
+        "audio/l16; rate=16000; channels=1",
+        "audio/l16; rate=24000; channels=2",  # stereo would play as noise
+        None,
+    ],
 )
 def test_unexpected_mime_type_is_tts_error(fake, mime):
     fake.chunks = [_chunk(_part(_pcm([1]), mime=mime))]
@@ -242,8 +262,9 @@ def test_unexpected_mime_type_is_tts_error(fake, mime):
     assert fake.closed == [True]
 
 
-def test_mime_without_rate_is_accepted(fake):
-    fake.chunks = [_chunk(_part(_pcm([1]), mime="audio/L16"))]
+@pytest.mark.parametrize("mime", ["audio/L16", "audio/l16; channels=1; rate=24000"])
+def test_mono_24k_mime_is_accepted_with_or_without_parameters(fake, mime):
+    fake.chunks = [_chunk(_part(_pcm([1]), mime=mime))]
     received = bytearray()
     _say(GeminiModule(_BASE), received.extend)
     assert _samples(bytes(received)) == [1]
@@ -284,6 +305,17 @@ def test_mid_stream_error_is_tts_error_and_closes(fake):
 
 
 def test_callback_error_propagates_unchanged_and_closes(fake):
+    def bad_callback(_b: bytes) -> None:
+        raise ValueError("playback failed")
+
+    with pytest.raises(ValueError, match="playback failed"):
+        _say(GeminiModule(_BASE), bad_callback)
+    assert fake.closed == [True]
+
+
+def test_callback_error_wins_over_a_failing_close(fake):
+    fake.raise_on_close = RuntimeError("connection teardown failed")
+
     def bad_callback(_b: bytes) -> None:
         raise ValueError("playback failed")
 

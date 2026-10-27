@@ -32,6 +32,7 @@ All fields go under the `engine.module` block in `config.json` alongside `"type"
 | `model` | non-empty string | no | `"voxtral-mini-tts-3-0"` | Mistral TTS model id. |
 | `expressiveness` | number | no | — (API default) | Speaker classifier-free guidance scale (the SDK's wording: "speaker flow-matching CFG scale"); finite and `>= 1.0`. |
 | `server_url` | non-empty string | no | — (SDK default `https://api.mistral.ai`) | API base URL, for a regional or self-hosted endpoint. Passed to `Mistral(server_url=...)` only when set. |
+| `timeout` | finite number > 0 (seconds) | no | `30` | Per-request bound passed as the SDK's `timeout_ms` (milliseconds, rounded up): the wait for the response and for each read of the event stream. A stalled request fails as `TTSError` after at most this long, which is also how long a cancel issued during the stall can take ([tts-module-interface.md](../tts-module-interface.md), "What cancellation guarantees"). |
 
 ### API key resolution
 
@@ -44,6 +45,7 @@ Validated at construction, raising `ConfigError` before the SDK client is built:
 - `voice_id`, `model` — non-empty strings (`model` defaults when absent).
 - `expressiveness` — if present, a finite number (not bool) `>= 1.0`.
 - `server_url` — if present, a non-empty string.
+- `timeout` — if present, a finite number (not bool) `> 0`.
 
 `expressiveness` is **omitted from the request when unset**, so the API's own default applies and the module never hardcodes a copy of it. Whether a `voice_id` exists, or a `model` id is valid, is only known to the API: a wrong one fails at the first synthesis as `TTSError` (the API answers 404 `invalid_voice` / 422 `invalid_model`).
 
@@ -90,7 +92,7 @@ The API runs well ahead of real time and sends large deltas (observed: 0.4 s of 
 
 ### Threading and cancellation
 
-Cooperative via `run_cancellable_worker` ([tts-module-interface.md](../tts-module-interface.md), "Cancellation"), exactly the ElevenLabs shape: the worker opens the event stream, polls `stop` between events and between slices, and leaves the `with events:` block on every path — normal end, `stop`, error — which closes the HTTP response so the server drops the request. `synthesize_text` re-raises `CancelledError` only once the thread has exited.
+Cooperative via `run_cancellable_worker` ([tts-module-interface.md](../tts-module-interface.md), "Cancellation"), exactly the ElevenLabs shape: the worker opens the event stream, polls `stop` between events and between slices, and closes the stream on every path — normal end, `stop`, error — through the shared `cleanup` helper, so the server drops the request and a failing close never replaces the utterance's own error. `synthesize_text` re-raises `CancelledError` only once the thread has exited. While the worker is blocked in `next(events)` waiting for the server, it cannot see `stop`: that wait is bounded by `timeout`.
 
 ### Text stream (grouped)
 
@@ -127,7 +129,7 @@ Registered in `REGISTRY` as `"mistral"` ([modules/__init__.py](../../src/tts_eng
 
 ## Testing
 
-- **Unit (`tests/modules/test_mistral.py`)** — `mistralai` is **faked** in `sys.modules` (a stub `Mistral` whose `audio.speech.complete` records its kwargs and returns a scripted event stream with a `closed` flag), so no request is ever made and the fast tier runs without the extra. Covers: `ConfigError` on a missing extra, on a missing/empty key and on each invalid field (parametrized); key resolution (`api_key_env`, literal precedence, unset variable); `server_url` reaching the client only when set; the request kwargs (`response_format="pcm"`, `stream=True`, `model` default, `voice_id`, `expressiveness` only when set); float32 deltas reaching the callback as clipped int16, other events skipped, `speech.audio.done` ending the read; a delta split mid-sample carried over; a 2 s delta fed in 100 ms slices; SDK errors at request time and mid-stream wrapped in `TTSError` with the stream closed, callback errors propagating unchanged; cancellation closing the stream before `CancelledError`; and for `synthesize_text_stream`: one request per sentence, the first sentence's audio reaching the callback before the source has yielded its last piece, and cancellation with the source still open.
+- **Unit (`tests/modules/test_mistral.py`)** — `mistralai` is **faked** in `sys.modules` (a stub `Mistral` whose `audio.speech.complete` records its kwargs and returns a scripted event stream with a `closed` flag), so no request is ever made and the fast tier runs without the extra. Covers: `ConfigError` on a missing extra, on a missing/empty key and on each invalid field (parametrized); key resolution (`api_key_env`, literal precedence, unset variable); `server_url` reaching the client only when set; the request kwargs (`response_format="pcm"`, `stream=True`, `model` default, `voice_id`, `expressiveness` only when set); float32 deltas reaching the callback as clipped int16, other events skipped, `speech.audio.done` ending the read; a delta split mid-sample carried over; a 2 s delta fed in 100 ms slices; SDK errors at request time and mid-stream wrapped in `TTSError` with the stream closed, callback errors propagating unchanged, and a callback error surviving a failing stream close; `timeout` reaching the request as `timeout_ms` (default and set) and invalid values rejected; cancellation closing the stream before `CancelledError`; and for `synthesize_text_stream`: one request per sentence, the first sentence's audio reaching the callback before the source has yielded its last piece, and cancellation with the source still open.
 - **Live (`tests-e2e/test_modules.py`)** — one `MODULES` row (`mistral`, `api_key_env: "MISTRAL_API_KEY"`, the "James" preset voice) plus `_REQUIRED_IMPORT["mistral"] = "mistralai"` in `support.py`, so every per-module scenario runs against the real API and **skips cleanly** when the key or the extra is absent ([testing.md](../testing.md), "Live tier"). CI maps an optional `MISTRAL_API_KEY` secret ([ci.md](../ci.md)).
 
 ## Validated against `mistralai==3.5.0`

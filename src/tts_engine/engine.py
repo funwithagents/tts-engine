@@ -6,7 +6,7 @@ from collections.abc import AsyncIterable, AsyncIterator, Iterable
 from tts_engine.audio import AudioPlayer, AudioSink
 from tts_engine.config import TTSEngineConfig
 from tts_engine.modules import load_module
-from tts_engine.modules.base import TTSOptions
+from tts_engine.modules.base import TTSOptions, cleanup
 
 
 def _as_async_iterator(
@@ -51,15 +51,20 @@ class TTSEngine:
         return self._module.sample_rate
 
     async def say(self, text: str) -> None:
-        """Synthesize the complete `text` and feed it to the sink."""
+        """Synthesize the complete `text` and feed it to the sink.
+
+        The sink is drained exactly once, after the last `feed`, on every
+        path. `drain` runs synchronously on the calling loop, so a sink whose
+        drain blocks (the default player waits for its buffered audio) holds
+        the loop for that long. Synthesis, callback and cancellation outcomes
+        take precedence over a failing drain, which is then only logged.
+        """
         async with self._say_lock:
             options = TTSOptions()
-            try:
+            with cleanup(self._sink.drain, "sink drain"):
                 await self._module.synthesize_text(
                     text, options, callback=self._sink.feed
                 )
-            finally:
-                self._sink.drain()
 
     async def say_stream(self, text_stream: AsyncIterable[str] | Iterable[str]) -> None:
         """Synthesize text as it arrives from `text_stream` (an LLM response,
@@ -74,16 +79,15 @@ class TTSEngine:
         full length of the stream plus the audio tail.
 
         Raises `TTSError` on synthesis failure; an exception raised by the
-        stream itself aborts the utterance and propagates unchanged.
+        stream itself aborts the utterance and propagates unchanged. The sink
+        is drained once at the end, as for `say` (same drain rules).
         """
         if isinstance(text_stream, str):
             raise TypeError("say_stream takes an iterable of text pieces, not a str")
         source = _as_async_iterator(text_stream)
         async with self._say_lock:
             options = TTSOptions()
-            try:
+            with cleanup(self._sink.drain, "sink drain"):
                 await self._module.synthesize_text_stream(
                     source, options, callback=self._sink.feed
                 )
-            finally:
-                self._sink.drain()

@@ -1,6 +1,8 @@
 """TTSModule ABC, TTSOptions, TTSError, and the helpers every backend shares."""
 
 import asyncio
+import contextlib
+import logging
 import queue
 import re
 import threading
@@ -9,6 +11,8 @@ from collections.abc import AsyncIterator, Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 
 class TTSError(Exception):
@@ -139,11 +143,18 @@ async def _join(task: asyncio.Future[Any]) -> None:
 
 _END = object()
 _POLL_SECONDS = 0.05
+# The text bridge holds at most this many characters the worker has not taken
+# yet; past it the pump waits (on the loop, not blocking it) for the worker to
+# catch up, so a fast source cannot run arbitrarily far ahead of playback. One
+# piece larger than the bound still goes through once the queue is empty.
+MAX_PENDING_CHARS = 4096
 
 
 async def run_text_stream_worker(
     text_stream: AsyncIterator[str],
     worker: Callable[[Iterator[str], threading.Event], None],
+    *,
+    max_pending_chars: int = MAX_PENDING_CHARS,
 ) -> None:
     """Run a blocking ``worker(pieces, stop)`` in a thread, fed from an async
     text stream, with cooperative cancellation (see ``run_cancellable_worker``).
@@ -153,24 +164,43 @@ async def run_text_stream_worker(
     ``stop`` is set (so a worker blocked on text still exits promptly). Empty
     pieces are dropped before they reach the worker.
 
-    A pump task on the calling loop consumes ``text_stream`` into a queue. If
-    the stream raises — a ``CancelledError`` of its own included — the
-    utterance is aborted: ``stop`` is set, and once the worker thread has
-    exited the stream's exception is raised unchanged (it is the caller's
-    error, never a ``TTSError``). If the worker fails or returns before the
-    stream is exhausted, the pump is cancelled so the stream is closed early
-    rather than consumed to the end.
+    A pump task on the calling loop consumes ``text_stream`` into a bounded
+    queue: once ``max_pending_chars`` characters are queued and not yet taken
+    by the worker, the pump awaits room (yielding the loop) instead of reading
+    further, so the source sees backpressure and an immediately yielding
+    source cannot starve the loop. If the stream raises — a ``CancelledError``
+    of its own included — the utterance is aborted: ``stop`` is set, and once
+    the worker thread has exited the stream's exception is raised unchanged
+    (it is the caller's error, never a ``TTSError``). If the worker fails or
+    returns before the stream is exhausted, the pump is cancelled so the
+    stream is closed early rather than consumed to the end.
     """
+    loop = asyncio.get_running_loop()
     stop = threading.Event()
     q: queue.Queue[object] = queue.Queue()
     source_error: BaseException | None = None
+    pending = 0  # characters queued and not yet taken; loop thread only
+    room = asyncio.Event()  # set (from the worker thread) when a piece is taken
+
+    def taken(n: int) -> None:
+        nonlocal pending
+        pending -= n
+        room.set()
 
     async def pump() -> None:
-        nonlocal source_error
+        nonlocal source_error, pending
         try:
             async for piece in text_stream:
-                if piece:
-                    q.put(piece)
+                if not piece:
+                    # Give the loop a turn: a source yielding only empty
+                    # pieces without suspending would otherwise spin here.
+                    await asyncio.sleep(0)
+                    continue
+                while pending and pending + len(piece) > max_pending_chars:
+                    room.clear()
+                    await room.wait()
+                pending += len(piece)
+                q.put(piece)
         except asyncio.CancelledError as exc:
             task = asyncio.current_task()
             if task is not None and task.cancelling():
@@ -193,7 +223,9 @@ async def run_text_stream_worker(
                 continue
             if item is _END:
                 return
-            yield item  # type: ignore[misc]
+            assert isinstance(item, str)
+            loop.call_soon_threadsafe(taken, len(item))
+            yield item
 
     pump_task = asyncio.create_task(pump())
     try:
@@ -230,11 +262,15 @@ def segment_sentences(
     """Group text pieces into sentences, yielding each as soon as it is complete.
 
     Pieces are concatenated verbatim. A sentence is yielded (stripped) once the
-    buffer holds terminal punctuation followed by whitespace, or a newline.
-    Past ``max_chars`` with no sentence end, the buffer is cut at the last
-    clause boundary (``,`` ``;`` ``:`` + whitespace), else at the last
-    whitespace, never inside a word. The remainder is yielded at end of input.
-    Blank segments are never yielded.
+    buffer holds terminal punctuation followed by whitespace, or a newline,
+    within its first ``max_chars`` characters. Once the buffer is longer than
+    ``max_chars`` with no sentence end in that window, it is cut inside the
+    window at the last clause boundary (``,`` ``;`` ``:`` + whitespace), else
+    at the last whitespace, never inside a word; a single word longer than
+    ``max_chars`` is the one segment allowed past the bound (cut at the first
+    whitespace after it). So no segment exceeds ``max_chars`` except such a
+    word, however the input is chunked. The remainder is yielded at end of
+    input. Blank segments are never yielded.
     """
     buffer = ""
     for piece in pieces:
@@ -243,10 +279,12 @@ def segment_sentences(
         buffer += piece
         while True:
             match = _SENTENCE_END.search(buffer)
-            if match is not None:
+            # The stripped segment is one shorter than the match (its trailing
+            # whitespace goes), so a match ending at max_chars + 1 still fits.
+            if match is not None and match.end() <= max_chars + 1:
                 cut = match.end()
             elif len(buffer) > max_chars:
-                cut = _forced_cut(buffer)
+                cut = _forced_cut(buffer, max_chars)
                 if cut is None:
                     break
             else:
@@ -259,17 +297,23 @@ def segment_sentences(
         yield tail
 
 
-def _forced_cut(buffer: str) -> int | None:
-    """Where to cut an over-long buffer: after the last clause boundary, else
-    after the last whitespace run; None when there is no whitespace at all."""
+def _forced_cut(buffer: str, max_chars: int) -> int | None:
+    """Where to cut a buffer longer than ``max_chars``: after the last clause
+    boundary within the first ``max_chars`` characters, else after the last
+    whitespace run there, else (a word longer than ``max_chars``) after the
+    first whitespace beyond it; None when there is no whitespace at all."""
+    head = buffer[: max_chars + 1]
     last = None
-    for match in _CLAUSE_END.finditer(buffer):
+    for match in _CLAUSE_END.finditer(head):
         last = match.end()
     if last is not None:
         return last
-    for match in _WHITESPACE.finditer(buffer):
+    for match in _WHITESPACE.finditer(head):
         last = match.end()
-    return last
+    if last is not None:
+        return last
+    match = _WHITESPACE.search(buffer, max_chars + 1)
+    return match.end() if match is not None else None
 
 
 def feed_with_lookahead(
@@ -346,6 +390,29 @@ def feed_with_lookahead(
                 callback(item[start : start + slice_bytes])
     finally:
         done.set()
+
+
+@contextlib.contextmanager
+def cleanup(close: Callable[[], object], what: str) -> Iterator[None]:
+    """Run ``close()`` when the block ends, without letting it hide the block's
+    own outcome.
+
+    If the block raised (a ``TTSError``, a callback failure, a
+    ``CancelledError``), that exception propagates unchanged and a failure of
+    ``close`` is logged at WARNING level, so the caller sees the primary
+    error. If the block completed, ``close`` runs normally and its failure
+    propagates: with no primary error it is the only thing that went wrong.
+    """
+    try:
+        yield
+    except BaseException:
+        try:
+            close()
+        except Exception:  # the block's exception is the one to report
+            log.warning("%s: cleanup failed after an error", what, exc_info=True)
+        raise
+    else:
+        close()
 
 
 def split_at_last_space(buffer: str) -> tuple[str, str]:

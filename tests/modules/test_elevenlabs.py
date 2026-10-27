@@ -104,6 +104,19 @@ async def test_defaults_reach_the_provider_client(mock_elevenlabs_cls, mock_stre
     assert kwargs["voice_settings"] == VoiceSettings(
         stability=0.5, similarity_boost=0.75
     )
+    # The request (and each read of its body) is bounded, not the SDK's 240 s.
+    assert kwargs["request_options"] == {"timeout_in_seconds": 30}
+
+
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
+async def test_timeout_reaches_the_provider_client_in_whole_seconds(
+    mock_elevenlabs_cls, mock_stream_any
+):
+    kwargs = await _provider_stream_kwargs(
+        mock_elevenlabs_cls, mock_stream_any, {**VALID_CONFIG, "timeout": 2.5}
+    )
+    assert kwargs["request_options"] == {"timeout_in_seconds": 3}
 
 
 @patch("miniaudio.stream_any")
@@ -136,6 +149,10 @@ async def test_custom_values_reach_the_provider_client(
         ({"stability": True}, "stability"),
         ({"similarity_boost": -0.1}, "similarity_boost"),
         ({"similarity_boost": "x"}, "similarity_boost"),
+        ({"timeout": 0}, "timeout"),
+        ({"timeout": True}, "timeout"),
+        ({"timeout": "30"}, "timeout"),
+        ({"timeout": float("inf")}, "timeout"),
     ],
 )
 def test_invalid_field_raises_config_error(override, field):
@@ -312,6 +329,10 @@ class _FakeStreamInput:
         self.endless = False  # keep producing audio forever (cancel test)
         self.fail_send: Exception | None = None  # raised by send() on text
         self.fail_recv: Exception | None = None  # raised by recv() once
+        self.fail_close: Exception | None = None  # raised on leaving the socket
+        # Delivered instead of audio for the first text message: a protocol
+        # error payload, or a clean close (the exception to raise).
+        self.answer_first_text: dict | Exception | None = None
         self._inbox: queue.Queue = queue.Queue()
 
     def __enter__(self):
@@ -319,6 +340,8 @@ class _FakeStreamInput:
 
     def __exit__(self, *exc) -> bool:
         self.closed = True
+        if self.fail_close is not None:
+            raise self.fail_close
         return False
 
     def send(self, raw: str) -> None:
@@ -332,6 +355,10 @@ class _FakeStreamInput:
         if text == "":
             self._inbox.put({"isFinal": True})
         elif text:
+            if self.answer_first_text is not None:
+                answer, self.answer_first_text = self.answer_first_text, None
+                self._inbox.put(answer)
+                return
             audio = base64.b64encode(text.encode()).decode()
             self._inbox.put({"audio": audio, "isFinal": False})
 
@@ -343,9 +370,12 @@ class _FakeStreamInput:
             time.sleep(0.005)
             return json.dumps({"audio": base64.b64encode(b"x").decode()})
         try:
-            return json.dumps(self._inbox.get(timeout=timeout))
+            item = self._inbox.get(timeout=timeout)
         except queue.Empty:
             raise TimeoutError from None
+        if isinstance(item, Exception):
+            raise item
+        return json.dumps(item)
 
     @property
     def texts(self) -> list[str]:
@@ -476,6 +506,7 @@ def test_text_stream_sends_word_groups_then_eos_over_stream_input(
         "?model_id=eleven_flash_v2_5&output_format=mp3_44100_128"
     )
     assert connected["additional_headers"] == {"xi-api-key": "test-api-key"}
+    assert connected["open_timeout"] == 30.0
     assert ws.sent[0] == {
         "text": " ",
         "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
@@ -574,6 +605,73 @@ def test_text_stream_receive_failure_raises_tts_error(
     with pytest.raises(TTSError, match="connection reset"):
         asyncio.run(
             module.synthesize_text_stream(_source("Hello "), TTSOptions(), MagicMock())
+        )
+    assert ws.closed is True
+
+
+@patch("websockets.sync.client.connect")
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
+def test_text_stream_protocol_error_message_raises_tts_error(
+    mock_elevenlabs_cls, mock_stream_any, mock_connect
+):
+    # The API reports a rejected request as a text message with `error` and
+    # `message` (then closes): it must surface, not pass for a silent success.
+    module, ws, _ = _stream_input_module(
+        mock_elevenlabs_cls, mock_stream_any, mock_connect
+    )
+    ws.answer_first_text = {
+        "message": "provider rejected the request",
+        "error": "invalid_request",
+        "code": 1008,
+    }
+    callback = MagicMock()
+
+    with pytest.raises(TTSError, match="provider rejected the request"):
+        asyncio.run(
+            module.synthesize_text_stream(_source("Hello "), TTSOptions(), callback)
+        )
+    callback.assert_not_called()
+    assert ws.closed is True
+
+
+@patch("websockets.sync.client.connect")
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
+def test_text_stream_clean_close_before_final_message_raises_tts_error(
+    mock_elevenlabs_cls, mock_stream_any, mock_connect
+):
+    from websockets.exceptions import ConnectionClosedOK
+
+    module, ws, _ = _stream_input_module(
+        mock_elevenlabs_cls, mock_stream_any, mock_connect
+    )
+    ws.answer_first_text = ConnectionClosedOK(None, None)
+
+    with pytest.raises(TTSError, match="before its final message"):
+        asyncio.run(
+            module.synthesize_text_stream(_source("Hello "), TTSOptions(), MagicMock())
+        )
+    assert ws.closed is True
+
+
+@patch("websockets.sync.client.connect")
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
+def test_text_stream_callback_error_wins_over_a_failing_close(
+    mock_elevenlabs_cls, mock_stream_any, mock_connect
+):
+    module, ws, _ = _stream_input_module(
+        mock_elevenlabs_cls, mock_stream_any, mock_connect
+    )
+    ws.fail_close = RuntimeError("socket teardown failed")
+
+    def bad_callback(_chunk: bytes) -> None:
+        raise ValueError("playback failed")
+
+    with pytest.raises(ValueError, match="playback failed"):
+        asyncio.run(
+            module.synthesize_text_stream(_source("Hello "), TTSOptions(), bad_callback)
         )
     assert ws.closed is True
 

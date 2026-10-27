@@ -33,7 +33,7 @@ All fields go under the `engine.module` block alongside `"type": "phonon"` (see 
 | `voice` | non-empty string | no | — (the checkpoint's `default` voice) | A voice name — `default`, or a name from the Phonon voice catalog (`Juniper`, `Harper`, `Miles`, …), matched case- and accent-insensitively and downloaded on first use — or a local voice-embedding file ending in `.safetensors`, resolved with `resolve_path`. |
 | `device` | non-empty string | no | `"auto"` | `"auto"` lets `ptts` pick the first entry of `ptts.available_devices()` (Metal on an Apple-silicon Mac, CPU elsewhere); any other value (`"cpu"`, `"metal"`, …) is passed through, and a device the installed build lacks is rejected at construction. |
 | `quant` | non-empty string | no | — (the checkpoint's own weights) | Weight format, e.g. `"q8_0"`, `"q4k"` — one of `ptts.available_quants()`. Quantization is **CPU-only** in `ptts`: combined with a GPU device it is rejected at construction. |
-| `temperature` | number ≥ 0 | no | — (`ptts` default 0.3) | Sampling temperature. |
+| `temperature` | finite number ≥ 0 | no | — (`ptts` default 0.3) | Sampling temperature. |
 | `cfg_coef` | number | no | — (checkpoint default) | Classifier-free-guidance coefficient (voice adherence). |
 
 There is no API key (`api_key` / `api_key_env`): weights come from the Hugging Face Hub. The gated checkpoints (below) read the standard `HF_TOKEN` environment variable through the Hub client; the module adds nothing for it.
@@ -56,7 +56,7 @@ Validated at construction, raising `ConfigError` before the model is loaded:
 
 - `language` — if present, one of `en`, `fr`, `de`, `es`, `pt`, `none` (defaults to `en` when absent).
 - `model`, `voice`, `device`, `quant` — if present, non-empty strings.
-- `temperature` — if present, a number ≥ 0; `cfg_coef` — if present, a number. Booleans are rejected rather than treated as numbers.
+- `temperature` — if present, a finite number ≥ 0; `cfg_coef` — if present, a finite number. Booleans are rejected rather than treated as numbers, and so are `NaN` and the infinities (which JSON's parser accepts): they would reach the sampler.
 
 `ptts` validates the rest against the actual build and checkpoint, and the module turns those rejections into `ConfigError` as well (see "Error handling"): an unavailable device, a GPU device with a quantization, an unknown voice name, a missing local file.
 
@@ -129,7 +129,7 @@ def _generate(self, text, callback, stop):
 
 ### Cancellation
 
-Cooperative, as for every module: `stop` is polled between chunks, and the `with audio:` block guarantees the decoder threads are stopped before `_generate` returns or raises. No callback can occur after the coroutine exits.
+Cooperative, as for every module: `stop` is polled between chunks, and the stream is closed (its `__exit__`) on every path through the shared `cleanup` helper, so the decoder threads are stopped before `_generate` returns or raises and a failing close never replaces the utterance's own error. No callback can occur after the coroutine exits.
 
 ### Error handling
 
@@ -171,13 +171,13 @@ Registered in `REGISTRY` as `"phonon"` ([modules/__init__.py](../../src/tts_engi
 
 - **Unit (`tests/modules/test_phonon.py`)** — `ptts` is **faked** (a stub module with a `TTS` class injected through `monkeypatch.setitem(sys.modules, "ptts", ...)`), so the fast tier never loads a model or touches the Hub. The fake `TTS` records its constructor kwargs and `add_voice` calls, and its `stream()` returns a fake `AudioStream` (context manager + iterator over given float32 arrays) that records `close`. Covers:
   - `ConfigError` with the install hint when `ptts` is unimportable;
-  - validation: `language` unknown or not a string (absent defaults to `lang="en"`), empty `model`/`voice`/`device`/`quant`, negative or boolean `temperature`, boolean `cfg_coef`;
+  - validation: `language` unknown or not a string (absent defaults to `lang="en"`), empty `model`/`voice`/`device`/`quant`, negative, boolean or non-finite `temperature`, boolean or non-finite `cfg_coef`;
   - kwargs: only set fields are passed, `"auto"` omits `device`, `"none"` passes `lang=None`, an `hf://` model passes through, a relative local model resolves against `base_dir`;
   - a relative `.safetensors` voice resolves against `base_dir`, is registered with `add_voice(stem, path)`, and is not passed to the constructor; a voice name is;
   - library rejections (`ValueError`, `NotImplementedError`, `LookupError`, `FileNotFoundError` from the fake constructor) → `ConfigError`; another exception → `TTSError`;
   - `sample_rate` reflects the fake's rate;
   - `synthesize_text`: float chunks (including out-of-range values) become whole little-endian int16 samples, clipped; `stream` gets the text and the configured voice; the stream is closed afterwards;
-  - an error while iterating → `TTSError` and the stream closed; a callback error propagates unchanged and the stream is closed;
+  - an error while iterating → `TTSError` and the stream closed; a callback error propagates unchanged and the stream is closed, and survives a failing close;
   - cancellation while a chunk is pending closes the stream before `CancelledError` surfaces (event-driven, no sleeps);
   - the same for `synthesize_text_stream`, cancelled mid-sentence with the source still open: the stream is closed, no callback runs after `CancelledError` surfaces;
   - `synthesize_text_stream`: one `stream()` call per sentence, and audio reaches the callback before the source finishes (the shared test shape from the streaming-text-input plan).

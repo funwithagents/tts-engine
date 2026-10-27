@@ -28,6 +28,7 @@ All fields go under the `engine.module` block in `config.json` alongside `"type"
 | `model` | non-empty string | no | `"eleven_flash_v2_5"` | ElevenLabs model ID. `eleven_flash_v2_5` is recommended for low latency; `eleven_multilingual_v2` for quality. |
 | `stability` | number | no | `0.5` | Voice stability (0.0–1.0). |
 | `similarity_boost` | number | no | `0.75` | Similarity boost (0.0–1.0). |
+| `timeout` | finite number > 0 (seconds) | no | `30` | Bound on the HTTPS request of `synthesize_text` — the wait for the response and for each read of its body — passed as the SDK's `request_options.timeout_in_seconds` (whole seconds, rounded up), instead of the SDK's 240 s default; and the open timeout of the stream-input WebSocket. A stalled request fails as `TTSError` after at most this long, which is also how long a cancel issued during the stall can take ([tts-module-interface.md](../tts-module-interface.md), "What cancellation guarantees"). |
 
 ### API key resolution
 
@@ -90,7 +91,7 @@ The ElevenLabs SDK streaming method is synchronous (returns an iterator). The en
 The worker comes from `run_text_stream_worker` ([tts-module-interface.md](../tts-module-interface.md), "Text-stream helpers") and runs two threads over one connection:
 
 - **Sender** (a daemon thread) — pulls the bridge's `pieces`, groups them at **word boundaries** with `split_at_last_space` (so a sub-word LLM token is never sent alone), sends each group as `{"text": …, "try_trigger_generation": true}`, then the remainder and the end-of-stream message `{"text": ""}`. If `stop` ends the iterator early, no end-of-stream is sent: the request is dropped.
-- **Receiver** (the worker thread, as a generator of MP3 chunks) — opens the socket, sends the opening message (`text: " "` with the `voice_settings` and `generation_config.chunk_length_schedule = [50]`, the API's minimum), then receives continuously with a **100 ms poll** (`recv(timeout=0.1)`), checking `stop` and the sender's error on each wake, decoding each message's base64 `audio`, until the server's `isFinal`, a normal close, `stop`, or a failure on either side.
+- **Receiver** (the worker thread, as a generator of MP3 chunks) — opens the socket, sends the opening message (`text: " "` with the `voice_settings` and `generation_config.chunk_length_schedule = [50]`, the API's minimum), then receives continuously with a **100 ms poll** (`recv(timeout=0.1)`), checking `stop` and the sender's error on each wake, decoding each message's base64 `audio`, until the server's `isFinal`, `stop`, or a failure on either side. A text message carrying `error` (the API's protocol error: `{"message": …, "error": …, "code": …}`, sent before it closes the socket for a rejected request or an exhausted quota) is a `TTSError` naming the message. A **clean close before `isFinal`** is a `TTSError` too ("closed the stream before its final message"): the request did not complete, so the audio that came is not the whole utterance — it was previously taken for a successful end, which turned a rejected request into a silent, empty success.
 
 The MP3 chunks feed the **same** `_ChunkSource` + `miniaudio.stream_any` decode as `synthesize_text` through one `_decode_and_feed(open_raw, callback, stop)` loop (open the raw source and build the decoder inside the `try/finally` that closes the raw source, so a decoder failure releases it too; advance the decoder inside the `TTSError` boundary, call `callback` outside it, poll `stop` between chunks). The loop peeks the first raw chunk before building the decoder: **no audio means no decoder** and no callback — miniaudio cannot initialize a decoder on empty input, so the decision has to come first. `sample_rate` stays 44100.
 
@@ -123,7 +124,9 @@ Because `_ChunkSource` subclasses `miniaudio.StreamableSource`, that class canno
 ### Error handling
 
 - Any exception raised by the SDK or decoder (API errors, auth failures, network errors, invalid audio) is caught and re-raised as `TTSError(f"ElevenLabs request failed: {exc}")`, chained from the original via `raise ... from exc`.
+- A stream-input protocol error message, and a clean close before `isFinal`, are `TTSError` (see "Text stream"); already-labeled errors from the raw source are not wrapped a second time.
 - Exceptions raised by `callback` are downstream playback failures. They propagate unchanged and are not mislabeled as ElevenLabs request failures.
+- The raw source (the HTTP response generator, or the stream-input socket) is released through the shared `cleanup` helper: a failing release never replaces a synthesis, callback or source error, or a cancellation — it is logged ([tts-module-interface.md](../tts-module-interface.md), "`cleanup`").
 - Cancellation requests cooperative worker shutdown and waits until callback activity has stopped before propagating.
 
 ## Module ID

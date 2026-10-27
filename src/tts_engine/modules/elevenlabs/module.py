@@ -15,6 +15,7 @@ continuously (see specs/modules/elevenlabs.md, "Text stream").
 import base64
 import itertools
 import json
+import math
 import os
 import threading
 import urllib.parse
@@ -25,12 +26,14 @@ from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    cleanup,
     run_cancellable_worker,
     run_text_stream_worker,
     split_at_last_space,
 )
 
 _OUTPUT_FORMAT = "mp3_44100_128"
+_DEFAULT_TIMEOUT = 30.0
 _STREAM_INPUT_URL = "wss://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream-input"
 # The API's minimum buffered-text size before it starts generating.
 _CHUNK_LENGTH_SCHEDULE = [50]
@@ -107,9 +110,19 @@ class ElevenLabsModule(TTSModule):
         if not isinstance(model, str) or not model:
             raise ConfigError("ElevenLabs module 'model' must be a non-empty string")
 
+        timeout = config.get("timeout", _DEFAULT_TIMEOUT)
+        if (
+            isinstance(timeout, bool)
+            or not isinstance(timeout, (int, float))
+            or not math.isfinite(timeout)
+            or timeout <= 0
+        ):
+            raise ConfigError("ElevenLabs module 'timeout' must be a finite number > 0")
+
         self._api_key: str = api_key
         self._voice_id: str = voice_id
         self._model: str = model
+        self._timeout: float = float(timeout)
         self._stability: float = _unit_interval(config, "stability", 0.5)
         self._similarity_boost: float = _unit_interval(config, "similarity_boost", 0.75)
         self._miniaudio = miniaudio
@@ -161,13 +174,18 @@ class ElevenLabsModule(TTSModule):
     ) -> None:
         """Open the raw MP3 chunk source, decode it to PCM and feed `callback`,
         polling `stop` between chunks. Runs on the worker thread."""
-        # Build the provider request and the decoder inside the provider try
-        # so SDK/decoder failures become TTSError — and inside the try/finally
-        # that releases the raw source, so a decoder failure still closes it.
-        raw = None
+        # Build the provider request inside the provider try so SDK failures
+        # become TTSError.
         try:
+            raw = open_raw()
+        except Exception as exc:
+            raise TTSError(f"ElevenLabs request failed: {exc}") from exc
+        # Release the raw source (a generator holding an HTTP response or the
+        # stream-input socket) when done, not whenever it is collected; a
+        # decoder failure releases it too, and a failing release never hides
+        # the utterance's own error.
+        with cleanup(getattr(raw, "close", lambda: None), "ElevenLabs raw source"):
             try:
-                raw = open_raw()
                 raw_chunks = (chunk for chunk in raw if chunk)
                 first = next(raw_chunks, None)
                 if first is None:
@@ -180,6 +198,8 @@ class ElevenLabsModule(TTSModule):
                         sample_rate=44100,
                     )
                 )
+            except TTSError:
+                raise  # already labeled by the raw source (a protocol error)
             except Exception as exc:
                 raise TTSError(f"ElevenLabs request failed: {exc}") from exc
 
@@ -191,15 +211,11 @@ class ElevenLabsModule(TTSModule):
                     pcm_chunk = next(pcm_iter)
                 except StopIteration:
                     break
+                except TTSError:
+                    raise  # already labeled by the raw source (a protocol error)
                 except Exception as exc:
                     raise TTSError(f"ElevenLabs request failed: {exc}") from exc
                 callback(pcm_chunk.tobytes())
-        finally:
-            # Release the raw source now (a generator holding an HTTP response
-            # or the stream-input socket), not whenever it is collected.
-            close = getattr(raw, "close", None)
-            if close is not None:
-                close()
 
     def _stream_input_chunks(
         self, pieces: Iterator[str], stop: threading.Event
@@ -228,7 +244,9 @@ class ElevenLabsModule(TTSModule):
         nothing_sent = threading.Event()
 
         with self._ws_connect(
-            url, additional_headers={"xi-api-key": self._api_key}
+            url,
+            additional_headers={"xi-api-key": self._api_key},
+            open_timeout=self._timeout,
         ) as ws:
             ws.send(
                 json.dumps(
@@ -292,8 +310,20 @@ class ElevenLabsModule(TTSModule):
                 except TimeoutError:
                     continue
                 except self._ws_closed_ok:
-                    break
+                    # The server closed cleanly without its final message:
+                    # the request did not complete (a rejected request, a
+                    # quota cut), so what came is not the whole utterance.
+                    raise TTSError(
+                        "ElevenLabs closed the stream before its final message"
+                    ) from None
                 message = json.loads(raw)
+                if "error" in message:
+                    # A protocol error (the API sends `error`, `message` and a
+                    # `code` as a text message, usually before closing).
+                    raise TTSError(
+                        "ElevenLabs request failed: "
+                        f"{message.get('message') or message['error']}"
+                    )
                 audio = message.get("audio")
                 if audio:
                     yield base64.b64decode(audio)
@@ -317,6 +347,10 @@ class ElevenLabsModule(TTSModule):
                         stability=self._stability,
                         similarity_boost=self._similarity_boost,
                     ),
+                    # Bounds the wait for the response and for each read of
+                    # the body, so a stalled request fails instead of holding
+                    # the worker (and a cancel) for the SDK's 240 s default.
+                    request_options={"timeout_in_seconds": math.ceil(self._timeout)},
                 ),
                 callback,
                 stop,

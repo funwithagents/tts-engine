@@ -360,3 +360,56 @@ async def test_cancelling_say_stream_stops_feeding_and_drains_once():
 
     task = asyncio.create_task(engine.say_stream(source()))
     await _assert_cancel_stops_feeding_and_drains_once(task, sink)
+
+
+# --- a failing drain never hides the utterance's own outcome -----------------
+
+
+class _FailingDrainSink(CaptureSink):
+    def drain(self) -> None:
+        super().drain()
+        raise OSError("device gone")
+
+
+def _engine_with(sink: CaptureSink, mock_module, mocker) -> TTSEngine:
+    mocker.patch("tts_engine.engine.load_module", return_value=mock_module)
+    mocker.patch("tts_engine.engine.AudioPlayer")
+    return TTSEngine(
+        TTSEngineConfig(module={"type": "fake"}, player=PlayerConfig()), sink=sink
+    )
+
+
+@pytest.mark.asyncio
+async def test_synthesis_error_wins_over_a_failing_drain(mock_module, mocker, caplog):
+    sink = _FailingDrainSink()
+    engine = _engine_with(sink, mock_module, mocker)
+    mock_module.synthesize_text.side_effect = TTSError("synthesis failed")
+
+    with pytest.raises(TTSError, match="synthesis failed"), caplog.at_level("WARNING"):
+        await engine.say("hello")
+    assert sink.drains == 1
+    assert "device gone" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_cancellation_wins_over_a_failing_drain(mock_module, mocker):
+    sink = _FailingDrainSink()
+    engine = _engine_with(sink, mock_module, mocker)
+
+    async def cancelling_stream(text, options, callback):
+        raise asyncio.CancelledError
+
+    mock_module.synthesize_text_stream.side_effect = cancelling_stream
+
+    with pytest.raises(asyncio.CancelledError):
+        await engine.say_stream(["hello"])
+    assert sink.drains == 1
+
+
+@pytest.mark.asyncio
+async def test_a_failing_drain_alone_is_reported(mock_module, mocker):
+    sink = _FailingDrainSink()
+    engine = _engine_with(sink, mock_module, mocker)
+
+    with pytest.raises(OSError, match="device gone"):
+        await engine.say("hello")

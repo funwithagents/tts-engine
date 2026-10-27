@@ -2,15 +2,11 @@
   "engine": {
     "module": {
       "type": "audiofile",
-      "default_file": "fixtures/default.wav",
+      "default_file": "../tests-e2e/fixtures/default.wav",
       "files": [
         {
           "text": "Hello, world!",
-          "file": "fixtures/hello.wav"
-        },
-        {
-          "text": "Goodbye.",
-          "file": "fixtures/goodbye.wav"
+          "file": "../tests-e2e/fixtures/hello.wav"
         }
       ]
     },

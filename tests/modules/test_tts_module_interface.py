@@ -11,6 +11,7 @@ from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    cleanup,
     feed_with_lookahead,
     resolve_path,
     run_cancellable_worker,
@@ -103,7 +104,31 @@ def test_segment_sentences_forces_a_cut_past_max_chars_at_a_clause_boundary():
 
 def test_segment_sentences_forces_a_cut_at_whitespace_without_clause_boundary():
     out = list(segment_sentences(["alpha ", "beta ", "gamma ", "delta"], max_chars=12))
-    assert out == ["alpha beta gamma", "delta"]
+    assert out == ["alpha beta", "gamma delta"]
+
+
+def test_segment_sentences_bounds_segments_however_the_input_is_chunked():
+    # One big piece (a complete text) and the same text character by character
+    # must both respect the bound: the cut is found inside the window, not at
+    # the last boundary anywhere in the buffer.
+    text = "word " * 2000
+    whole = list(segment_sentences([text]))
+    by_char = list(segment_sentences(list(text)))
+    assert whole == by_char
+    assert all(len(segment) <= 200 for segment in whole)
+    assert " ".join(whole) == text.strip()
+
+
+def test_segment_sentences_prefers_a_sentence_end_inside_the_window():
+    # The first sentence end lies past max_chars: the cut comes earlier, at
+    # the last whitespace inside the window, so no segment exceeds the bound.
+    out = list(segment_sentences(["aaa bbb ccc. ddd"], max_chars=8))
+    assert out == ["aaa bbb", "ccc.", "ddd"]
+
+
+def test_segment_sentences_lets_only_a_long_word_exceed_the_bound():
+    out = list(segment_sentences(["x" * 30 + " y"], max_chars=10))
+    assert out == ["x" * 30, "y"]
 
 
 def test_segment_sentences_never_cuts_inside_a_word():
@@ -354,3 +379,133 @@ def test_lookahead_stop_ends_feeding_and_further_synthesis():
     )
     assert fed == [b"x" * 10]
     assert len(calls) <= 2  # the one played and at most one ahead
+
+
+# --- run_text_stream_worker: the bounded bridge -----------------------------
+
+
+async def test_text_stream_worker_bounds_how_far_the_source_runs_ahead():
+    # An in-memory source yields without ever suspending: unbounded, the pump
+    # would consume it entirely before the worker ran once. With the bound the
+    # pump waits for the worker, so the source is read at the worker's pace.
+    produced = 0
+    produced_when_first_taken: list[int] = []
+    taken = 0
+
+    async def source():
+        nonlocal produced
+        for _ in range(200):
+            produced += 1
+            yield "x" * 100
+
+    def worker(pieces, stop):
+        nonlocal taken
+        for _piece in pieces:
+            if not produced_when_first_taken:
+                produced_when_first_taken.append(produced)
+            taken += 1
+
+    await run_text_stream_worker(source(), worker, max_pending_chars=500)
+    assert taken == 200  # everything still arrives
+    # At most: five queued (the bound), the one the worker just took (which
+    # frees room for a sixth) and a seventh the pump holds while it waits for
+    # room again, since the source counts a piece before yielding it. Never
+    # the 200 an unbounded pump would have read.
+    assert produced_when_first_taken[0] <= 7
+
+
+async def test_text_stream_worker_accepts_one_piece_larger_than_the_bound():
+    seen: list[str] = []
+    await run_text_stream_worker(
+        _as_source(["x" * 50, "y"]),
+        lambda pieces, stop: seen.extend(pieces),
+        max_pending_chars=10,
+    )
+    assert seen == ["x" * 50, "y"]
+
+
+async def test_text_stream_worker_cancel_with_an_endless_immediate_source():
+    # A source that never suspends and never ends must not keep the loop (and
+    # the cancel) from running: the bound makes the pump yield.
+    loop = asyncio.get_running_loop()
+    started = asyncio.Event()
+
+    async def source():
+        while True:
+            yield "x"
+
+    def worker(pieces, stop):
+        for _piece in pieces:
+            loop.call_soon_threadsafe(started.set)
+            time.sleep(0.001)  # slower than the source
+
+    task = asyncio.create_task(run_text_stream_worker(source(), worker))
+    await asyncio.wait_for(started.wait(), timeout=5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=5)
+
+
+async def test_text_stream_worker_cancel_with_an_endless_empty_only_source():
+    # Empty pieces never reach the queue, so the bound alone would not make
+    # the pump yield: it yields on every empty piece instead.
+    async def source():
+        while True:
+            yield ""
+
+    def worker(pieces, stop):
+        for _piece in pieces:  # never gets one; ends when stop is set
+            pass
+
+    task = asyncio.create_task(run_text_stream_worker(source(), worker))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=5)
+
+
+def _as_source(pieces: list[str]):
+    async def source():
+        for piece in pieces:
+            yield piece
+
+    return source()
+
+
+# --- cleanup -----------------------------------------------------------------
+
+
+def test_cleanup_keeps_the_blocks_error_over_a_failing_close(caplog):
+    def close():
+        raise OSError("close failed")
+
+    with (
+        pytest.raises(ValueError, match="primary"),
+        caplog.at_level("WARNING"),
+        cleanup(close, "thing"),
+    ):
+        raise ValueError("primary")
+    assert "thing: cleanup failed" in caplog.text
+
+
+def test_cleanup_keeps_cancellation_over_a_failing_close():
+    def close():
+        raise OSError("close failed")
+
+    with pytest.raises(asyncio.CancelledError), cleanup(close, "thing"):
+        raise asyncio.CancelledError
+
+
+def test_cleanup_raises_a_failing_close_when_the_block_succeeded():
+    def close():
+        raise OSError("close failed")
+
+    with pytest.raises(OSError, match="close failed"), cleanup(close, "thing"):
+        pass
+
+
+def test_cleanup_closes_once_on_success():
+    closes: list[bool] = []
+    with cleanup(lambda: closes.append(True), "thing"):
+        pass
+    assert closes == [True]
