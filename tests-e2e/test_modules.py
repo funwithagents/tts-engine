@@ -117,6 +117,9 @@ _LONG_TEXT = _FIRST_SENTENCE + (
     "Then a second sentence follows, and a third one after that, so there is "
     "plenty of audio left when the call is cancelled."
 )
+# A bound on the wait for the first chunk, past the providers' own 30 s
+# request timeout, so a stuck backend fails the test instead of hanging it.
+_FIRST_CHUNK_TIMEOUT = 60.0
 
 
 class _PacedCaptureSink(CaptureSink):
@@ -131,8 +134,16 @@ class _PacedCaptureSink(CaptureSink):
 async def _cancel_after_first_chunk(task: asyncio.Task, sink: CaptureSink) -> float:
     """Cancel once audio is flowing; return how long the cancel took to
     surface. Asserts nothing is fed after it surfaced."""
-    while not sink.data:
+    # Bounded, and over as soon as the utterance ends: a backend failing
+    # before its first chunk (a 429, say) must fail the test with its own
+    # error, not leave it waiting for audio that will never come.
+    deadline = time.perf_counter() + _FIRST_CHUNK_TIMEOUT
+    while not sink.data and not task.done():
+        assert time.perf_counter() < deadline, "no audio before the timeout"
         await asyncio.sleep(0.01)
+    if task.done():
+        task.result()  # re-raises the backend's error
+        pytest.fail("the utterance ended before it could be cancelled")
     t0 = time.perf_counter()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
