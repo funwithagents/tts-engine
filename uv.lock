@@ -2871,7 +2871,7 @@ mcp = [
 mistral = [
     { name = "mistralai" },
 ]
-openai = [
+openai-compatible = [
     { name = "openai" },
 ]
 phonon = [
@@ -2914,16 +2914,16 @@ requires-dist = [
     { name = "miniaudio", marker = "extra == 'elevenlabs'" },
     { name = "mistralai", marker = "extra == 'mistral'", specifier = ">=3.5,<4" },
     { name = "numpy" },
-    { name = "openai", marker = "extra == 'openai'", specifier = ">=3.37,<4" },
+    { name = "openai", marker = "extra == 'openai-compatible'", specifier = ">=3.37,<4" },
     { name = "piper-tts", marker = "extra == 'piper'", specifier = ">=1.8,<2" },
     { name = "pocket-tts", marker = "extra == 'pocket'", specifier = ">=4.0.1,<5" },
     { name = "ptts", marker = "extra == 'phonon'", specifier = ">=0.4.2,<0.6" },
     { name = "qwentts-cpp-python", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'qwen3'", specifier = ">=0.5,<0.6" },
     { name = "sounddevice" },
-    { name = "tts-engine", extras = ["elevenlabs", "pocket", "gradium", "phonon", "mistral", "deepgram", "gemini", "cartesia", "openai", "qwen3", "kokoro", "piper", "mcp"], marker = "extra == 'all'" },
+    { name = "tts-engine", extras = ["elevenlabs", "pocket", "gradium", "phonon", "mistral", "deepgram", "gemini", "cartesia", "openai-compatible", "qwen3", "kokoro", "piper", "mcp"], marker = "extra == 'all'" },
     { name = "uvicorn", marker = "extra == 'mcp'" },
 ]
-provides-extras = ["elevenlabs", "pocket", "gradium", "mistral", "deepgram", "gemini", "cartesia", "openai", "phonon", "qwen3", "kokoro", "piper", "mcp", "all"]
+provides-extras = ["elevenlabs", "pocket", "gradium", "mistral", "deepgram", "gemini", "cartesia", "openai-compatible", "phonon", "qwen3", "kokoro", "piper", "mcp", "all"]
 
 [package.metadata.requires-dev]
 dev = [

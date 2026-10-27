@@ -1,30 +1,32 @@
 ---
 code:
-  - src/tts_engine/modules/openai/__init__.py
-  - src/tts_engine/modules/openai/module.py
+  - src/tts_engine/modules/openai_compatible/__init__.py
+  - src/tts_engine/modules/openai_compatible/module.py
   - src/tts_engine/modules/__init__.py
   - pyproject.toml
 tests:
-  - tests/modules/test_openai.py
+  - tests/modules/test_openai_compatible.py
   - tests/modules/test_lazy_imports.py
   - tests-e2e/test_modules.py
 ---
 
-# OpenAI Module
+# OpenAI-compatible Module
 
 **Status:** Implemented
 
 ## Overview
 
-`openai` implements `TTSModule` with OpenAI's speech endpoint (`POST /v1/audio/speech`; models `gpt-4o-mini-tts` by default, `tts-1`, `tts-1-hd`) through the official `openai` Python SDK. It asks for raw `pcm` and reads the chunked HTTP body as it arrives, so there is no codec to decode and no conversion: the bytes are already the contract's signed 16-bit little-endian mono. It is one API-backed provider among others — not the default and not the base install — and ships behind the `openai` packaging extra (see "Dependencies").
+`openai-compatible` implements `TTSModule` with the `POST /v1/audio/speech` endpoint through the official `openai` Python SDK: OpenAI's own speech endpoint (models `gpt-4o-mini-tts` by default, `tts-1`, `tts-1-hd`), and a de-facto standard many other servers implement. It asks for raw `pcm` and reads the chunked HTTP body as it arrives, so there is no codec to decode and no conversion: the bytes are already the contract's signed 16-bit little-endian mono. It is one API-backed provider among others — not the default and not the base install — and ships behind the `openai-compatible` packaging extra (see "Dependencies").
 
-With `base_url` (and `sample_rate`) it also reaches any **OpenAI-compatible** `/v1/audio/speech` server: vLLM-Omni, SGLang Omni, `mlx_audio.server`, Kokoro-FastAPI and the like. (`pocket-tts serve` is not one: it serves its own `/tts` route only.) Such a server must honor `response_format="pcm"`; one that answers with a WAV file is rejected with a clear `TTSError` (see "OpenAI-compatible servers").
+With `base_url` (and `sample_rate`) it reaches any **OpenAI-compatible** `/v1/audio/speech` server: vLLM-Omni, SGLang Omni, `mlx_audio.server`, Kokoro-FastAPI and the like. (`pocket-tts serve` is not one: it serves its own `/tts` route only.) Such a server must honor `response_format="pcm"`; one that answers with a WAV file is rejected with a clear `TTSError` (see "OpenAI-compatible servers").
 
 Its shape is the Mistral one: a synchronous SDK iterator driven from the cancellable worker. For a text stream it **groups the pieces into sentences** (one request per sentence): the endpoint takes one complete `input` per request (see "Text stream").
 
+**Why the name.** OpenAI shuts down every model this endpoint serves on 2027-01-06 (`tts-1`, `tts-1-hd`, `gpt-4o-mini-tts` and its snapshots); its successor, `gpt-realtime-2.1-mini`, is served only by the Realtime API, which is a different protocol (a long-lived WebSocket and a conversation model that speaks a response). The endpoint outlives OpenAI's models on it through the compatible servers above, so the module is named for the endpoint, and the vendor key `openai` is reserved for a Realtime module of its own — following the rule in [project.md](../project.md) ("Dependency strategy for TTS backends"): a module follows the provider's current API and keeps an older one only while it serves a distinct use case. Until that module exists, `"type": "openai"` is simply unregistered (`ConfigError: Unknown TTS module type: 'openai'`). The module was registered as `openai` until 2026-10-27, before anyone depended on the key.
+
 ## Config fields
 
-All fields go under the `engine.module` block in `config.json` alongside `"type": "openai"` (see [configuration.md](../configuration.md)).
+All fields go under the `engine.module` block in `config.json` alongside `"type": "openai-compatible"` (see [configuration.md](../configuration.md)).
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
@@ -34,7 +36,7 @@ All fields go under the `engine.module` block in `config.json` alongside `"type"
 | `model` | non-empty string | no | `"gpt-4o-mini-tts"` | Speech model id: `gpt-4o-mini-tts`, a dated snapshot such as `gpt-4o-mini-tts-2025-12-15`, `tts-1`, `tts-1-hd`, or a compatible server's model. |
 | `instructions` | non-empty string | no | — | Free-text voice direction (tone, pace, accent, emotion). Honored by `gpt-4o-mini-tts`; `tts-1`/`tts-1-hd` accept it and ignore it. |
 | `speed` | number | no | — (API default `1.0`) | Speaking-rate multiplier, finite, `0.25`–`4.0`. |
-| `base_url` | non-empty string | no | — (SDK default `https://api.openai.com/v1`) | API base URL including the `/v1` path, for an OpenAI-compatible server or a proxy. Passed to `OpenAI(base_url=...)` only when set. |
+| `base_url` | non-empty string | no | — (SDK default `https://api.openai.com/v1`) | API base URL including the `/v1` path, for an OpenAI-compatible server or a proxy. Passed to `OpenAI(base_url=...)` only when set. The hosted default serves no model after 2027-01-06; the field becomes required then (open question 1). |
 | `sample_rate` | positive integer | no | `24000` | The rate of the server's `pcm` output. It **declares** the rate, it does not request one: the speech API has no rate parameter. OpenAI's own `pcm` is fixed at 24000, so a different value is accepted only together with `base_url`. |
 | `timeout` | finite number > 0 (seconds) | no | `30` | Per-request bound passed as the SDK's `timeout`: the wait for the response and for each read of the body, instead of the SDK's 600 s default. A stalled request fails as `TTSError` after at most this long, which is also how long a cancel issued during the stall can take ([tts-module-interface.md](../tts-module-interface.md), "What cancellation guarantees"). `gpt-4o-mini-tts` has been measured stalling for up to 28 s before its first byte (open question 2); raise it if those stalls must be waited out. |
 
@@ -104,33 +106,34 @@ Cooperative via `run_cancellable_worker` ([tts-module-interface.md](../tts-modul
 
 `synthesize_text_stream` runs one worker through `run_text_stream_worker`, groups the pieces with `segment_sentences`, and makes one request per sentence inside that worker, feeding each sentence's audio before requesting the next — the pocket/mistral structure ([tts-module-interface.md](../tts-module-interface.md), "Local-model modules", last bullet). Audio for sentence one plays while the stream is still delivering sentence two.
 
-Why not native: `/v1/audio/speech` takes one `input` per request. OpenAI's Realtime API (`gpt-realtime-*` over WebSocket) also answers one `response.create` per complete text, with no incremental text append, so it would be grouped too (see "Open questions").
+Why not native: `/v1/audio/speech` takes one `input` per request. (OpenAI's Realtime API, the future `openai` module, also answers one `response.create` per complete text with no incremental text append, so it will group too.)
 
 ### Dependencies and lazy import
 
-Requires the `openai` extra: `pip install tts-engine[openai]` / `uv sync --extra openai`, declared in `[project.optional-dependencies]` as `openai = ["openai>=3.37,<4"]` and added to the `all` aggregate. `<4`: a Stainless/Castiron-generated SDK whose majors move client surfaces; the module relies on 3.x's `with_streaming_response`. The SDK is pure Python (`httpx2`, `pydantic`, `jiter`, `anyio`): a light extra.
+Requires the `openai-compatible` extra: `pip install tts-engine[openai-compatible]` / `uv sync --extra openai-compatible`, declared in `[project.optional-dependencies]` as `openai-compatible = ["openai>=3.37,<4"]` and added to the `all` aggregate. The future `openai` (Realtime) extra will pull the same SDK. `<4`: a Stainless/Castiron-generated SDK whose majors move client surfaces; the module relies on 3.x's `with_streaming_response`. The SDK is pure Python (`httpx2`, `pydantic`, `jiter`, `anyio`): a light extra.
 
-`modules/__init__.py` imports every module *class* eagerly to build `REGISTRY`, so `openai/module.py` must **not** import `openai` at file top. The import happens inside `__init__`, before any config field is read:
+`modules/__init__.py` imports every module *class* eagerly to build `REGISTRY`, so `openai_compatible/module.py` must **not** import `openai` at file top. The import happens inside `__init__`, before any config field is read:
 
 ```python
 try:
     from openai import OpenAI
 except ImportError as exc:
     raise ConfigError(
-        "The 'openai' module requires the openai extra: pip install tts-engine[openai]"
+        "The 'openai-compatible' module requires the openai-compatible extra: "
+        "pip install tts-engine[openai-compatible]"
     ) from exc
 ```
 
-The backend package is named `tts_engine.modules.openai`; with absolute imports (the project default) `from openai import OpenAI` inside it still resolves to the SDK, not to the package itself.
+The backend package is `tts_engine.modules.openai_compatible` (a registry key may hold a hyphen, a Python package may not); with absolute imports (the project default) `from openai import OpenAI` inside it resolves to the SDK.
 
-`tests/modules/test_lazy_imports.py` adds `openai` to the poisoned modules and the `openai` row to its construction loop.
+`tests/modules/test_lazy_imports.py` adds `openai` to the poisoned modules and the `openai-compatible` row to its construction loop.
 
 ### Error handling
 
-- Any exception raised by the SDK or the transport — an `openai.APIStatusError` (`AuthenticationError` 401 for a bad key, `BadRequestError` 400 for an unknown voice, an out-of-range `speed` or an over-long input, `NotFoundError` 404 `model_not_found`), an `APIConnectionError` / `APITimeoutError`, or a read failure mid-body — is caught and re-raised as `TTSError(f"OpenAI request failed: {exc}")`, chained via `raise ... from exc`. The SDK's own retries (2 by default, on connection errors, 408/409/429/5xx) happen before anything is fed and are left at the SDK default.
+- Any exception raised by the SDK or the transport — an `openai.APIStatusError` (`AuthenticationError` 401 for a bad key, `BadRequestError` 400 for an unknown voice, an out-of-range `speed` or an over-long input, `NotFoundError` 404 `model_not_found`), an `APIConnectionError` / `APITimeoutError`, or a read failure mid-body — is caught and re-raised as `TTSError(f"OpenAI-compatible request failed: {exc}")`, chained via `raise ... from exc`. The SDK's own retries (2 by default, on connection errors, 408/409/429/5xx) happen before anything is fed and are left at the SDK default.
 - A WAV body from a compatible server raises `TTSError` (above).
 - A response that stalls longer than `timeout` is an `APITimeoutError`, hence `TTSError`.
-- Exceptions raised by `callback` are downstream playback failures. They propagate unchanged and are not mislabeled as OpenAI request failures: the chunk iterator is advanced inside the provider `try`, `callback` is invoked outside it.
+- Exceptions raised by `callback` are downstream playback failures. They propagate unchanged and are not mislabeled as request failures: the chunk iterator is advanced inside the provider `try`, `callback` is invoked outside it.
 - A missing extra surfaces as `ConfigError` at construction, not `TTSError`.
 
 ### Lifetime
@@ -139,12 +142,12 @@ Built in `__init__`, released by `TTSModule.close()` when the engine closes ([tt
 
 ## Module ID
 
-Registered in `REGISTRY` as `"openai"` ([modules/__init__.py](../../src/tts_engine/modules/__init__.py)).
+Registered in `REGISTRY` as `"openai-compatible"` ([modules/__init__.py](../../src/tts_engine/modules/__init__.py)).
 
 ## Testing
 
-- **Unit (`tests/modules/test_openai.py`)** — `openai` is **faked** in `sys.modules` (a stub `OpenAI` whose `audio.speech.with_streaming_response.create` records its kwargs and returns a scripted context-managed response with `iter_bytes()` and a `closed` flag), so no request is ever made and the fast tier runs without the extra. Covers: `ConfigError` on a missing extra, on a missing/empty key and on each invalid field (parametrized), including a non-24 kHz `sample_rate` without `base_url`; key resolution (`api_key_env`, literal precedence, unset variable); `base_url` reaching the client only when set; `sample_rate` default and override; the request kwargs (`response_format="pcm"`, `model` default, `voice`, `instructions` and `speed` only when set); chunks reaching the callback unchanged, an odd byte carried over to the next chunk and a trailing half sample dropped; a 2 s chunk fed in 100 ms slices; a blank text making no request; a `RIFF` body raising `TTSError` before any feed; SDK errors on entry and mid-body wrapped in `TTSError` with the response closed, callback errors propagating unchanged, and a callback error surviving a failing response close; `timeout` reaching the request (default and set) and invalid values rejected; cancellation closing the response before `CancelledError`; and for `synthesize_text_stream`: one request per sentence, the first sentence's audio reaching the callback before the source has yielded its last piece, and cancellation with the source still open.
-- **Live (`tests-e2e/test_modules.py`)** — one `MODULES` row (`openai`, `api_key_env: "OPENAI_API_KEY"`, model `tts-1`, voice `alloy` — not the default model, whose latency is erratic; see open question 2) plus `_REQUIRED_IMPORT["openai"] = "openai"` in `support.py`, so every per-module scenario runs against the real API and **skips cleanly** when the key or the extra is absent ([testing.md](../testing.md), "Live tier"). CI maps an optional `OPENAI_API_KEY` secret ([ci.md](../ci.md)).
+- **Unit (`tests/modules/test_openai_compatible.py`)** — `openai` is **faked** in `sys.modules` (a stub `OpenAI` whose `audio.speech.with_streaming_response.create` records its kwargs and returns a scripted context-managed response with `iter_bytes()` and a `closed` flag), so no request is ever made and the fast tier runs without the extra. Covers: `ConfigError` on a missing extra, on a missing/empty key and on each invalid field (parametrized), including a non-24 kHz `sample_rate` without `base_url`; key resolution (`api_key_env`, literal precedence, unset variable); `base_url` reaching the client only when set; `sample_rate` default and override; the request kwargs (`response_format="pcm"`, `model` default, `voice`, `instructions` and `speed` only when set); chunks reaching the callback unchanged, an odd byte carried over to the next chunk and a trailing half sample dropped; a 2 s chunk fed in 100 ms slices; a blank text making no request; a `RIFF` body raising `TTSError` before any feed; SDK errors on entry and mid-body wrapped in `TTSError` with the response closed, callback errors propagating unchanged, and a callback error surviving a failing response close; `timeout` reaching the request (default and set) and invalid values rejected; cancellation closing the response before `CancelledError`; and for `synthesize_text_stream`: one request per sentence, the first sentence's audio reaching the callback before the source has yielded its last piece, and cancellation with the source still open.
+- **Live (`tests-e2e/test_modules.py`)** — one `MODULES` row (`openai-compatible`, `api_key_env: "OPENAI_API_KEY"`, model `tts-1`, voice `alloy`, against OpenAI's hosted endpoint — not the default model, whose latency is erratic; see open question 2) plus `_REQUIRED_IMPORT["openai-compatible"] = "openai"` in `support.py`, so every per-module scenario runs against the real API and **skips cleanly** when the key or the extra is absent ([testing.md](../testing.md), "Live tier"). CI maps an optional `OPENAI_API_KEY` secret ([ci.md](../ci.md)).
 
 ## Validated against `openai==3.37.0`
 
@@ -161,8 +164,8 @@ Confirmed from the package and live calls on 2026-10-26:
 
 Deferrals only (design is settled):
 
-1. **The Realtime successor.** OpenAI has announced the shutdown of its `audio.speech` models (2027-01-06, per its model deprecation page); the successor is a `gpt-realtime-*` model over the Realtime WebSocket — async, one `response.create` per complete text. That is a separate module (or a `transport` switch here) once the date is close; `/v1/audio/speech` stays useful for compatible servers either way.
-2. **Erratic `gpt-4o-mini-tts` latency.** Measured on 2026-10-26 with the raw SDK (retries off, no module code) on one short sentence, four runs each: the `gpt-4o-mini-tts` alias took 1.2, 1.3, 13.8 and 28.5 s to first byte and up to 116 s in total for 4 s of audio; `gpt-4o-mini-tts-2025-12-15` (what the alias resolves to) 1 to 12 s to first byte and up to 54 s total; `gpt-4o-mini-tts-2025-03-20` 0.35 to 0.44 s and under 1 s total; `tts-1` 0.9 to 2.1 s and under 3 s total. The module adds nothing to this — it is the provider, and others report the same (OpenAI community thread "TTS Api is very slow and giving timeout", May to September 2026, where OpenAI support could not reproduce it; a project issue logging random 20 to 80× slowdowns and 30 s stalls since 2026-09-27). The live row therefore pins `tts-1` so the CI live tier's time is bounded. The module default stays `gpt-4o-mini-tts` for its `instructions` support and voices; if the erratic latency outlasts the shutdown horizon (question 1), the candidates are defaulting to `gpt-4o-mini-tts-2025-03-20` or `tts-1`, or lowering the request `timeout` (now a config field, 30 s by default) so a stalled request fails faster still.
+1. **After OpenAI's shutdown (2027-01-06).** Decided: the Realtime successor is a separate module, `openai`, not a `transport` switch here (the two share the vendor and the SDK and nothing else; see "Why the name"). Deferred to that date: the hosted default goes — `base_url` becomes required (one validation rule), the `gpt-4o-mini-tts` model default is dropped (a compatible server names its own models), `config.openai-compatible.json` points at a local server, and the live row moves off `tts-1` to a local OpenAI-compatible stub or skips. Until then the hosted default still works and the live row still exercises the module against a real server with no local setup.
+2. **Erratic `gpt-4o-mini-tts` latency.** Measured on 2026-10-26 with the raw SDK (retries off, no module code) on one short sentence, four runs each: the `gpt-4o-mini-tts` alias took 1.2, 1.3, 13.8 and 28.5 s to first byte and up to 116 s in total for 4 s of audio; `gpt-4o-mini-tts-2025-12-15` (what the alias resolves to) 1 to 12 s to first byte and up to 54 s total; `gpt-4o-mini-tts-2025-03-20` 0.35 to 0.44 s and under 1 s total; `tts-1` 0.9 to 2.1 s and under 3 s total. The module adds nothing to this — it is the provider, and others report the same (OpenAI community thread "TTS Api is very slow and giving timeout", May to September 2026, where OpenAI support could not reproduce it; a project issue logging random 20 to 80× slowdowns and 30 s stalls since 2026-09-27). The live row therefore pins `tts-1` so the CI live tier's time is bounded. The module default stays `gpt-4o-mini-tts` for its `instructions` support and voices; until the shutdown (question 1), the candidates are defaulting to `gpt-4o-mini-tts-2025-03-20` or `tts-1`, or lowering the request `timeout` (now a config field, 30 s by default) so a stalled request fails faster still.
 3. **Prefetching the next sentence.** As for Mistral and the local models: sentence N+1's request starts only once sentence N is fed, which adds one time-to-first-audio of silence between sentences.
 4. **Inputs over 4096 characters.** `synthesize_text` could split a long text with `segment_sentences` and request each part; today it fails as `TTSError`. The engine's callers speak short texts.
 5. **Custom voices** (`voice: {"id": "voice_…"}`, created from audio samples) and **`stream_format: "sse"`**. Each is a config field away; neither is needed to speak.
