@@ -2,7 +2,7 @@
 
 A streaming text-to-speech engine for Python. Choose a TTS module, construct a `TTSEngine`, and call `await engine.say(text)`, or `await engine.say_stream(text_stream)` to speak an LLM response while it is still being generated.
 
-Audio is synthesized and consumed chunk by chunk, minimizing the delay before playback begins. Speech comes from a provider module you install as an extra: the ElevenLabs, Gradium, Mistral, Deepgram, Gemini, Cartesia or OpenAI cloud APIs (the OpenAI module also reaches OpenAI-compatible servers), or the local pocket-tts, Phonon, Qwen3-TTS, Kokoro or Piper models. There is no default provider. Two built-in fixture modules, `tone` and `audiofile`, stand in for a provider in tests and demos. By default, audio plays on the machine running the engine; applications can instead provide their own audio sink to capture or route the PCM stream.
+Audio is synthesized and consumed chunk by chunk, minimizing the delay before playback begins. Speech comes from a provider module you install as an extra: the ElevenLabs, Gradium, Mistral, Deepgram, Gemini, Cartesia or OpenAI cloud APIs (OpenAI's speech endpoint through the `openai-compatible` module, which also reaches any OpenAI-compatible server), or the local pocket-tts, Phonon, Qwen3-TTS, Kokoro or Piper models. There is no default provider. Two built-in fixture modules, `tone` and `audiofile`, stand in for a provider in tests and demos. By default, audio plays on the machine running the engine; applications can instead provide their own audio sink to capture or route the PCM stream.
 
 Agent-friendly tools are included as an optional interface over the same engine, and an MCP server is available through the `mcp` extra.
 
@@ -38,7 +38,7 @@ uv sync --no-dev --extra mistral      # Mistral cloud API (Voxtral TTS)
 uv sync --no-dev --extra deepgram     # Deepgram cloud API (Aura-2)
 uv sync --no-dev --extra gemini       # Google Gemini API (Gemini TTS)
 uv sync --no-dev --extra cartesia     # Cartesia cloud API (Sonic)
-uv sync --no-dev --extra openai       # OpenAI API or an OpenAI-compatible server
+uv sync --no-dev --extra openai-compatible  # OpenAI API or an OpenAI-compatible server
 uv sync --no-dev --extra mcp          # MCP server (tts-engine-mcp)
 uv sync --no-dev --all-extras         # every extra
 
@@ -54,7 +54,7 @@ pip install "tts-engine[mistral]"
 pip install "tts-engine[deepgram]"
 pip install "tts-engine[gemini]"
 pip install "tts-engine[cartesia]"
-pip install "tts-engine[openai]"
+pip install "tts-engine[openai-compatible]"
 pip install "tts-engine[mcp,pocket]"
 pip install "tts-engine[all]"
 ```
@@ -125,7 +125,7 @@ async with TTSEngine(config) as engine:
 
 Pass that object directly to a loader; do not add an outer `"engine"` key. A larger application can store it under any key it chooses, while the optional MCP server format specifically stores it under `"engine"`.
 
-The [`examples/`](examples/) directory holds one complete MCP-server config per module (`config.pocket.json`, `config.phonon.json`, `config.qwen3.json`, `config.kokoro.json`, `config.piper.json`, `config.elevenlabs.json`, `config.gradium.json`, `config.mistral.json`, `config.deepgram.json`, `config.gemini.json`, `config.cartesia.json`, `config.openai.json`, `config.tone.json`, `config.audiofile.json`). No single example is the default.
+The [`examples/`](examples/) directory holds one complete MCP-server config per module (`config.pocket.json`, `config.phonon.json`, `config.qwen3.json`, `config.kokoro.json`, `config.piper.json`, `config.elevenlabs.json`, `config.gradium.json`, `config.mistral.json`, `config.deepgram.json`, `config.gemini.json`, `config.cartesia.json`, `config.openai-compatible.json`, `config.tone.json`, `config.audiofile.json`). No single example is the default.
 
 | Source | Constructor | Expected shape |
 |---|---|---|
@@ -175,7 +175,7 @@ A module is a swappable synthesis backend. Its `type` selects an entry from the 
 | `deepgram` | Provider | Deepgram cloud API (Aura-2) | `tts-engine[deepgram]` | API key |
 | `gemini` | Provider | Google Gemini API (Gemini TTS) | `tts-engine[gemini]` | API key |
 | `cartesia` | Provider | Cartesia cloud API (Sonic) | `tts-engine[cartesia]` | API key |
-| `openai` | Provider | OpenAI API (`gpt-4o-mini-tts`, `tts-1`) or an OpenAI-compatible server | `tts-engine[openai]` | API key |
+| `openai-compatible` | Provider | OpenAI's `/v1/audio/speech` (`gpt-4o-mini-tts`, `tts-1`) or an OpenAI-compatible server | `tts-engine[openai-compatible]` | API key |
 | `tone` | Fixture | Sine tone, no synthesis | Base installation | None |
 | `audiofile` | Fixture | Pre-recorded WAV files, no synthesis | Base installation | None |
 
@@ -573,20 +573,20 @@ pip install "tts-engine[cartesia]"
 
 The module emits mono PCM at the configured `sample_rate`. A text stream goes to the socket as it arrives, and a complete text in small slices. Text is handed to the server one segment per Cartesia context, the next context opened once the server has acknowledged the previous one and only while the audio already received runs less than about ten seconds ahead of playback. If the text source pauses for several seconds, the module ends the idle context and continues on a fresh one, so the rest of the text is still spoken.
 
-### `openai`
+### `openai-compatible`
 
-The OpenAI module streams speech from OpenAI's `/v1/audio/speech` endpoint through the official `openai` SDK. With `base_url` it can instead use any OpenAI-compatible speech server that returns raw `pcm`. Install it with the `openai` extra:
+The OpenAI-compatible module streams speech from a `/v1/audio/speech` endpoint through the official `openai` SDK: OpenAI's own by default, or, with `base_url`, any OpenAI-compatible speech server that returns raw `pcm` (vLLM-Omni, Kokoro-FastAPI, `mlx_audio.server`, …). Install it with the `openai-compatible` extra:
 
 ```bash
-uv sync --no-dev --extra openai
+uv sync --no-dev --extra openai-compatible
 # For an installed package:
-pip install "tts-engine[openai]"
+pip install "tts-engine[openai-compatible]"
 ```
 
 ```json
 {
   "module": {
-    "type": "openai",
+    "type": "openai-compatible",
     "api_key_env": "OPENAI_API_KEY",
     "voice": "marin"
   }
@@ -605,7 +605,7 @@ pip install "tts-engine[openai]"
 | `sample_rate` | no | `24000` | The rate of the server's `pcm` output. OpenAI's is always 24,000 Hz; set it only with `base_url`, to match the server. |
 | `timeout` | no | `30` | Seconds to wait for the provider before a stalled request fails; also how long a cancel issued during such a stall can take. |
 
-The module emits mono PCM at `sample_rate`. A text stream is synthesized one request per sentence. OpenAI's time to first audio varies: `tts-1` takes about 1.2 s, while `gpt-4o-mini-tts` took from under 1 s to about 19 s in testing. OpenAI has announced the shutdown of these speech models for 2027-01-06.
+The module emits mono PCM at `sample_rate`. A text stream is synthesized one request per sentence. OpenAI's time to first audio varies: `tts-1` takes about 1.2 s, while `gpt-4o-mini-tts` took from under 1 s to about 19 s in testing. OpenAI has announced the shutdown of these speech models for 2027-01-06; after that date the module serves compatible servers only. The module type `openai` is reserved for a future module on OpenAI's Realtime API, their successor.
 
 ### `tone`
 
@@ -671,7 +671,7 @@ async def llm_tokens():
 await engine.say_stream(llm_tokens())
 ```
 
-Pieces are concatenated verbatim (tokens carry their own spaces). The ElevenLabs, Gradium, Deepgram and Cartesia modules forward the text to their realtime sockets as it arrives; `pocket`, `phonon`, `qwen3`, `kokoro`, `piper`, `mistral`, `gemini`, `openai` and `audiofile` synthesize sentence by sentence as each one completes; `tone` plays a tone per piece. A plain list is accepted for in-memory sequences, and a bare string is rejected. If the text source raises, playback stops and that exception propagates unchanged. A long pause in the source is heard as silence, not an error.
+Pieces are concatenated verbatim (tokens carry their own spaces). The ElevenLabs, Gradium, Deepgram and Cartesia modules forward the text to their realtime sockets as it arrives; `pocket`, `phonon`, `qwen3`, `kokoro`, `piper`, `mistral`, `gemini`, `openai-compatible` and `audiofile` synthesize sentence by sentence as each one completes; `tone` plays a tone per piece. A plain list is accepted for in-memory sequences, and a bare string is rejected. If the text source raises, playback stops and that exception propagates unchanged. A long pause in the source is heard as silence, not an error.
 
 ## Audio output and custom sinks
 
@@ -786,7 +786,7 @@ engine = TTSEngine(mcp_config.engine)
 
 ### A provider module requires its extra
 
-A `ConfigError` such as `The 'pocket' module requires the pocket extra` means that provider's libraries are not installed. Run `uv sync --no-dev --extra <name>` (or `pip install "tts-engine[<name>]"`), e.g. `--extra pocket`, `--extra phonon`, `--extra qwen3`, `--extra kokoro`, `--extra piper`, `--extra elevenlabs`, `--extra gradium`, `--extra mistral`, `--extra deepgram`, `--extra gemini`, `--extra cartesia`, or `--extra openai`.
+A `ConfigError` such as `The 'pocket' module requires the pocket extra` means that provider's libraries are not installed. Run `uv sync --no-dev --extra <name>` (or `pip install "tts-engine[<name>]"`), e.g. `--extra pocket`, `--extra phonon`, `--extra qwen3`, `--extra kokoro`, `--extra piper`, `--extra elevenlabs`, `--extra gradium`, `--extra mistral`, `--extra deepgram`, `--extra gemini`, `--extra cartesia`, or `--extra openai-compatible`.
 
 ### pocket-tts
 
@@ -854,7 +854,7 @@ A `ConfigError` such as `The 'pocket' module requires the pocket extra` means th
 - A `TTSError` reporting HTTP 401 means the key was rejected; `Voice not found` or `Model not found` (status 404) means `voice_id` or `model` is wrong.
 - An unknown `emotion` is not rejected by the API: speech is produced without it.
 
-### OpenAI
+### OpenAI-compatible
 
 - Verify that the environment variable named by `api_key_env` is set in the process running the engine.
 - A `TTSError` reporting `Error code: 401` means the key was rejected; `Error code: 400` with `Invalid value` lists the supported voices; `model_not_found` (404) means `model` is wrong.

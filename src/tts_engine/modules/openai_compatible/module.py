@@ -1,15 +1,16 @@
-"""OpenAI speech module.
+"""OpenAI-compatible speech module.
 
-Behind the `openai` extra: `openai` is imported lazily inside `__init__` so
+Behind the `openai-compatible` extra: the `openai` SDK is imported lazily inside `__init__` so
 `import tts_engine` and `load_module` never require it — a missing extra
 becomes a clear `ConfigError`.
 
 `/v1/audio/speech` streams headerless s16le PCM (24 kHz on OpenAI) over a
 chunked HTTP body, so the bytes are fed unchanged — re-aligned to whole samples
 and cut into 100 ms slices so a cancel is honored promptly. With `base_url` and
-`sample_rate` the same request reaches OpenAI-compatible servers. It takes one
+`sample_rate` the same request reaches any OpenAI-compatible server, which is
+what the endpoint is for once OpenAI's own models leave it on 2027-01-06. It takes one
 complete input per request, so a text stream is grouped into sentences (see
-specs/modules/openai.md).
+specs/modules/openai-compatible.md).
 """
 
 import logging
@@ -37,27 +38,27 @@ log = logging.getLogger(__name__)
 _DEFAULT_SAMPLE_RATE = 24000
 _DEFAULT_MODEL = "gpt-4o-mini-tts"
 _DEFAULT_TIMEOUT = 30.0
-_LABEL = "OpenAI module"
+_LABEL = "OpenAI-compatible module"
 _MIN_SPEED, _MAX_SPEED = 0.25, 4.0
 # A WAV body (some compatible servers ignore `response_format`) starts with this.
 _WAV_MAGIC = b"RIFF"
 
 
-class OpenAIModule(TTSModule):
+class OpenAICompatibleModule(TTSModule):
     def __init__(self, config: dict) -> None:
         try:
             from openai import OpenAI
         except ImportError as exc:
             raise ConfigError(
-                "The 'openai' module requires the openai extra: "
-                "pip install tts-engine[openai]"
+                "The 'openai-compatible' module requires the openai-compatible extra: "
+                "pip install tts-engine[openai-compatible]"
             ) from exc
 
         api_key = resolve_api_key(config, label=_LABEL)
 
         voice = config.get("voice")
         if not isinstance(voice, str) or not voice:
-            raise ConfigError("OpenAI module requires a non-empty 'voice'")
+            raise ConfigError("OpenAI-compatible module requires a non-empty 'voice'")
 
         model = optional_str(config, "model", label=_LABEL, default=_DEFAULT_MODEL)
 
@@ -81,12 +82,14 @@ class OpenAIModule(TTSModule):
             or not isinstance(sample_rate, int)
             or sample_rate <= 0
         ):
-            raise ConfigError("OpenAI module 'sample_rate' must be a positive integer")
+            raise ConfigError(
+                "OpenAI-compatible module 'sample_rate' must be a positive integer"
+            )
         if sample_rate != _DEFAULT_SAMPLE_RATE and base_url is None:
             # OpenAI's own `pcm` is fixed at 24 kHz; the field only declares the
             # rate of a compatible server's output.
             raise ConfigError(
-                "OpenAI module 'sample_rate' other than 24000 requires 'base_url' "
+                "OpenAI-compatible module 'sample_rate' other than 24000 requires 'base_url' "
                 "(OpenAI's pcm output is fixed at 24 kHz)"
             )
         self._sample_rate = sample_rate
@@ -134,15 +137,17 @@ class OpenAIModule(TTSModule):
             )
             response = response_cm.__enter__()
         except Exception as exc:
-            raise TTSError(f"OpenAI request failed: {exc}") from exc
+            raise TTSError(f"OpenAI-compatible request failed: {exc}") from exc
 
         # Leaving the response closes it, on every path; a failing close never
         # hides the utterance's own error.
-        with cleanup(lambda: response_cm.__exit__(None, None, None), "OpenAI response"):
+        with cleanup(
+            lambda: response_cm.__exit__(None, None, None), "OpenAI-compatible response"
+        ):
             try:
                 chunks = response.iter_bytes()
             except Exception as exc:
-                raise TTSError(f"OpenAI request failed: {exc}") from exc
+                raise TTSError(f"OpenAI-compatible request failed: {exc}") from exc
 
             # Whole samples in 100 ms slices (an odd trailing byte waits for
             # the next chunk); `head` holds the first bytes until the WAV
@@ -159,7 +164,7 @@ class OpenAIModule(TTSModule):
                 except StopIteration:
                     break
                 except Exception as exc:
-                    raise TTSError(f"OpenAI request failed: {exc}") from exc
+                    raise TTSError(f"OpenAI-compatible request failed: {exc}") from exc
                 if not checked:
                     head += chunk
                     if len(head) < len(_WAV_MAGIC):

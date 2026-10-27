@@ -2,8 +2,8 @@
 
 Each backend is a package of its own under ``modules/`` (``elevenlabs/``,
 ``pocket/``, ``gradium/``, ``phonon/``, ``mistral/``, ``deepgram/``,
-``gemini/``, ``cartesia/``, ``openai/``, ``qwen3/``, ``kokoro/``, ``piper/``,
-``tone/``, ``audiofile/``), its ``TTSModule`` subclass in ``module.py`` and
+``gemini/``, ``cartesia/``, ``openai_compatible/``, ``qwen3/``, ``kokoro/``,
+``piper/``, ``tone/``, ``audiofile/``), its ``TTSModule`` subclass in ``module.py`` and
 re-exported from the package ``__init__``; the registry imports every class
 eagerly, so providers import their library lazily inside ``__init__`` (see
 specs/tts-module-interface.md, "Module registry").
@@ -19,7 +19,7 @@ from tts_engine.modules.gemini import GeminiModule
 from tts_engine.modules.gradium import GradiumModule
 from tts_engine.modules.kokoro import KokoroModule
 from tts_engine.modules.mistral import MistralModule
-from tts_engine.modules.openai import OpenAIModule
+from tts_engine.modules.openai_compatible import OpenAICompatibleModule
 from tts_engine.modules.phonon import PhononModule
 from tts_engine.modules.piper import PiperModule
 from tts_engine.modules.pocket import PocketModule
@@ -35,7 +35,7 @@ REGISTRY: dict[str, type[TTSModule]] = {
     "deepgram": DeepgramModule,
     "gemini": GeminiModule,
     "cartesia": CartesiaModule,
-    "openai": OpenAIModule,
+    "openai-compatible": OpenAICompatibleModule,
     "qwen3": Qwen3Module,
     "kokoro": KokoroModule,
     "piper": PiperModule,

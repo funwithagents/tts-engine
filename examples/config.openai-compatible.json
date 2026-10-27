@@ -1,7 +1,7 @@
 {
   "engine": {
     "module": {
-      "type": "openai",
+      "type": "openai-compatible",
       "api_key_env": "OPENAI_API_KEY",
       "voice": "marin",
       "model": "gpt-4o-mini-tts"
