@@ -1,0 +1,17 @@
+{
+  "engine": {
+    "module": {
+      "type": "openai",
+      "api_key_env": "OPENAI_API_KEY",
+      "model": "gpt-realtime-2.1-mini",
+      "voice": "marin"
+    },
+    "player": {
+      "device": null
+    }
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000
+  }
+}

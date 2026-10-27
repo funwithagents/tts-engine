@@ -1566,6 +1566,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/56/73/c605f0cee1882e453a4b7fc2f17f4a42a7d4c1ed2304aff4b163ffade819/openai-3.37.0-py3-none-any.whl", hash = "sha256:d9f5b000f52397a7f9f946012744c5bc4c962eed3c100385252464c273a63e57", size = 2303939, upload-time = "2026-10-22T20:04:37.707Z" },
 ]
 
+[package.optional-dependencies]
+realtime = [
+    { name = "websockets" },
+]
+
 [[package]]
 name = "opentelemetry-api"
 version = "1.45.1"
@@ -2837,7 +2842,7 @@ all = [
     { name = "mcp" },
     { name = "miniaudio" },
     { name = "mistralai" },
-    { name = "openai" },
+    { name = "openai", extra = ["realtime"] },
     { name = "piper-tts" },
     { name = "pocket-tts" },
     { name = "ptts" },
@@ -2870,6 +2875,9 @@ mcp = [
 ]
 mistral = [
     { name = "mistralai" },
+]
+openai = [
+    { name = "openai", extra = ["realtime"] },
 ]
 openai-compatible = [
     { name = "openai" },
@@ -2915,15 +2923,16 @@ requires-dist = [
     { name = "mistralai", marker = "extra == 'mistral'", specifier = ">=3.5,<4" },
     { name = "numpy" },
     { name = "openai", marker = "extra == 'openai-compatible'", specifier = ">=3.37,<4" },
+    { name = "openai", extras = ["realtime"], marker = "extra == 'openai'", specifier = ">=3.37,<4" },
     { name = "piper-tts", marker = "extra == 'piper'", specifier = ">=1.8,<2" },
     { name = "pocket-tts", marker = "extra == 'pocket'", specifier = ">=4.0.1,<5" },
     { name = "ptts", marker = "extra == 'phonon'", specifier = ">=0.4.2,<0.6" },
     { name = "qwentts-cpp-python", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'qwen3'", specifier = ">=0.5,<0.6" },
     { name = "sounddevice" },
-    { name = "tts-engine", extras = ["elevenlabs", "pocket", "gradium", "phonon", "mistral", "deepgram", "gemini", "cartesia", "openai-compatible", "qwen3", "kokoro", "piper", "mcp"], marker = "extra == 'all'" },
+    { name = "tts-engine", extras = ["elevenlabs", "pocket", "gradium", "phonon", "mistral", "deepgram", "gemini", "cartesia", "openai", "openai-compatible", "qwen3", "kokoro", "piper", "mcp"], marker = "extra == 'all'" },
     { name = "uvicorn", marker = "extra == 'mcp'" },
 ]
-provides-extras = ["elevenlabs", "pocket", "gradium", "mistral", "deepgram", "gemini", "cartesia", "openai-compatible", "phonon", "qwen3", "kokoro", "piper", "mcp", "all"]
+provides-extras = ["elevenlabs", "pocket", "gradium", "mistral", "deepgram", "gemini", "cartesia", "openai-compatible", "openai", "phonon", "qwen3", "kokoro", "piper", "mcp", "all"]
 
 [package.metadata.requires-dev]
 dev = [

@@ -50,6 +50,7 @@ _SCRIPT = textwrap.dedent(
         "deepgram",
         "gemini",
         "cartesia",
+        "openai",
         "openai-compatible",
         "qwen3",
         "kokoro",
@@ -67,6 +68,7 @@ _SCRIPT = textwrap.dedent(
         ("deepgram", {"type": "deepgram", "api_key": "k"}),
         ("gemini", {"type": "gemini", "api_key": "k"}),
         ("cartesia", {"type": "cartesia", "api_key": "k", "voice_id": "v"}),
+        ("openai", {"type": "openai", "api_key": "k"}),
         (
             "openai-compatible",
             {"type": "openai-compatible", "api_key": "k", "voice": "v"},
