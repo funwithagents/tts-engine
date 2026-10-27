@@ -21,9 +21,11 @@ tts-engine-mcp = "tts_engine.mcp_server_cli:main"
 # and "Dependency strategy for transports"). A missing extra surfaces as a
 # "pip install tts-engine[<name>]" hint.
 [project.optional-dependencies]
-# The official SDK plus miniaudio for the streaming MP3 -> PCM decode.
+# The official SDK plus miniaudio for the streaming MP3 -> PCM decode. <3: the
+# 2.x text_to_speech.stream surface the module calls, validated on 2.74.1 — see
+# specs/modules/elevenlabs.md.
 elevenlabs = [
-    "elevenlabs",
+    "elevenlabs>=2.39,<3",
     "miniaudio",
 ]
 # pocket-tts pulls in torch (~hundreds of MB) + a model download — see specs/modules/pocket.md.
@@ -64,9 +66,9 @@ openai = [
     "openai>=3.37,<4",
 ]
 # Gradium's Phonon on-device models through the ptts Rust runtime: numpy only,
-# no torch. <0.5: pre-1.0 and fast-moving, validated on 0.4.2 — see specs/modules/phonon.md.
+# no torch. <0.6: pre-1.0 and fast-moving, validated on 0.5.0 — see specs/modules/phonon.md.
 phonon = [
-    "ptts>=0.4.2,<0.5",
+    "ptts>=0.4.2,<0.6",
 ]
 # Qwen3-TTS through the qwentts.cpp GGML engine (numpy + huggingface-hub only).
 # PyPI ships a Metal wheel for Apple silicon and CUDA 12.8 wheels for Linux, no
