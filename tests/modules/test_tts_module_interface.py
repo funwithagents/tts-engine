@@ -1,23 +1,31 @@
 import asyncio
+import re
 import threading
 import time
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from tts_engine.config import ConfigError
 from tts_engine.modules import REGISTRY, load_module
 from tts_engine.modules.base import (
+    PCMFeeder,
     TTSError,
     TTSModule,
     TTSOptions,
     cleanup,
     feed_with_lookahead,
+    finite_number,
+    float_to_int16_pcm,
     open_cancellable,
+    optional_str,
+    resolve_api_key,
     resolve_path,
     run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
+    slice_bytes_for,
     slice_text,
 )
 
@@ -611,3 +619,158 @@ def test_slice_text_cuts_at_sentence_ends_and_concatenates_back():
 def test_slice_text_short_text_is_one_slice_and_a_long_word_passes_whole():
     assert list(slice_text("short", 20)) == ["short"]
     assert list(slice_text("a" * 30 + " tail", 20)) == ["a" * 20, "a" * 10 + " tail"]
+
+
+# --- shared config helpers ---------------------------------------------------
+
+_LABEL = "X module"
+
+
+def test_resolve_api_key_prefers_the_literal_over_the_variable(monkeypatch):
+    monkeypatch.setenv("TTS_TEST_KEY", "from-env")
+    both = {"api_key": "literal", "api_key_env": "TTS_TEST_KEY"}
+    assert resolve_api_key(both, label=_LABEL) == "literal"
+    env_only = {"api_key": "", "api_key_env": "TTS_TEST_KEY"}
+    assert resolve_api_key(env_only, label=_LABEL) == "from-env"
+
+
+@pytest.mark.parametrize("value", [None, ""])
+def test_resolve_api_key_names_an_unset_or_empty_variable(monkeypatch, value):
+    if value is None:
+        monkeypatch.delenv("TTS_TEST_KEY", raising=False)
+    else:
+        monkeypatch.setenv("TTS_TEST_KEY", value)
+    with pytest.raises(
+        ConfigError, match="X module: environment variable 'TTS_TEST_KEY'"
+    ):
+        resolve_api_key({"api_key_env": "TTS_TEST_KEY"}, label=_LABEL)
+
+
+@pytest.mark.parametrize(
+    "config", [{}, {"api_key": ""}, {"api_key": None, "api_key_env": None}]
+)
+def test_resolve_api_key_requires_one_of_the_fields(config):
+    with pytest.raises(
+        ConfigError, match="X module requires a non-empty 'api_key' or 'api_key_env'"
+    ):
+        resolve_api_key(config, label=_LABEL)
+
+
+@pytest.mark.parametrize(
+    "config, field",
+    [({"api_key": 5}, "api_key"), ({"api_key_env": ["K"]}, "api_key_env")],
+)
+def test_resolve_api_key_rejects_a_non_string(config, field):
+    with pytest.raises(ConfigError, match=f"X module '{field}' must be a string"):
+        resolve_api_key(config, label=_LABEL)
+
+
+def test_optional_str_absent_null_and_default_policy():
+    assert optional_str({}, "f", label=_LABEL) is None
+    assert optional_str({"f": None}, "f", label=_LABEL) is None  # null is absent
+    assert optional_str({"f": "v"}, "f", label=_LABEL) == "v"
+    assert optional_str({}, "f", label=_LABEL, default="d") == "d"
+    assert optional_str({"f": "v"}, "f", label=_LABEL, default="d") == "v"
+    message = "X module 'f' must be a non-empty string"
+    for config in ({"f": ""}, {"f": 3}):
+        with pytest.raises(ConfigError, match=message):
+            optional_str(config, "f", label=_LABEL)
+    # With a default, an explicit null is a value the config names: rejected.
+    with pytest.raises(ConfigError, match=message):
+        optional_str({"f": None}, "f", label=_LABEL, default="d")
+
+
+def test_finite_number_absent_null_and_default_policy():
+    assert finite_number({}, "f", label=_LABEL) is None
+    assert finite_number({"f": None}, "f", label=_LABEL) is None
+    value = finite_number({"f": 2}, "f", label=_LABEL)
+    assert value == 2.0 and isinstance(value, float)
+    assert finite_number({}, "f", label=_LABEL, default=30) == 30.0
+    with pytest.raises(ConfigError, match="X module 'f' must be a finite number"):
+        finite_number({"f": None}, "f", label=_LABEL, default=30)
+
+
+@pytest.mark.parametrize(
+    "bad", [True, "1", float("nan"), float("inf"), -float("inf"), [1]]
+)
+def test_finite_number_rejects_non_numbers_bools_and_non_finite(bad):
+    with pytest.raises(ConfigError, match="X module 'f' must be a finite number"):
+        finite_number({"f": bad}, "f", label=_LABEL)
+
+
+@pytest.mark.parametrize(
+    "bounds, ok, bad, message",
+    [
+        ({"exclusive_minimum": 0}, 0.5, 0, "a finite number > 0"),
+        ({"minimum": 1.0}, 1.0, 0.99, "a finite number >= 1"),
+        ({"maximum": 4.0}, 4, 4.5, "a finite number <= 4"),
+        ({"minimum": 0.0, "maximum": 1.0}, 1, 1.01, "a finite number between 0 and 1"),
+        (
+            {"exclusive_minimum": 0, "maximum": 1.0},
+            1.0,
+            0,
+            "a finite number > 0 and <= 1",
+        ),
+    ],
+)
+def test_finite_number_bounds_and_their_message(bounds, ok, bad, message):
+    assert finite_number({"f": ok}, "f", label=_LABEL, **bounds) == float(ok)
+    with pytest.raises(ConfigError, match=re.escape(f"X module 'f' must be {message}")):
+        finite_number({"f": bad}, "f", label=_LABEL, **bounds)
+
+
+# --- shared PCM helpers --------------------------------------------------------
+
+
+def test_float_to_int16_pcm_scales_clips_and_flattens_without_touching_the_input():
+    samples = np.array([[0.0, 0.5], [-1.0, 2.0]], dtype=np.float64)
+    pcm = float_to_int16_pcm(samples)
+    assert np.frombuffer(pcm, "<i2").tolist() == [0, 16383, -32767, 32767]
+    assert samples[1, 1] == 2.0
+    assert float_to_int16_pcm([1.0, -2.0]) == b"\xff\x7f\x01\x80"
+
+
+def test_slice_bytes_for_is_100ms_of_int16_mono():
+    assert slice_bytes_for(24000) == 4800
+    assert slice_bytes_for(22050) == 4410
+    assert slice_bytes_for(1) == 2
+
+
+def test_pcm_feeder_aligns_across_chunks_and_feeds_in_slices():
+    fed: list[bytes] = []
+    feeder = PCMFeeder(fed.append, threading.Event(), slice_bytes=4)
+    raw = bytes(range(1, 12))  # five samples and one odd byte
+    assert feeder.feed(raw[:3]) is True  # one whole sample; the third byte waits
+    assert feeder.feed(raw[3:]) is True
+    assert fed == [raw[0:2], raw[2:6], raw[6:10]]  # whole samples, at most 4 bytes
+    assert b"".join(fed) == raw[:10]  # the trailing odd byte is never fed
+
+
+def test_pcm_feeder_converts_whole_samples_before_slicing():
+    fed: list[bytes] = []
+    floats = np.array([0.5, -0.5, 1.0], dtype="<f4").tobytes()
+    feeder = PCMFeeder(
+        fed.append,
+        threading.Event(),
+        slice_bytes=4,
+        sample_bytes=4,
+        convert=lambda data: float_to_int16_pcm(np.frombuffer(data, "<f4")),
+    )
+    assert feeder.feed(floats[:5]) is True  # one float32 sample and a byte
+    assert feeder.feed(floats[5:]) is True
+    assert [np.frombuffer(c, "<i2").tolist() for c in fed] == [[16383], [-16383, 32767]]
+
+
+def test_pcm_feeder_stops_between_slices_and_feeds_nothing_after():
+    stop = threading.Event()
+    fed: list[bytes] = []
+
+    def callback(chunk: bytes) -> None:
+        fed.append(chunk)
+        stop.set()
+
+    feeder = PCMFeeder(callback, stop, slice_bytes=2)
+    assert feeder.feed(bytes(range(6))) is False
+    assert fed == [b"\x00\x01"]
+    assert feeder.feed(b"\x06\x07") is False
+    assert fed == [b"\x00\x01"]

@@ -120,7 +120,7 @@ def _generate(self, text, callback, stop):
             break
         except Exception as exc:
             raise TTSError(f"pocket-tts synthesis failed: {exc}") from exc
-        callback(_to_int16_pcm(chunk))  # float tensor -> signed-16 LE bytes
+        callback(float_to_int16_pcm(chunk.detach().to("cpu").numpy()))
 ```
 
 `synthesize_text` runs `_generate` once in `run_cancellable_worker`.
@@ -129,7 +129,7 @@ def _generate(self, text, callback, stop):
 
 pocket-tts has no incremental text API: the model conditions on its whole prompt before emitting a frame, and `generate_audio_stream` itself splits a long text into sentences (`split_into_best_sentences`) and generates each one from a fresh copy of the voice state. `synthesize_text_stream` therefore does the same split **as the text arrives**: one worker from `run_text_stream_worker`, iterating `segment_sentences(pieces)` ([tts-module-interface.md](../tts-module-interface.md), "Text-stream helpers") and running `_generate` once per sentence, inside that single worker. Audio for sentence one plays while the stream is still delivering sentence two; the result is equivalent to what the library does internally for a complete text, only earlier. A sentence longer than `max_tokens` is still split further by the library, as for `synthesize_text`. Error and cancellation rules are those of `synthesize_text`, plus: a text-stream failure aborts via the bridge and propagates unchanged.
 
-**Float → int16** happens in the module before the callback: move to CPU/`numpy`, clip to `[-1.0, 1.0]`, scale by `32767`, cast to little-endian `int16`, and emit `.tobytes()`. This satisfies the "signed 16-bit PCM (little-endian), mono" half of the audio-format contract.
+**Float → int16** happens in the module before the callback: the tensor is moved to CPU/`numpy` here (the torch-specific step), then the shared `float_to_int16_pcm` ([tts-module-interface.md](../tts-module-interface.md), "Shared PCM helpers") clips to `[-1.0, 1.0]`, scales by `32767`, casts to little-endian `int16` and emits `.tobytes()`. This satisfies the "signed 16-bit PCM (little-endian), mono" half of the audio-format contract.
 
 ### Error handling
 

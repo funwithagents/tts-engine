@@ -18,8 +18,6 @@ the provider runs ahead of playback (see specs/modules/deepgram.md,
 """
 
 import logging
-import math
-import os
 import queue
 import re
 import threading
@@ -28,13 +26,18 @@ from collections.abc import AsyncIterator, Callable, Iterator
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
+    PCMFeeder,
     TTSError,
     TTSModule,
     TTSOptions,
     cut_at_boundary,
+    finite_number,
     open_cancellable,
+    optional_str,
+    resolve_api_key,
     run_cancellable_worker,
     run_text_stream_worker,
+    slice_bytes_for,
     slice_text,
     split_at_last_space,
 )
@@ -45,6 +48,7 @@ _DEFAULT_MODEL = "aura-2-thalia-en"
 _SAMPLE_RATES = (8000, 16000, 24000, 32000, 48000)
 _SPEED_RANGE = (0.7, 1.5)
 _DEFAULT_TIMEOUT = 30.0
+_LABEL = "Deepgram module"
 # A segment (the text between two Flushes) is flushed at the first sentence end
 # past _SEGMENT_SOFT characters, and at a word boundary at _SEGMENT_HARD at the
 # latest. The next segment starts only once the Flush is answered, so the
@@ -98,11 +102,9 @@ class DeepgramModule(TTSModule):
                 "pip install tts-engine[deepgram]"
             ) from exc
 
-        api_key = self._resolve_api_key(config)
+        api_key = resolve_api_key(config, label=_LABEL)
 
-        model = config.get("model", _DEFAULT_MODEL)
-        if not isinstance(model, str) or not model:
-            raise ConfigError("Deepgram module 'model' must be a non-empty string")
+        model = optional_str(config, "model", label=_LABEL, default=_DEFAULT_MODEL)
 
         sample_rate = config.get("sample_rate", 24000)
         if (
@@ -120,37 +122,34 @@ class DeepgramModule(TTSModule):
             "encoding": "linear16",
             "sample_rate": sample_rate,
         }
-        speed = config.get("speed")
+        speed = finite_number(
+            config,
+            "speed",
+            label=_LABEL,
+            minimum=_SPEED_RANGE[0],
+            maximum=_SPEED_RANGE[1],
+        )
         if speed is not None:
-            lo, hi = _SPEED_RANGE
-            if (
-                isinstance(speed, bool)
-                or not isinstance(speed, (int, float))
-                or not (lo <= speed <= hi)
-            ):
-                raise ConfigError(
-                    f"Deepgram module 'speed' must be a number between {lo} and {hi}"
-                )
-            connect_kwargs["speed"] = float(speed)
+            connect_kwargs["speed"] = speed
         mip_opt_out = config.get("mip_opt_out")
         if mip_opt_out is not None:
             if not isinstance(mip_opt_out, bool):
                 raise ConfigError("Deepgram module 'mip_opt_out' must be a boolean")
             connect_kwargs["mip_opt_out"] = mip_opt_out
 
-        timeout = config.get("timeout", _DEFAULT_TIMEOUT)
-        if (
-            isinstance(timeout, bool)
-            or not isinstance(timeout, int | float)
-            or not math.isfinite(timeout)
-            or timeout <= 0
-        ):
-            raise ConfigError("Deepgram module 'timeout' must be a finite number > 0")
+        timeout = finite_number(
+            config,
+            "timeout",
+            label=_LABEL,
+            default=_DEFAULT_TIMEOUT,
+            exclusive_minimum=0,
+        )
 
         self._sample_rate: int = sample_rate
         self._connect_kwargs = connect_kwargs
         self._timeout = float(timeout)
         self._max_unread = int(_MAX_UNREAD_SECONDS * 2 * sample_rate)
+        self._slice_bytes = slice_bytes_for(sample_rate)
         self._speak_text = SpeakV1Text
         # The key is always passed explicitly: the SDK's own DEEPGRAM_API_KEY
         # fallback is never relied on, so this module's key rules are the only
@@ -160,34 +159,6 @@ class DeepgramModule(TTSModule):
     @property
     def sample_rate(self) -> int:
         return self._sample_rate
-
-    @staticmethod
-    def _resolve_api_key(config: dict) -> str:
-        """Resolve the API key from a literal ``api_key`` or, failing that, the
-        environment variable named by ``api_key_env`` — so a config file can be
-        committed with only the env-var name and no secret."""
-        api_key = config.get("api_key")
-        env_name = config.get("api_key_env")
-        if api_key is not None and not isinstance(api_key, str):
-            raise ConfigError("Deepgram module 'api_key' must be a string")
-        if env_name is not None and not isinstance(env_name, str):
-            raise ConfigError("Deepgram module 'api_key_env' must be a string")
-
-        if api_key:
-            return api_key
-
-        if env_name:
-            api_key = os.environ.get(env_name)
-            if not api_key:
-                raise ConfigError(
-                    f"Deepgram module: environment variable {env_name!r} "
-                    "(named by 'api_key_env') is unset or empty"
-                )
-            return api_key
-
-        raise ConfigError(
-            "Deepgram module requires a non-empty 'api_key' or 'api_key_env'"
-        )
 
     @staticmethod
     def _read(socket, session: _Session) -> None:
@@ -361,7 +332,9 @@ class DeepgramModule(TTSModule):
         callback: Callable[[bytes], None],
         stop: threading.Event,
     ) -> None:
-        carry = b""  # an odd trailing byte, completed by the next message
+        # Whole samples (an odd trailing byte waits for the next message) in
+        # 100 ms slices.
+        feeder = PCMFeeder(callback, stop, slice_bytes=self._slice_bytes)
         while not stop.is_set():
             if session.sender_errors:
                 exc = session.sender_errors[0]
@@ -387,11 +360,8 @@ class DeepgramModule(TTSModule):
                 with session.changed:
                     session.unread -= len(message)
                     session.changed.notify_all()
-                data = carry + message
-                whole = len(data) - len(data) % 2
-                carry = data[whole:]
-                if whole:
-                    callback(data[:whole])
+                if not feeder.feed(message):
+                    return
                 continue
             kind = getattr(message, "type", None)
             if kind == "Warning":

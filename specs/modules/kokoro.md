@@ -127,7 +127,7 @@ One `log.info` after the load names the model, the voice, the language and the o
 
 `kokoro.create(text, voice=..., lang=..., speed=...)` phonemizes the text, splits the phonemes into batches of at most 510, runs the model on each batch, trims the silence at the batch edges, and returns one float32 1-D array at 24 kHz. Unset fields are omitted from the call, so the library's own `speed` default applies. Measured on an Apple M5 Pro CPU, warm: ~0.4 s for a short sentence (1.7 s of audio), ~1.3 s for a 150-character one (6.9 s of audio), about 4–5× real time. The first sentence after load is not slower once espeak-ng has been initialized at load.
 
-`_to_int16_pcm` is the phonon conversion: flatten, clip to [-1, 1], scale by 32767, little-endian int16. Peak amplitude measured 0.38–0.51, so clipping is a guard, not a gain stage.
+The conversion is the shared `float_to_int16_pcm` ([tts-module-interface.md](../tts-module-interface.md), "Shared PCM helpers"): flatten, clip to [-1, 1], scale by 32767, little-endian int16. Peak amplitude measured 0.38–0.51, so clipping is a guard, not a gain stage.
 
 **Feeding in slices.** A sentence's audio arrives all at once, and the default sink's `feed` blocks for the duration of the chunk it is given. The module therefore feeds each sentence in 100 ms slices (2400 samples), checking `stop` between slices, as the mistral and openai modules do, so a cancellation takes effect within 100 ms of playback.
 

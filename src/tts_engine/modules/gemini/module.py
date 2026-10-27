@@ -12,20 +12,24 @@ sentences (see specs/modules/gemini.md).
 
 import logging
 import math
-import os
 import threading
 from collections.abc import AsyncIterator, Callable, Generator, Iterator
 from typing import Any, cast
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
+    PCMFeeder,
     TTSError,
     TTSModule,
     TTSOptions,
     cleanup,
+    finite_number,
+    optional_str,
+    resolve_api_key,
     run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
+    slice_bytes_for,
 )
 
 log = logging.getLogger(__name__)
@@ -33,14 +37,9 @@ log = logging.getLogger(__name__)
 _SAMPLE_RATE = 24000
 _DEFAULT_MODEL = "gemini-3.8-flash-tts"
 _DEFAULT_TIMEOUT = 30.0
+_LABEL = "Gemini module"
 _MIME = "audio/l16"
-
-
-def _optional_str(config: dict, key: str) -> str | None:
-    value = config.get(key)
-    if value is not None and (not isinstance(value, str) or not value):
-        raise ConfigError(f"Gemini module '{key}' must be a non-empty string")
-    return value
+_SLICE_BYTES = slice_bytes_for(_SAMPLE_RATE)
 
 
 def _check_mime(mime: str | None) -> None:
@@ -72,23 +71,20 @@ class GeminiModule(TTSModule):
                 "pip install tts-engine[gemini]"
             ) from exc
 
-        api_key = self._resolve_api_key(config)
+        api_key = resolve_api_key(config, label=_LABEL)
 
-        model = config.get("model", _DEFAULT_MODEL)
-        if not isinstance(model, str) or not model:
-            raise ConfigError("Gemini module 'model' must be a non-empty string")
+        model = optional_str(config, "model", label=_LABEL, default=_DEFAULT_MODEL)
 
-        voice = _optional_str(config, "voice")
-        language_code = _optional_str(config, "language_code")
+        voice = optional_str(config, "voice", label=_LABEL)
+        language_code = optional_str(config, "language_code", label=_LABEL)
 
-        timeout = config.get("timeout", _DEFAULT_TIMEOUT)
-        if (
-            isinstance(timeout, bool)
-            or not isinstance(timeout, int | float)
-            or not math.isfinite(timeout)
-            or timeout <= 0
-        ):
-            raise ConfigError("Gemini module 'timeout' must be a finite number > 0")
+        timeout = finite_number(
+            config,
+            "timeout",
+            label=_LABEL,
+            default=_DEFAULT_TIMEOUT,
+            exclusive_minimum=0,
+        )
 
         # Only the fields that were set: the API's own defaults apply to the rest.
         speech_config: dict = {}
@@ -121,33 +117,6 @@ class GeminiModule(TTSModule):
         # Gemini TTS audio is fixed at 24 kHz; the API has no rate option.
         return _SAMPLE_RATE
 
-    @staticmethod
-    def _resolve_api_key(config: dict) -> str:
-        """Resolve the API key from a literal ``api_key`` or, failing that, the
-        environment variable named by ``api_key_env``."""
-        api_key = config.get("api_key")
-        env_name = config.get("api_key_env")
-        if api_key is not None and not isinstance(api_key, str):
-            raise ConfigError("Gemini module 'api_key' must be a string")
-        if env_name is not None and not isinstance(env_name, str):
-            raise ConfigError("Gemini module 'api_key_env' must be a string")
-
-        if api_key:
-            return api_key
-
-        if env_name:
-            api_key = os.environ.get(env_name)
-            if not api_key:
-                raise ConfigError(
-                    f"Gemini module: environment variable {env_name!r} "
-                    "(named by 'api_key_env') is unset or empty"
-                )
-            return api_key
-
-        raise ConfigError(
-            "Gemini module requires a non-empty 'api_key' or 'api_key_env'"
-        )
-
     def _generate(
         self, text: str, callback: Callable[[bytes], None], stop: threading.Event
     ) -> None:
@@ -164,7 +133,9 @@ class GeminiModule(TTSModule):
         except Exception as exc:
             raise TTSError(f"Gemini request failed: {exc}") from exc
 
-        carry = b""  # a sample split across two parts
+        # Whole samples (one split across two parts waits for the next) in
+        # 100 ms slices, whatever size the API makes its parts.
+        feeder = PCMFeeder(callback, stop, slice_bytes=_SLICE_BYTES)
         # Closing the generator drops the HTTP connection, on every path; a
         # failing close never hides the utterance's own error.
         with cleanup(chunks.close, "Gemini response"):
@@ -192,13 +163,8 @@ class GeminiModule(TTSModule):
                         if blob is None or not blob.data:
                             continue  # e.g. a text part
                         _check_mime(blob.mime_type)
-                        data = carry + blob.data
-                        whole = len(data) - len(data) % 2
-                        data, carry = data[:whole], data[whole:]
-                        if stop.is_set():
+                        if not feeder.feed(blob.data):
                             return
-                        if data:
-                            callback(data)
                     reason = candidate.finish_reason
                     if reason is not None and _reason_name(reason) != "STOP":
                         raise TTSError(

@@ -32,9 +32,9 @@ All fields go under the `engine.module` block in `config.json` alongside `"type"
 
 ### API key resolution
 
-The key is resolved in this order: a non-empty literal `api_key` wins; otherwise, if `api_key_env` is set, the key is read from that environment variable. Non-string values raise `ConfigError`. If `api_key_env` names a variable that is unset or empty, construction raises `ConfigError` identifying the variable. If neither `api_key` nor `api_key_env` yields a key, construction raises `ConfigError`. Prefer `api_key_env` so `config.json` can be committed without a secret.
+The module calls the shared `resolve_api_key` ([tts-module-interface.md](../tts-module-interface.md), "Shared config helpers"), which every API-backed module uses with its own label; this section is the reference description of the rule. The key is resolved in this order: a non-empty literal `api_key` wins; otherwise, if `api_key_env` is set, the key is read from that environment variable. Non-string values raise `ConfigError`. If `api_key_env` names a variable that is unset or empty, construction raises `ConfigError` identifying the variable. If neither `api_key` nor `api_key_env` yields a key, construction raises `ConfigError`. Prefer `api_key_env` so `config.json` can be committed without a secret.
 
-`voice_id` and `model` are validated as non-empty strings. `stability` and `similarity_boost` are validated at construction as numeric values in the inclusive range 0–1; booleans are rejected rather than treated as integers. Invalid module configuration therefore fails as `ConfigError` before the SDK client is used.
+`voice_id` and `model` are validated as non-empty strings. `stability` and `similarity_boost` are validated at construction (through the shared `finite_number`) as numeric values in the inclusive range 0–1; booleans are rejected rather than treated as integers, and so are `NaN` and the infinities. Invalid module configuration therefore fails as `ConfigError` before the SDK client is used.
 
 ## Implementation notes
 

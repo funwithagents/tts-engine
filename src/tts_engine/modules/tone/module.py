@@ -4,7 +4,6 @@ Not a TTS backend. Exists so the engine, tools, MCP transport, and downstream
 test suites run end to end with no API key, extra, model, or fixture files.
 """
 
-import math
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator
 
@@ -14,24 +13,13 @@ from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
     TTSModule,
     TTSOptions,
+    finite_number,
     run_cancellable_worker,
     run_text_stream_worker,
 )
 
 _CHUNK_FRAMES = 4096
-
-
-def _positive_number(config: dict, field: str, default: float) -> float:
-    """Read an optional numeric field that must be finite and > 0; bools rejected."""
-    value = config.get(field, default)
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not math.isfinite(value)
-        or value <= 0
-    ):
-        raise ConfigError(f"Tone module '{field}' must be a finite number > 0")
-    return float(value)
+_LABEL = "Tone module"
 
 
 class ToneModule(TTSModule):
@@ -44,12 +32,20 @@ class ToneModule(TTSModule):
         ):
             raise ConfigError("Tone module 'sample_rate' must be an integer > 0")
         self._sample_rate = sample_rate
-        self._frequency = _positive_number(config, "frequency", 440.0)
-        self._seconds_per_char = _positive_number(config, "seconds_per_char", 0.05)
-        amplitude = _positive_number(config, "amplitude", 0.2)
-        if amplitude > 1.0:
-            raise ConfigError("Tone module 'amplitude' must be a number in (0, 1]")
-        self._amplitude = amplitude
+        self._frequency = finite_number(
+            config, "frequency", label=_LABEL, default=440.0, exclusive_minimum=0
+        )
+        self._seconds_per_char = finite_number(
+            config, "seconds_per_char", label=_LABEL, default=0.05, exclusive_minimum=0
+        )
+        self._amplitude = finite_number(
+            config,
+            "amplitude",
+            label=_LABEL,
+            default=0.2,
+            exclusive_minimum=0,
+            maximum=1.0,
+        )
 
     @property
     def sample_rate(self) -> int:

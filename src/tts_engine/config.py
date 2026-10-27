@@ -20,6 +20,17 @@ class ConfigError(ValueError):
     """
 
 
+def _read(path: str) -> str:
+    """Read a config file as UTF-8, whatever the platform's default encoding
+    (a non-ASCII voice name must not depend on the locale); a file that is
+    not valid UTF-8 is a ConfigError naming it."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except UnicodeDecodeError as e:
+        raise ConfigError(f"Config file {path} is not valid UTF-8: {e}") from e
+
+
 def _loads(text: str, source: str | None = None) -> Any:
     """Parse JSON, re-raising a decode failure as ConfigError (naming ``source``)."""
     try:
@@ -109,10 +120,9 @@ class TTSEngineConfig:
         """Build a TTSEngineConfig from a JSON file whose top-level object is the
         engine block (``module`` + ``player``), not a whole MCP-server config.
         Relative paths in the module block resolve against the file's directory."""
-        with open(path) as f:
-            return cls.from_dict(
-                _loads(f.read(), source=path), base_dir=Path(path).resolve().parent
-            )
+        return cls.from_dict(
+            _loads(_read(path), source=path), base_dir=Path(path).resolve().parent
+        )
 
 
 @dataclass
@@ -171,7 +181,6 @@ class MCPServerConfig:
     def from_json_file(cls, path: str) -> "MCPServerConfig":
         """Build an MCPServerConfig from a JSON config file (the ``--config`` file).
         Relative paths in the module block resolve against the file's directory."""
-        with open(path) as f:
-            return cls.from_dict(
-                _loads(f.read(), source=path), base_dir=Path(path).resolve().parent
-            )
+        return cls.from_dict(
+            _loads(_read(path), source=path), base_dir=Path(path).resolve().parent
+        )

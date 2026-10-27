@@ -3,6 +3,8 @@
 import asyncio
 import contextlib
 import logging
+import math
+import os
 import queue
 import re
 import threading
@@ -11,7 +13,11 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TypeVar, cast
+from typing import Any, TypeVar, cast, overload
+
+import numpy as np
+
+from tts_engine.config import ConfigError
 
 log = logging.getLogger(__name__)
 
@@ -548,3 +554,219 @@ def resolve_path(config: dict, value: str) -> Path:
     if base_dir:
         return Path(base_dir) / path
     return Path.cwd() / path
+
+
+# --- Shared config helpers ----------------------------------------------------
+#
+# Every module validates its own `engine.module` block, but the fields most of
+# them share (`api_key`/`api_key_env`, optional strings, bounded numbers such
+# as `timeout`) are checked here once, so a fix to one check reaches every
+# backend. `label` ("ElevenLabs module") prefixes each message.
+
+
+def resolve_api_key(config: dict, *, label: str) -> str:
+    """Resolve a provider's API key from a literal ``api_key`` or, failing
+    that, the environment variable named by ``api_key_env``, so a config file
+    can be committed with only the variable's name and no secret.
+
+    A non-empty literal wins. Otherwise the variable named by ``api_key_env``
+    is read, and its being unset or empty is a ``ConfigError`` naming it. A
+    non-string value for either field, or neither yielding a key, is a
+    ``ConfigError`` too.
+    """
+    api_key = config.get("api_key")
+    env_name = config.get("api_key_env")
+    if api_key is not None and not isinstance(api_key, str):
+        raise ConfigError(f"{label} 'api_key' must be a string")
+    if env_name is not None and not isinstance(env_name, str):
+        raise ConfigError(f"{label} 'api_key_env' must be a string")
+
+    if api_key:
+        return api_key
+
+    if env_name:
+        api_key = os.environ.get(env_name)
+        if not api_key:
+            raise ConfigError(
+                f"{label}: environment variable {env_name!r} "
+                "(named by 'api_key_env') is unset or empty"
+            )
+        return api_key
+
+    raise ConfigError(f"{label} requires a non-empty 'api_key' or 'api_key_env'")
+
+
+@overload
+def optional_str(config: dict, field: str, *, label: str) -> str | None: ...
+
+
+@overload
+def optional_str(config: dict, field: str, *, label: str, default: str) -> str: ...
+
+
+def optional_str(
+    config: dict, field: str, *, label: str, default: str | None = None
+) -> str | None:
+    """Read a string field that may be absent.
+
+    An absent field gives ``default`` (``None`` without one). A field that is
+    present must be a non-empty string, else ``ConfigError``; the one
+    exception is an explicit ``null`` with no ``default``, which counts as
+    absent. With a ``default`` an explicit ``null`` is rejected like any other
+    non-string: a value the config names is validated, only a missing one is
+    defaulted.
+    """
+    value = config.get(field, default)
+    if value is None and default is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise ConfigError(f"{label} '{field}' must be a non-empty string")
+    return value
+
+
+@overload
+def finite_number(
+    config: dict,
+    field: str,
+    *,
+    label: str,
+    minimum: float | None = None,
+    maximum: float | None = None,
+    exclusive_minimum: float | None = None,
+) -> float | None: ...
+
+
+@overload
+def finite_number(
+    config: dict,
+    field: str,
+    *,
+    label: str,
+    default: float,
+    minimum: float | None = None,
+    maximum: float | None = None,
+    exclusive_minimum: float | None = None,
+) -> float: ...
+
+
+def finite_number(
+    config: dict,
+    field: str,
+    *,
+    label: str,
+    default: float | None = None,
+    minimum: float | None = None,
+    maximum: float | None = None,
+    exclusive_minimum: float | None = None,
+) -> float | None:
+    """Read a numeric field that may be absent, as a float.
+
+    The absent/``null``/``default`` policy is ``optional_str``'s. A present
+    value must be an int or float (a bool is rejected rather than treated as
+    an integer) that is finite (``NaN`` and the infinities, which JSON's
+    parser accepts, would reach a sampler or a timeout) and within the bounds:
+    ``minimum`` and ``maximum`` inclusive, ``exclusive_minimum`` exclusive.
+    The message names the field and the bounds (``"... must be a finite
+    number > 0"``).
+    """
+    value = config.get(field, default)
+    if value is None and default is None:
+        return None
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not math.isfinite(value)
+        or (minimum is not None and value < minimum)
+        or (maximum is not None and value > maximum)
+        or (exclusive_minimum is not None and value <= exclusive_minimum)
+    ):
+        raise ConfigError(
+            f"{label} '{field}' must be "
+            + _describe_bounds(minimum, maximum, exclusive_minimum)
+        )
+    return float(value)
+
+
+def _describe_bounds(
+    minimum: float | None, maximum: float | None, exclusive_minimum: float | None
+) -> str:
+    if minimum is not None and maximum is not None:
+        return f"a finite number between {minimum:g} and {maximum:g}"
+    bounds = []
+    if exclusive_minimum is not None:
+        bounds.append(f"> {exclusive_minimum:g}")
+    if minimum is not None:
+        bounds.append(f">= {minimum:g}")
+    if maximum is not None:
+        bounds.append(f"<= {maximum:g}")
+    return "a finite number" + (" " + " and ".join(bounds) if bounds else "")
+
+
+# --- Shared PCM helpers --------------------------------------------------------
+
+# A module that slices hands `callback` at most this much audio per call:
+# `AudioPlayer.feed` blocks for the whole chunk, and `stop` is polled between
+# slices, so a cancel is honored within one slice's playback whatever the
+# backend's own chunking.
+SLICE_SECONDS = 0.1
+
+
+def slice_bytes_for(sample_rate: int) -> int:
+    """The byte count of ``SLICE_SECONDS`` of signed 16-bit mono PCM at
+    ``sample_rate``: the slice size a module feeds in."""
+    return 2 * max(1, int(sample_rate * SLICE_SECONDS))
+
+
+def float_to_int16_pcm(samples: Any) -> bytes:
+    """Convert float samples (any array-like, values in about [-1, 1],
+    flattened to mono) to signed 16-bit little-endian PCM bytes: clip to ±1.0,
+    scale by 32767. The audio-format contract's encoding half, for the
+    libraries and APIs that yield float waveforms. The input is not modified.
+    """
+    arr = np.clip(np.asarray(samples, dtype=np.float32).reshape(-1), -1.0, 1.0)
+    return (arr * 32767.0).astype("<i2").tobytes()
+
+
+class PCMFeeder:
+    """Feed a backend's PCM chunks to ``callback`` whole-sample aligned and in
+    bounded slices, polling ``stop``.
+
+    One per utterance, on the worker thread. ``feed(data)`` prepends what the
+    previous call left over (a sample split across two chunks), keeps the
+    trailing partial sample of ``sample_bytes`` for the next call, converts the
+    whole samples through ``convert`` when given (mistral: float32 bytes to
+    int16), and hands the result to ``callback`` in slices of at most
+    ``slice_bytes``, checking ``stop`` before each. It returns ``False`` as
+    soon as ``stop`` is seen (the rest of the chunk is dropped), ``True``
+    otherwise. A partial sample left at the end of the stream is never fed.
+    """
+
+    def __init__(
+        self,
+        callback: Callable[[bytes], None],
+        stop: threading.Event,
+        *,
+        slice_bytes: int,
+        sample_bytes: int = 2,
+        convert: Callable[[bytes], bytes] | None = None,
+    ) -> None:
+        self._callback = callback
+        self._stop = stop
+        self._slice_bytes = slice_bytes
+        self._sample_bytes = sample_bytes
+        self._convert = convert
+        self._carry = b""
+
+    def feed(self, data: bytes) -> bool:
+        data = self._carry + data
+        whole = len(data) - len(data) % self._sample_bytes
+        data, self._carry = data[:whole], data[whole:]
+        if not data:
+            return True
+        if self._convert is not None:
+            data = self._convert(data)
+        for start in range(0, len(data), self._slice_bytes):
+            if self._stop.is_set():
+                return False
+            self._callback(data[start : start + self._slice_bytes])
+        return True

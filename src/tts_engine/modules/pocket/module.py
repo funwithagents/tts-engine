@@ -7,17 +7,17 @@ never require the `pocket` extra — a missing extra becomes a clear `ConfigErro
 """
 
 import logging
-import math
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator
-
-import numpy as np
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    finite_number,
+    float_to_int16_pcm,
+    optional_str,
     resolve_path,
     run_cancellable_worker,
     run_text_stream_worker,
@@ -29,21 +29,7 @@ log = logging.getLogger(__name__)
 _VALID_DEVICES = {"auto", "cpu", "cuda", "mps"}
 _VOICE_FILE_SUFFIXES = (".wav", ".mp3", ".flac", ".safetensors")
 _URL_PREFIXES = ("hf://", "http://", "https://")
-
-
-def _to_int16_pcm(chunk) -> bytes:
-    """Convert one 1-D float32 torch tensor (values ~[-1, 1]) to signed-16-bit
-    little-endian PCM bytes — the audio-format contract's encoding half."""
-    arr = chunk.detach().to("cpu").numpy().reshape(-1).astype(np.float32)
-    np.clip(arr, -1.0, 1.0, out=arr)
-    return (arr * 32767.0).astype("<i2").tobytes()
-
-
-def _optional_string(config: dict, key: str) -> str | None:
-    value = config.get(key)
-    if value is not None and (not isinstance(value, str) or not value):
-        raise ConfigError(f"Pocket module '{key}' must be a non-empty string")
-    return value
+_LABEL = "Pocket module"
 
 
 class PocketModule(TTSModule):
@@ -59,8 +45,8 @@ class PocketModule(TTSModule):
             # A local voice file: relative to the config file (base_dir).
             voice = str(resolve_path(config, voice))
 
-        language = _optional_string(config, "language")
-        model_config = _optional_string(config, "config")
+        language = optional_str(config, "language", label=_LABEL)
+        model_config = optional_str(config, "config", label=_LABEL)
         if language is not None and model_config is not None:
             raise ConfigError("Pocket module accepts 'language' or 'config', not both")
         if model_config is not None and not model_config.startswith(_URL_PREFIXES):
@@ -78,16 +64,7 @@ class PocketModule(TTSModule):
         if quantize and device in ("cuda", "mps"):
             raise ConfigError("Pocket module 'quantize' is CPU-only")
 
-        temperature = config.get("temperature")
-        if temperature is not None and (
-            isinstance(temperature, bool)
-            or not isinstance(temperature, int | float)
-            or not math.isfinite(temperature)
-            or temperature < 0
-        ):
-            raise ConfigError(
-                "Pocket module 'temperature' must be a finite number >= 0"
-            )
+        temperature = finite_number(config, "temperature", label=_LABEL, minimum=0.0)
 
         max_tokens = config.get("max_tokens")
         if max_tokens is not None and (
@@ -120,7 +97,7 @@ class PocketModule(TTSModule):
         if model_config is not None:
             load_kwargs["config"] = model_config
         if temperature is not None:
-            load_kwargs["temp"] = float(temperature)
+            load_kwargs["temp"] = temperature
         if quantize:
             load_kwargs["quantize"] = True
         if voice is None:
@@ -182,7 +159,8 @@ class PocketModule(TTSModule):
                     break
                 except Exception as exc:
                     raise TTSError(f"pocket-tts synthesis failed: {exc}") from exc
-                callback(_to_int16_pcm(chunk))
+                # The tensor to CPU/numpy here; the conversion is shared.
+                callback(float_to_int16_pcm(chunk.detach().to("cpu").numpy()))
         except BaseException:
             # The utterance is over (a sink failure, a synthesis error): tell
             # the library's generation thread to stop now, as a cancel does,

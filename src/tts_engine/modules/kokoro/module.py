@@ -12,18 +12,20 @@ import threading
 from collections.abc import AsyncIterator, Callable, Iterable, Iterator
 from pathlib import Path
 
-import numpy as np
-
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
     feed_with_lookahead,
+    finite_number,
+    float_to_int16_pcm,
+    optional_str,
     resolve_path,
     run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
+    slice_bytes_for,
 )
 
 log = logging.getLogger(__name__)
@@ -48,27 +50,11 @@ _LANGUAGE_BY_PREFIX = {
 }
 _MIN_SPEED, _MAX_SPEED = 0.5, 2.0
 _SAMPLE_RATE = 24000
-# 100 ms per callback: `AudioPlayer.feed` blocks for the whole chunk, and
-# `stop` is polled between slices.
-_SLICE_BYTES = 2 * (_SAMPLE_RATE // 10)
+_SLICE_BYTES = slice_bytes_for(_SAMPLE_RATE)
+_LABEL = "Kokoro module"
 
 # A model or voices file: (repo_id, filename, revision) on the Hub, or a path.
 _FileRef = tuple[str, str, str | None] | Path
-
-
-def _to_int16_pcm(audio) -> bytes:
-    """Convert float32 samples (values ~[-1, 1]) to signed-16-bit
-    little-endian PCM bytes — the audio-format contract's encoding half."""
-    arr = np.asarray(audio, dtype=np.float32).reshape(-1).copy()
-    np.clip(arr, -1.0, 1.0, out=arr)
-    return (arr * 32767.0).astype("<i2").tobytes()
-
-
-def _optional_str(config: dict, key: str) -> str | None:
-    value = config.get(key)
-    if value is not None and (not isinstance(value, str) or not value):
-        raise ConfigError(f"Kokoro module '{key}' must be a non-empty string")
-    return value
 
 
 def _file_ref(config: dict, key: str, value: str) -> _FileRef:
@@ -89,8 +75,8 @@ def _file_ref(config: dict, key: str, value: str) -> _FileRef:
 
 class KokoroModule(TTSModule):
     def __init__(self, config: dict) -> None:
-        voice = _optional_str(config, "voice") or _DEFAULT_VOICE
-        language = _optional_str(config, "language")
+        voice = optional_str(config, "voice", label=_LABEL) or _DEFAULT_VOICE
+        language = optional_str(config, "language", label=_LABEL)
         if language is None:
             language = _LANGUAGE_BY_PREFIX.get(voice[0])
             if language is None:
@@ -99,21 +85,18 @@ class KokoroModule(TTSModule):
                     "set 'language' (an espeak-ng code such as 'en-us')"
                 )
 
-        speed = config.get("speed")
-        if speed is not None and (
-            isinstance(speed, bool)
-            or not isinstance(speed, int | float)
-            or not _MIN_SPEED <= speed <= _MAX_SPEED
-        ):
-            raise ConfigError(
-                f"Kokoro module 'speed' must be a number in [{_MIN_SPEED}, {_MAX_SPEED}]"
-            )
-
+        speed = finite_number(
+            config, "speed", label=_LABEL, minimum=_MIN_SPEED, maximum=_MAX_SPEED
+        )
         model_ref = _file_ref(
-            config, "model", _optional_str(config, "model") or _DEFAULT_MODEL
+            config,
+            "model",
+            optional_str(config, "model", label=_LABEL) or _DEFAULT_MODEL,
         )
         voices_ref = _file_ref(
-            config, "voices", _optional_str(config, "voices") or _DEFAULT_VOICES
+            config,
+            "voices",
+            optional_str(config, "voices", label=_LABEL) or _DEFAULT_VOICES,
         )
 
         try:
@@ -175,7 +158,7 @@ class KokoroModule(TTSModule):
 
         create_kwargs: dict = {"voice": voice, "lang": language}
         if speed is not None:
-            create_kwargs["speed"] = float(speed)
+            create_kwargs["speed"] = speed
 
         self._kokoro = kokoro
         self._create_kwargs = create_kwargs
@@ -205,7 +188,7 @@ class KokoroModule(TTSModule):
             raise TTSError(
                 f"kokoro produced {rate} Hz audio, expected {_SAMPLE_RATE} Hz"
             )
-        return _to_int16_pcm(audio)
+        return float_to_int16_pcm(audio)
 
     def _feed(
         self,
