@@ -127,7 +127,7 @@ async with TTSEngine(config) as engine:
 
 Pass that object directly to a loader; do not add an outer `"engine"` key. A larger application can store it under any key it chooses, while the optional MCP server format specifically stores it under `"engine"`.
 
-The [`examples/`](examples/) directory holds one complete MCP-server config per module (`config.pocket.json`, `config.phonon.json`, `config.qwen3.json`, `config.kokoro.json`, `config.piper.json`, `config.elevenlabs.json`, `config.gradium.json`, `config.mistral.json`, `config.deepgram.json`, `config.deepgram-flux.json`, `config.gemini.json`, `config.cartesia.json`, `config.openai.json`, `config.openai-compatible.json`, `config.tone.json`, `config.audiofile.json`). No single example is the default.
+The [`examples/`](examples/) directory holds one complete MCP-server config per module (`config.pocket.json`, `config.phonon.json`, `config.qwen3.json`, `config.kokoro.json`, `config.piper.json`, `config.elevenlabs.json`, `config.elevenlabs-v4.json`, `config.gradium.json`, `config.mistral.json`, `config.deepgram.json`, `config.deepgram-flux.json`, `config.gemini.json`, `config.cartesia.json`, `config.openai.json`, `config.openai-compatible.json`, `config.tone.json`, `config.audiofile.json`). No single example is the default.
 
 | Source | Constructor | Expected shape |
 |---|---|---|
@@ -366,7 +366,7 @@ Catalog voices are pinned to one commit of the repository. The module emits mono
 
 ### `elevenlabs`
 
-The ElevenLabs module streams MP3 from the ElevenLabs API and decodes it to signed 16-bit PCM in process before passing it to the audio sink. Install it with the `elevenlabs` extra:
+The ElevenLabs module streams MP3 from the ElevenLabs API and decodes it to signed 16-bit PCM in process before passing it to the audio sink. Every model works for both a complete text and a text stream: a text stream goes over the text-to-speech WebSocket with a v2 model, or over the text-to-dialogue WebSocket with a v3/v4 model such as `eleven_v4_turbo` (see [`examples/config.elevenlabs-v4.json`](examples/config.elevenlabs-v4.json)). Install it with the `elevenlabs` extra:
 
 ```bash
 uv sync --no-dev --extra elevenlabs
@@ -394,7 +394,7 @@ Prefer referencing an environment variable so secrets do not appear in configura
 | `api_key_env` | one of `api_key_env` or `api_key` | — | Name of the environment variable holding the API key. Recommended for file-based configuration. |
 | `api_key` | one of `api_key_env` or `api_key` | — | Literal API key. A non-empty literal key takes precedence over `api_key_env`. |
 | `voice_id` | yes | — | ElevenLabs voice ID. |
-| `model` | no | `eleven_flash_v2_5` | Model ID. `eleven_flash_v2_5` favors latency; `eleven_multilingual_v2` favors quality. |
+| `model` | no | `eleven_flash_v2_5` | Model ID. `eleven_flash_v2_5` favors latency; `eleven_multilingual_v2` favors quality; `eleven_v4_turbo`, `eleven_v4` and `eleven_v3*` stream over the text-to-dialogue socket, which holds a dialogue session from a separate, smaller pool. |
 | `stability` | no | `0.5` | Voice stability from 0.0 to 1.0. |
 | `similarity_boost` | no | `0.75` | Similarity boost from 0.0 to 1.0. |
 | `timeout` | no | `30` | Seconds to wait for the provider before a stalled request fails; also how long a cancel issued during such a stall can take. |

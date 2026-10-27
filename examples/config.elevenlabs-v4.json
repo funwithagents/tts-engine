@@ -1,0 +1,19 @@
+{
+  "engine": {
+    "module": {
+      "type": "elevenlabs",
+      "api_key_env": "ELEVENLABS_API_KEY",
+      "voice_id": "JBFqnCBsd6RMkjVDRZzb",
+      "model": "eleven_v4_turbo",
+      "stability": 0.5,
+      "similarity_boost": 0.75
+    },
+    "player": {
+      "device": null
+    }
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000
+  }
+}

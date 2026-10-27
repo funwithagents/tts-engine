@@ -23,6 +23,9 @@ VALID_CONFIG = {
 }
 
 
+V4_CONFIG = {**VALID_CONFIG, "model": "eleven_v4_turbo"}
+
+
 @pytest.fixture(autouse=True)
 def _fast_poll(monkeypatch):
     # The receive loop polls `stop` on this interval; tests wait on the
@@ -96,6 +99,20 @@ async def test_custom_values_reach_the_provider_client(
     )
     # The SDK takes whole seconds: a fractional timeout is rounded up.
     assert kwargs["request_options"] == {"timeout_in_seconds": 3}
+
+
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
+async def test_v4_model_complete_text_goes_over_http_text_to_speech(
+    mock_elevenlabs_cls, mock_stream_any
+):
+    # The socket branches on the model; the complete-text path does not: the
+    # text-to-speech endpoint serves every model in one request.
+    kwargs = await _provider_stream_kwargs(
+        mock_elevenlabs_cls, mock_stream_any, V4_CONFIG
+    )
+    assert kwargs["model_id"] == "eleven_v4_turbo"
+    assert kwargs["voice_id"] == "test-voice-id"
 
 
 _ABSENT = object()  # an override value that removes the field
@@ -251,11 +268,16 @@ def _signal(loop: asyncio.AbstractEventLoop, event: asyncio.Event):
 
 
 class _FakeStreamInput:
-    """Scripted stand-in for the stream-input socket (a `websockets.sync`
+    """Scripted stand-in for either stream-input socket (a `websockets.sync`
     connection as a context manager): records every message sent, answers each
     text message with one audio message carrying the text's bytes, and sends
-    `isFinal` after the end-of-stream message — the way the server behaves over
-    time, so tests can observe audio arriving between pieces."""
+    the final flag after the end-of-stream message — the way the server
+    behaves over time, so tests can observe audio arriving between pieces.
+
+    It speaks both protocols: the text-to-speech socket's (`text` frames, an
+    empty `text` ends the stream, `isFinal`) and the text-to-dialogue socket's
+    (`voices` opening, `inputs` frames, `close_socket` ends the stream,
+    `is_final` preceded by an informational `is_final_audio_for_turn`)."""
 
     def __init__(self) -> None:
         self.sent: list[dict] = []
@@ -278,19 +300,21 @@ class _FakeStreamInput:
     def send(self, raw: str) -> None:
         message = json.loads(raw)
         self.sent.append(message)
-        text = message.get("text")
-        if text == " ":
-            return  # the opening message
+        if _is_opening(message) or "keep_alive" in message:
+            return
         if self.fail_send is not None:
             raise self.fail_send
-        if text == "":
+        if message.get("text") == "":
             self._inbox.put({"isFinal": True})
-        elif text:
+        elif message.get("close_socket"):
+            self._inbox.put({"is_final_audio_for_turn": True})
+            self._inbox.put({"is_final": True})
+        else:
             if self.answer_first_text is not None:
                 answer, self.answer_first_text = self.answer_first_text, None
                 self._inbox.put(answer)
                 return
-            audio = base64.b64encode(text.encode()).decode()
+            audio = base64.b64encode(_frame_text(message).encode()).decode()
             self._inbox.put({"audio": audio, "isFinal": False})
 
     def recv(self, timeout: float | None = None) -> str:
@@ -310,8 +334,25 @@ class _FakeStreamInput:
 
     @property
     def texts(self) -> list[str]:
-        """The text messages after the opening one, in order."""
-        return [m["text"] for m in self.sent[1:] if "text" in m]
+        """The texts sent after the opening frame, in order, on either
+        protocol; the end-of-stream frame counts as `""`."""
+        return [
+            _frame_text(m)
+            for m in self.sent[1:]
+            if "text" in m or "inputs" in m or "close_socket" in m
+        ]
+
+
+def _is_opening(message: dict) -> bool:
+    return message.get("text") == " " or "voices" in message
+
+
+def _frame_text(message: dict) -> str:
+    """The text a frame carries: `text` on the TTS socket, the joined
+    `inputs` on the dialogue socket, `""` for either end-of-stream frame."""
+    if "inputs" in message:
+        return "".join(item["text"] for item in message["inputs"])
+    return message.get("text", "")
 
 
 def _decode_one_pcm_chunk_per_raw_chunk(source, **kwargs):
@@ -320,7 +361,9 @@ def _decode_one_pcm_chunk_per_raw_chunk(source, **kwargs):
         yield _array.array("h", [1, 2])
 
 
-def _stream_input_module(mock_elevenlabs_cls, mock_stream_any, mock_connect):
+def _stream_input_module(
+    mock_elevenlabs_cls, mock_stream_any, mock_connect, config=VALID_CONFIG
+):
     """An ElevenLabsModule whose stream-input socket is a `_FakeStreamInput`;
     returns (module, socket, recorded connect kwargs)."""
     ws = _FakeStreamInput()
@@ -334,7 +377,7 @@ def _stream_input_module(mock_elevenlabs_cls, mock_stream_any, mock_connect):
     mock_connect.side_effect = connect
     mock_elevenlabs_cls.return_value = MagicMock()
     mock_stream_any.side_effect = _decode_one_pcm_chunk_per_raw_chunk
-    return ElevenLabsModule(VALID_CONFIG), ws, connected
+    return ElevenLabsModule(config), ws, connected
 
 
 def _source(*pieces: str):
@@ -449,6 +492,90 @@ def test_text_stream_sends_word_groups_then_eos_over_stream_input(
     assert all(m.get("try_trigger_generation") for m in ws.sent[1:-1])
     assert callback.call_count == 4  # one decoded chunk per audio message
     assert ws.closed is True
+
+
+@pytest.mark.parametrize("model", ["eleven_v3", "eleven_v4_turbo"])
+@patch("websockets.sync.client.connect")
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
+def test_text_stream_with_a_v3_or_v4_model_drives_the_dialogue_socket(
+    mock_elevenlabs_cls, mock_stream_any, mock_connect, model
+):
+    # The text-to-speech socket rejects these models; the module streams them
+    # over the text-to-dialogue socket: voice registered in the opening frame,
+    # text as `inputs`, `close_socket` to end, `is_final` as the final flag —
+    # the informational `is_final_audio_for_turn` before it is ignored.
+    module, ws, connected = _stream_input_module(
+        mock_elevenlabs_cls,
+        mock_stream_any,
+        mock_connect,
+        {**VALID_CONFIG, "model": model},
+    )
+    callback = MagicMock()
+
+    asyncio.run(
+        module.synthesize_text_stream(
+            _source("Hel", "lo wor", "ld, how", " are you"), TTSOptions(), callback
+        )
+    )
+
+    assert connected["url"] == (
+        "wss://api.elevenlabs.io/v1/text-to-dialogue/stream-input"
+        f"?model_id={model}&output_format=mp3_44100_128"
+    )
+    assert connected["additional_headers"] == {"xi-api-key": "test-api-key"}
+    assert ws.sent[0] == {
+        "voices": ["test-voice-id"],
+        "settings": {"stability": 0.5, "similarity": 0.75},
+    }
+    assert ws.sent[1] == {"inputs": [{"text": "Hello ", "voice_id": "test-voice-id"}]}
+    assert ws.texts == ["Hello ", "world, ", "how are ", "you", ""]
+    assert ws.sent[-1] == {"close_socket": True}
+    assert callback.call_count == 4
+    assert ws.closed is True
+
+
+@pytest.mark.parametrize(
+    "config, keeps_alive",
+    [(V4_CONFIG, True), (VALID_CONFIG, False)],
+    ids=["dialogue", "tts"],
+)
+@patch("websockets.sync.client.connect")
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
+async def test_text_stream_keeps_the_dialogue_socket_alive_while_the_source_pauses(
+    mock_elevenlabs_cls, mock_stream_any, mock_connect, monkeypatch, config, keeps_alive
+):
+    # The dialogue socket drops a connection after 20 s without a client frame;
+    # while the source pauses (nothing to send, nothing received) the receiver
+    # sends `keep_alive`. The text-to-speech socket needs none.
+    monkeypatch.setattr(
+        "tts_engine.modules.elevenlabs.module._KEEP_ALIVE_SECONDS", 0.02
+    )
+    module, ws, _ = _stream_input_module(
+        mock_elevenlabs_cls, mock_stream_any, mock_connect, config
+    )
+    loop = asyncio.get_running_loop()
+    got_audio = asyncio.Event()
+
+    async def source():
+        yield "Hello "
+        await got_audio.wait()
+        await asyncio.sleep(0.1)  # a pause several keep-alive periods long
+        yield "world."
+
+    await asyncio.wait_for(
+        module.synthesize_text_stream(source(), TTSOptions(), _signal(loop, got_audio)),
+        timeout=5,
+    )
+
+    kinds = ["keep_alive" if "keep_alive" in m else "other" for m in ws.sent]
+    if keeps_alive:
+        # Sent during the pause: after the first text frame, before the end.
+        assert "keep_alive" in kinds[2:-1]
+    else:
+        assert "keep_alive" not in kinds
+    assert ws.texts == ["Hello ", "world.", ""]
 
 
 @patch("websockets.sync.client.connect")
