@@ -140,6 +140,13 @@ _DEEPGRAM_CONFIG = {
     "model": "aura-2-thalia-en",
 }
 
+# The `deepgram-flux` row: the same module and key on a Flux voice, which runs
+# on the speak v2 socket instead of v1 (specs/modules/deepgram.md, "Two APIs").
+_DEEPGRAM_FLUX_CONFIG = {
+    "api_key_env": "DEEPGRAM_API_KEY",
+    "model": "flux-haley-en",
+}
+
 
 # Config for the `gemini` row of `MODULES` — same shape as the other API rows:
 # `api_key_env` names the variable, never the key. "Kore", a prebuilt voice.
@@ -216,6 +223,7 @@ MODULES = [
     pytest.param("gradium", _GRADIUM_CONFIG, id="gradium"),
     pytest.param("mistral", _MISTRAL_CONFIG, id="mistral"),
     pytest.param("deepgram", _DEEPGRAM_CONFIG, id="deepgram"),
+    pytest.param("deepgram", _DEEPGRAM_FLUX_CONFIG, id="deepgram-flux"),
     pytest.param("gemini", _GEMINI_CONFIG, id="gemini"),
     pytest.param("cartesia", _CARTESIA_CONFIG, id="cartesia"),
     pytest.param("openai-compatible", _OPENAI_CONFIG, id="openai-compatible"),
