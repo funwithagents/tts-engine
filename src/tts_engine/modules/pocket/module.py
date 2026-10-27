@@ -7,6 +7,7 @@ never require the `pocket` extra — a missing extra becomes a clear `ConfigErro
 """
 
 import logging
+import math
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator
 
@@ -81,9 +82,12 @@ class PocketModule(TTSModule):
         if temperature is not None and (
             isinstance(temperature, bool)
             or not isinstance(temperature, int | float)
+            or not math.isfinite(temperature)
             or temperature < 0
         ):
-            raise ConfigError("Pocket module 'temperature' must be a number >= 0")
+            raise ConfigError(
+                "Pocket module 'temperature' must be a finite number >= 0"
+            )
 
         max_tokens = config.get("max_tokens")
         if max_tokens is not None and (
@@ -180,6 +184,27 @@ class PocketModule(TTSModule):
             # background while the model may be reused.
             stop.set()
             raise
+        finally:
+            self._settle(stream_iter)
+
+    @staticmethod
+    def _settle(stream_iter: Iterator) -> None:
+        """Run the library's generator to its end without feeding anything.
+
+        After `stop` (a cancel, a sink failure) the loop above leaves the
+        generator suspended at a yield. The library joins its decoder thread
+        only when its generator runs to completion, so an abandoned generator
+        would leave that thread decoding the frames it had queued while the
+        model is reused for the next utterance (generation is documented as
+        not thread-safe). With `stop` set the library produces no new frames,
+        so draining is bounded by what was already queued. A library error
+        while draining is logged: the utterance's outcome is already decided.
+        """
+        try:
+            for _ in stream_iter:
+                pass
+        except Exception:
+            log.warning("pocket-tts generator failed while draining", exc_info=True)
 
     async def synthesize_text(
         self,

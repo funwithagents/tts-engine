@@ -22,7 +22,7 @@ Read the concept specs in order — each builds on the ones above it. `project.m
 | [configuration.md](configuration.md) | Config file schema (`engine`/`server`), dataclasses, `MCPServerConfig`/`TTSEngineConfig` constructor trio with `base_dir`, reserved `module.base_dir` key, validation rules | Implemented |
 | [tools.md](tools.md) | The provider-agnostic tools layer: `TTSTools(engine).say(text)`, guards, return contract, agent-registrable bound methods | Implemented |
 | [mcp-server.md](mcp-server.md) | `mcp` extra + install hint, `say` tool, transport, lifecycle, error handling — thin wrappers over the tools layer | Implemented |
-| [tts-module-interface.md](tts-module-interface.md) | ABC with two input shapes (`synthesize_text`, `synthesize_text_stream`), audio format contract (module-declared sample rate), module kinds (provider / fixture), registry with no default, `resolve_path`, `TTSOptions`, text-stream helpers (`run_text_stream_worker`, `segment_sentences`, `feed_with_lookahead`) | Implemented |
+| [tts-module-interface.md](tts-module-interface.md) | ABC with two input shapes (`synthesize_text`, `synthesize_text_stream`), audio format contract (module-declared sample rate), module kinds (provider / fixture), registry with no default, `resolve_path`, `TTSOptions`, text-stream helpers (`run_text_stream_worker` with its bounded bridge, `segment_sentences` with its length bound, `feed_with_lookahead`), what cancellation guarantees, the `cleanup` precedence rule | Implemented |
 | [elevenlabs-module.md](modules/elevenlabs.md) | API-backed provider: `elevenlabs` extra, lazy import, streaming MP3→PCM, native text stream over the stream-input WebSocket, config fields, error handling | Implemented |
 | [pocket-module.md](modules/pocket.md) | Local-model provider (pocket-tts 4): `pocket` extra, lazy import, native 24 kHz, language/dated/tiny models or a custom `config`, per-language default voice, device auto-detect, CPU-only `quantize`, `temperature`, library `stop` event for cancellation, float→int16, sentence-grouped text stream, `base_dir` for a voice file | Implemented |
 | [gradium-module.md](modules/gradium.md) | API-backed provider with an async SDK: `gradium` extra, lazy import, raw `pcm_<rate>` output (no decode), configurable sample rate, voice settings, private event loop in the cancellable worker, native text stream (sender + receiver on one socket) | Implemented |
@@ -38,7 +38,7 @@ Read the concept specs in order — each builds on the ones above it. `project.m
 | [tone-module.md](modules/tone.md) | Fixture module: sine tone proportional to text length (a tone per piece for a text stream); no key, no extra, no files; the live tier's default module | Implemented |
 | [audiofile-module.md](modules/audiofile.md) | Fixture module: text → WAV file list with a default file (a file per sentence for a text stream), 16-bit mono WAV validated at construction, paths relative to `base_dir` | Implemented |
 | [audio-player.md](audio-player.md) | `AudioPlayer`, sounddevice integration, stream lifecycle, per-module sample rate | Implemented |
-| [audio-sink.md](audio-sink.md) | `AudioSink` Protocol, constructor sink injection, `TTSEngine.sample_rate`, lazy sounddevice import, one drain per `say`/`say_stream` utterance | Implemented |
+| [audio-sink.md](audio-sink.md) | `AudioSink` Protocol, constructor sink injection, `TTSEngine.sample_rate`, lazy sounddevice import, one drain per `say`/`say_stream` utterance (on the loop; never hiding the utterance's error) | Implemented |
 
 ## Status legend
 

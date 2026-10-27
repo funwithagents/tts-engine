@@ -11,6 +11,7 @@ sentences (see specs/modules/gemini.md).
 """
 
 import logging
+import math
 import os
 import threading
 from collections.abc import AsyncIterator, Callable, Generator, Iterator
@@ -21,6 +22,7 @@ from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    cleanup,
     run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
@@ -30,6 +32,7 @@ log = logging.getLogger(__name__)
 
 _SAMPLE_RATE = 24000
 _DEFAULT_MODEL = "gemini-3.8-flash-tts"
+_DEFAULT_TIMEOUT = 30.0
 _MIME = "audio/l16"
 
 
@@ -41,10 +44,15 @@ def _optional_str(config: dict, key: str) -> str | None:
 
 
 def _check_mime(mime: str | None) -> None:
-    """Reject anything but 24 kHz L16: playing another format would be noise."""
+    """Reject anything but mono 24 kHz L16: playing another format would be
+    noise. Parameters the API omits are taken at their documented values."""
     fields = [field.strip().lower() for field in (mime or "").split(";")]
-    rates = [field[5:] for field in fields[1:] if field.startswith("rate=")]
-    if fields[0] != _MIME or any(rate != str(_SAMPLE_RATE) for rate in rates):
+    params = dict(field.split("=", 1) for field in fields[1:] if "=" in field)
+    if (
+        fields[0] != _MIME
+        or params.get("rate", str(_SAMPLE_RATE)) != str(_SAMPLE_RATE)
+        or params.get("channels", "1") != "1"
+    ):
         raise TTSError(f"Gemini returned unexpected audio format: {mime!r}")
 
 
@@ -73,6 +81,15 @@ class GeminiModule(TTSModule):
         voice = _optional_str(config, "voice")
         language_code = _optional_str(config, "language_code")
 
+        timeout = config.get("timeout", _DEFAULT_TIMEOUT)
+        if (
+            isinstance(timeout, bool)
+            or not isinstance(timeout, int | float)
+            or not math.isfinite(timeout)
+            or timeout <= 0
+        ):
+            raise ConfigError("Gemini module 'timeout' must be a finite number > 0")
+
         # Only the fields that were set: the API's own defaults apply to the rest.
         speech_config: dict = {}
         if voice is not None:
@@ -88,7 +105,12 @@ class GeminiModule(TTSModule):
             self._config["speech_config"] = speech_config
         self._model = model
 
-        self._client = genai.Client(api_key=api_key)
+        # `timeout` (milliseconds here) bounds the wait for the response and
+        # for each read of the stream, so a stalled request fails instead of
+        # holding the worker (and a cancel) indefinitely.
+        self._client = genai.Client(
+            api_key=api_key, http_options={"timeout": math.ceil(timeout * 1000)}
+        )
 
     @property
     def sample_rate(self) -> int:
@@ -139,7 +161,9 @@ class GeminiModule(TTSModule):
             raise TTSError(f"Gemini request failed: {exc}") from exc
 
         carry = b""  # a sample split across two parts
-        try:
+        # Closing the generator drops the HTTP connection, on every path; a
+        # failing close never hides the utterance's own error.
+        with cleanup(chunks.close, "Gemini response"):
             while not stop.is_set():
                 # Advance inside the provider try so SDK/transport errors become
                 # TTSError; feed outside it so a playback failure keeps its own
@@ -176,9 +200,6 @@ class GeminiModule(TTSModule):
                         raise TTSError(
                             f"Gemini stopped synthesis early: {_reason_name(reason)}"
                         )
-        finally:
-            # Closing the generator drops the HTTP connection, on every path.
-            chunks.close()
 
     async def synthesize_text(
         self,

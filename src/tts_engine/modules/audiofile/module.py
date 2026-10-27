@@ -102,6 +102,12 @@ class AudioFileModule(TTSModule):
                 raise ConfigError(
                     f"AudioFile module {path} must be mono (got {nchannels} channels)"
                 )
+            if framerate <= 0:
+                # `wave` accepts a zero rate in the header; a player cannot.
+                raise ConfigError(
+                    f"AudioFile module {path} declares an invalid frame rate "
+                    f"({framerate} Hz)"
+                )
             if rate is None:
                 rate, rate_path = framerate, path
             elif framerate != rate:
@@ -136,6 +142,12 @@ class AudioFileModule(TTSModule):
                 f"{str(exc) or 'unexpected end of file'}"
             ) from exc
         with wav:
+            # `readframes` hands back whatever bytes the data section still
+            # holds, a partial sample included, and ends early when the file
+            # is shorter than its header declares: both are a truncated file,
+            # reported as TTSError rather than fed as audio.
+            declared = wav.getnframes()
+            read = 0
             while not stop.is_set():
                 try:
                     chunk = wav.readframes(_CHUNK_FRAMES)
@@ -144,8 +156,18 @@ class AudioFileModule(TTSModule):
                         f"AudioFile module cannot read {path}: "
                         f"{str(exc) or 'unexpected end of file'}"
                     ) from exc
+                if len(chunk) % 2:
+                    raise TTSError(
+                        f"AudioFile module {path} is truncated (a partial sample)"
+                    )
                 if not chunk:
+                    if read < declared:
+                        raise TTSError(
+                            f"AudioFile module {path} is truncated: {read} of "
+                            f"{declared} declared frames"
+                        )
                     break
+                read += len(chunk) // 2
                 # Outside the try: callback errors keep their identity.
                 callback(chunk)
 

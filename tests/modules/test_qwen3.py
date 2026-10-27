@@ -30,6 +30,7 @@ class _FakeBackend:
         self.load_kwargs: dict | None = None
         self.raise_on_load: Exception | None = None
         self.raise_on_next: Exception | None = None
+        self.raise_on_close: Exception | None = None
         self.model_type = "custom_voice"
         self.speakers = list(_SPEAKERS)
         self.rate = 24000
@@ -87,6 +88,8 @@ def _fake_qwentts_cpp(backend: _FakeBackend) -> types.SimpleNamespace:
                     yield chunk, backend.rate
             finally:
                 backend.closed_streams.append(index)
+                if backend.raise_on_close is not None:
+                    raise backend.raise_on_close
 
     return types.SimpleNamespace(QwenTTS=FakeQwenTTS, QwenTTSError=FakeQwenTTSError)
 
@@ -115,7 +118,7 @@ def test_invalid_string_fields_raise(field, bad):
         Qwen3Module({"type": "qwen3", field: bad})
 
 
-@pytest.mark.parametrize("bad", [0, -0.5, True, "0.9"])
+@pytest.mark.parametrize("bad", [0, -0.5, True, "0.9", float("nan"), float("inf")])
 def test_invalid_temperature_raises(bad):
     with pytest.raises(ConfigError, match="temperature"):
         Qwen3Module({"type": "qwen3", "temperature": bad})
@@ -278,6 +281,18 @@ def test_iteration_error_is_tts_error_and_closes(fake):
 
 def test_callback_error_propagates_unchanged_and_closes(fake):
     module = Qwen3Module({"type": "qwen3"})
+
+    def bad_callback(_b: bytes) -> None:
+        raise ValueError("playback failed")
+
+    with pytest.raises(ValueError, match="playback failed"):
+        _run(module.synthesize_text("Hi.", TTSOptions(), bad_callback))
+    assert fake.closed_streams == [0]
+
+
+def test_callback_error_wins_over_a_failing_close(fake):
+    module = Qwen3Module({"type": "qwen3"})
+    fake.raise_on_close = RuntimeError("native teardown failed")
 
     def bad_callback(_b: bytes) -> None:
         raise ValueError("playback failed")

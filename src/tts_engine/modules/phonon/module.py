@@ -7,6 +7,7 @@ extra — a missing extra becomes a clear `ConfigError`.
 """
 
 import logging
+import math
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator
 from pathlib import Path
@@ -18,6 +19,7 @@ from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    cleanup,
     resolve_path,
     run_cancellable_worker,
     run_text_stream_worker,
@@ -51,8 +53,12 @@ def _optional_number(
     value = config.get(key)
     if value is None:
         return None
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        raise ConfigError(f"Phonon module '{key}' must be a number")
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not math.isfinite(value)
+    ):
+        raise ConfigError(f"Phonon module '{key}' must be a finite number")
     if minimum is not None and value < minimum:
         raise ConfigError(f"Phonon module '{key}' must be >= {minimum}")
     return float(value)
@@ -145,7 +151,9 @@ class PhononModule(TTSModule):
             audio = self._tts.stream(text, voice=self._voice)
         except Exception as exc:
             raise TTSError(f"phonon synthesis failed: {exc}") from exc
-        with audio:  # leaving the block stops the decoder threads, on every path
+        # Leaving the block stops the decoder threads, on every path; a failing
+        # close never hides the utterance's own error.
+        with cleanup(lambda: audio.__exit__(None, None, None), "phonon stream"):
             while not stop.is_set():
                 # Advance inside the provider try so runtime errors become
                 # TTSError; feed outside it so a playback failure keeps its

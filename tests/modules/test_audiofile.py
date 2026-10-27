@@ -5,6 +5,8 @@ committed.
 """
 
 import asyncio
+import pathlib
+import struct
 import time
 import wave
 
@@ -47,6 +49,16 @@ def test_empty_file_raises(tmp_path):
         AudioFileModule(
             {"type": "audiofile", "default_file": str(tmp_path / "empty.wav")}
         )
+
+
+def test_zero_frame_rate_raises(tmp_path):
+    # `wave` accepts a zero rate in the header; the module must not declare it.
+    path = _write_wav(tmp_path / "rate0.wav")
+    data = bytearray(pathlib.Path(path).read_bytes())
+    data[24:28] = struct.pack("<I", 0)  # the fmt chunk's sample-rate field
+    pathlib.Path(path).write_bytes(data)
+    with pytest.raises(ConfigError, match="rate0.wav"):
+        AudioFileModule({"type": "audiofile", "default_file": path})
 
 
 def test_stereo_file_raises(tmp_path):
@@ -172,6 +184,33 @@ def test_stream_does_not_mask_callback_errors(tmp_path):
 
     with pytest.raises(RuntimeError, match="playback failed"):
         asyncio.run(module.synthesize_text("hi", TTSOptions(), bad_callback))
+
+
+def test_truncated_payload_with_a_partial_sample_is_a_tts_error(tmp_path):
+    # The header is intact (construction passes) but the data section lost a
+    # byte: `readframes` hands back an odd-length chunk, which must never be
+    # fed as audio.
+    path = _write_wav(tmp_path / "cut.wav", frames=100)
+    data = pathlib.Path(path).read_bytes()
+    pathlib.Path(path).write_bytes(data[:-1])
+    module = AudioFileModule({"type": "audiofile", "default_file": path})
+    fed: list[bytes] = []
+    with pytest.raises(TTSError, match="truncated"):
+        asyncio.run(module.synthesize_text("hi", TTSOptions(), fed.append))
+    assert fed == []
+
+
+def test_payload_shorter_than_declared_is_a_tts_error_after_its_frames(tmp_path):
+    # Whole frames missing: what is there plays, then the shortfall is an error
+    # rather than a silently shorter utterance.
+    path = _write_wav(tmp_path / "short.wav", frames=5000)
+    data = pathlib.Path(path).read_bytes()
+    pathlib.Path(path).write_bytes(data[: 44 + 2 * 4096 + 2 * 10])  # 4106 frames
+    module = AudioFileModule({"type": "audiofile", "default_file": path})
+    fed = bytearray()
+    with pytest.raises(TTSError, match="4106 of 5000"):
+        asyncio.run(module.synthesize_text("hi", TTSOptions(), fed.extend))
+    assert len(fed) == 2 * 4106
 
 
 # --- text stream -------------------------------------------------------------

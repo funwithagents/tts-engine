@@ -39,12 +39,23 @@ class FakeTts:
         self.sent: list[str] = []
         self.eos = False
         self.closed = False
+        self.opened = False  # resources taken by __aenter__, even if it fails
+        self.fail_enter: Exception | None = None  # raised after `opened`
+        self.hang_enter = False  # `ready` never comes
+        self.fail_exit: Exception | None = None
 
     async def __aenter__(self):
+        self.opened = True
+        if self.fail_enter is not None:
+            raise self.fail_enter
+        if self.hang_enter:
+            await asyncio.Event().wait()
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
         self.closed = True
+        if self.fail_exit is not None:
+            raise self.fail_exit
 
     async def send_text(self, text: str) -> None:
         self.sent.append(text)
@@ -205,6 +216,10 @@ def test_base_url_reaches_the_client_only_when_set(fake_gradium):
         ({"rewrite_rules": ""}, "rewrite_rules"),
         ({"pronunciation_id": 3}, "pronunciation_id"),
         ({"base_url": ""}, "base_url"),
+        ({"timeout": 0}, "timeout"),
+        ({"timeout": True}, "timeout"),
+        ({"timeout": "30"}, "timeout"),
+        ({"timeout": float("nan")}, "timeout"),
     ],
 )
 def test_invalid_field_raises_config_error(fake_gradium, override, field):
@@ -321,6 +336,71 @@ def test_stream_wraps_connection_failure_in_tts_error(fake_gradium, monkeypatch)
     )
     with pytest.raises(TTSError, match="connection refused"):
         asyncio.run(module.synthesize_text("hello", TTSOptions(), MagicMock()))
+
+
+def _scripted_connection(fake_gradium, **flags):
+    """Make the fake client's next `tts_realtime` return a `FakeTts` with the
+    given flags set (`fail_enter`, `hang_enter`, `fail_exit`)."""
+    original = sys.modules["gradium"].GradiumClient.tts_realtime  # type: ignore[attr-defined]
+
+    def tts_realtime(self, **kwargs):
+        tts = original(self, **kwargs)
+        for name, value in flags.items():
+            setattr(tts, name, value)
+        return tts
+
+    sys.modules["gradium"].GradiumClient.tts_realtime = tts_realtime  # type: ignore[attr-defined]
+
+
+def test_setup_failure_releases_the_partial_connection(fake_gradium):
+    # The SDK's `__aenter__` opens a session and socket before it waits for
+    # `ready`; when that fails (a rejected setup) it closes nothing of its
+    # own, so the module must, while reporting the original failure.
+    module = GradiumModule(VALID_CONFIG)
+    _scripted_connection(
+        fake_gradium, fail_enter=RuntimeError("Expected ready message, got: error")
+    )
+    with pytest.raises(TTSError, match="Expected ready message"):
+        asyncio.run(module.synthesize_text("hello", TTSOptions(), MagicMock()))
+    assert fake_gradium.tts.opened is True
+    assert fake_gradium.tts.closed is True
+
+
+def test_setup_timeout_is_a_tts_error_and_releases_the_connection(fake_gradium):
+    module = GradiumModule({**VALID_CONFIG, "timeout": 0.1})
+    _scripted_connection(fake_gradium, hang_enter=True)
+    with pytest.raises(TTSError, match="not ready within 0.1 s"):
+        asyncio.run(module.synthesize_text("hello", TTSOptions(), MagicMock()))
+    assert fake_gradium.tts.closed is True
+
+
+async def test_cancel_during_setup_stops_promptly_and_releases_the_connection(
+    fake_gradium,
+):
+    # No `ready` yet (a slow or silent server): a cancel must not wait for it.
+    module = GradiumModule(VALID_CONFIG)
+    _scripted_connection(fake_gradium, hang_enter=True)
+    task = asyncio.create_task(
+        module.synthesize_text("hello", TTSOptions(), MagicMock())
+    )
+    await asyncio.sleep(0.05)  # the worker is inside the setup wait
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=5)
+    assert fake_gradium.tts.closed is True
+
+
+def test_callback_error_wins_over_a_failing_close(fake_gradium):
+    fake_gradium.messages = [_audio(b"\x01\x00")]
+    module = GradiumModule(VALID_CONFIG)
+    _scripted_connection(fake_gradium, fail_exit=RuntimeError("teardown failed"))
+
+    def bad_callback(_chunk: bytes) -> None:
+        raise ValueError("playback failed")
+
+    with pytest.raises(ValueError, match="playback failed"):
+        asyncio.run(module.synthesize_text("hello", TTSOptions(), bad_callback))
+    assert fake_gradium.tts.closed is True
 
 
 def test_stream_does_not_mask_callback_errors(fake_gradium):

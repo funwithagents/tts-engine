@@ -7,8 +7,8 @@ weights from the Hugging Face Hub. `qwentts_cpp` is imported lazily inside
 extra — a missing extra becomes a clear `ConfigError`.
 """
 
-import contextlib
 import logging
+import math
 import threading
 from collections.abc import AsyncIterator, Callable, Generator, Iterable, Iterator
 from typing import cast
@@ -20,6 +20,7 @@ from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    cleanup,
     run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
@@ -75,9 +76,10 @@ class Qwen3Module(TTSModule):
         if temperature is not None and (
             isinstance(temperature, bool)
             or not isinstance(temperature, int | float)
+            or not math.isfinite(temperature)
             or temperature <= 0
         ):
-            raise ConfigError("Qwen3 module 'temperature' must be a number > 0")
+            raise ConfigError("Qwen3 module 'temperature' must be a finite number > 0")
 
         # The model kind decides which voice fields apply; read it from the id
         # so a bad combination fails before a multi-gigabyte download.
@@ -165,7 +167,8 @@ class Qwen3Module(TTSModule):
             Generator,
             self._tts.stream(text=text, lang=self._language, **self._voice_kwargs),
         )
-        with contextlib.closing(chunks):
+        # A failing close never hides the utterance's own error.
+        with cleanup(chunks.close, "qwen3 stream"):
             while not stop.is_set():
                 # Advance inside the provider try so runtime errors become
                 # TTSError; feed outside it so a playback failure keeps its

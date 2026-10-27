@@ -49,6 +49,9 @@ class _FakeModel:
         self.endless = False
         self.texts: list[str] = []
         self.stops: list = []
+        # Appended when a generator runs to its end (not merely abandoned or
+        # closed): where the library joins its decoder thread.
+        self.finished: list[bool] = []
 
     def to(self, device):
         self.moved_to = device
@@ -67,12 +70,16 @@ class _FakeModel:
         if self.raise_on_stream is not None:
             raise self.raise_on_stream
         if self.endless:
-            # Like the library: generation ends once the stop event is set.
+            # Like the library: generation ends once the stop event is set,
+            # after the frames it had already queued.
             while stop is None or not stop.is_set():
                 time.sleep(0.005)
                 yield _FakeChunk([0.1])
+            yield _FakeChunk([0.1])  # one already-decoded frame still comes
+            self.finished.append(True)
             return
         yield from self.chunks
+        self.finished.append(True)
 
 
 class _FakeTTSModel:
@@ -167,7 +174,7 @@ def test_quantize_on_a_gpu_device_raises(device):
         PocketModule({"type": "pocket", "quantize": True, "device": device})
 
 
-@pytest.mark.parametrize("bad", [-0.1, True, "0.3"])
+@pytest.mark.parametrize("bad", [-0.1, True, "0.3", float("nan"), float("inf")])
 def test_invalid_temperature_raises(bad):
     with pytest.raises(ConfigError, match="temperature"):
         PocketModule({"type": "pocket", "temperature": bad})
@@ -348,6 +355,38 @@ def test_callback_failure_stops_the_library_generation(monkeypatch, fresh_model)
     with pytest.raises(ValueError, match="playback failed"):
         asyncio.run(module.synthesize_text("hi", TTSOptions(), bad_callback))
     assert fresh_model.stops[0].is_set()
+    # And the generator was run to its end (its decoder joined) before the
+    # error surfaced, not abandoned at its yield.
+    assert fresh_model.finished == [True]
+
+
+async def test_cancel_runs_the_library_generator_to_its_end(monkeypatch, fresh_model):
+    # The library joins its decoder thread only when its generator completes:
+    # abandoning it at a yield would leave that thread decoding while the
+    # model is reused for the next utterance. After `stop`, the module drains
+    # the remaining (already decoded) frames without feeding them.
+    _install_fakes(monkeypatch)
+    fresh_model.endless = True
+    module = PocketModule({"type": "pocket"})
+    loop = asyncio.get_running_loop()
+    first_chunk = asyncio.Event()
+    count = 0
+
+    def callback(_chunk: bytes) -> None:
+        nonlocal count
+        count += 1
+        loop.call_soon_threadsafe(first_chunk.set)
+
+    task = asyncio.create_task(module.synthesize_text("hi", TTSOptions(), callback))
+    await first_chunk.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert fresh_model.finished == [True]
+    settled = count
+    await asyncio.sleep(0.05)
+    assert count == settled  # the drained frame was never fed
 
 
 async def test_cancel_stops_callbacks_before_stream_raises(monkeypatch, fresh_model):

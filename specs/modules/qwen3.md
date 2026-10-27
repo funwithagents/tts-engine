@@ -50,7 +50,7 @@ All fields go under the `engine.module` block alongside `"type": "qwen3"` (see [
 | `voice` | non-empty string | no | `"aiden"` for a CustomVoice model | A preset speaker: `aiden`, `ryan`, `vivian`, `serena`, `uncle_fu`, `dylan`, `eric`, `ono_anna`, `sohee`, matched case-insensitively against the loaded model's own list. Passed to the library as `speaker`. Must be absent for a VoiceDesign model. |
 | `instruct` | non-empty string | VoiceDesign: yes; CustomVoice: no | — | Natural-language style control. For VoiceDesign it *is* the voice ("A calm, warm female narrator."); for CustomVoice it steers delivery ("Speak cheerfully."). Qwen documents instruction control for the 1.7B models; the 0.6B CustomVoice model accepts the field without error. |
 | `language` | non-empty string | no | `"auto"` | `auto` (the model detects it from the text) or one of the loaded model's languages: `english`, `chinese`, `french`, `german`, `spanish`, `italian`, `portuguese`, `russian`, `japanese`, `korean`, plus `beijing_dialect`, `sichuan_dialect`. Case-insensitive, sent lowercase. |
-| `temperature` | number > 0 | no | — (library default 0.9) | Sampling temperature. Must be > 0: the library treats 0 as greedy decoding through a separate flag, which v1 does not expose. |
+| `temperature` | finite number > 0 | no | — (library default 0.9) | Sampling temperature. Must be > 0: the library treats 0 as greedy decoding through a separate flag, which v1 does not expose. |
 
 There is no API key: weights come from the public Hub repository (Apache-2.0). Fields left unset — `temperature` — are **omitted** from the library call so its own default applies. `model`, `quant`, `voice` and `language` have module defaults because the library either has none (`model`, `voice`) or one that does not fit an engine (see below).
 
@@ -65,7 +65,7 @@ There is no API key: weights come from the public Hub repository (Apache-2.0). F
 
 At construction, **before** the model is loaded (so a bad config never costs a multi-gigabyte download):
 
-- `model`, `quant`, `voice`, `instruct`, `language` — if present, non-empty strings; `temperature` — if present, a number > 0, booleans rejected.
+- `model`, `quant`, `voice`, `instruct`, `language` — if present, non-empty strings; `temperature` — if present, a finite number > 0, booleans, `NaN` and the infinities rejected.
 - The model kind is read from the id's suffix: `-Base` → `ConfigError` (voice cloning is not supported in v1); `-VoiceDesign` without `instruct`, or with `voice` → `ConfigError`. Any other suffix is treated as CustomVoice and left to the library to accept or reject.
 
 After loading, against the loaded model:
@@ -147,7 +147,7 @@ Unlike phonon, **`synthesize_text` segments too**: it runs `_generate` over `seg
 
 ### Cancellation
 
-Cooperative, as for every module: `stop` is polled between packets, and `contextlib.closing` cancels and joins the native synthesis before `_generate` returns or raises. `next()` blocks until the next packet, so a stop set mid-packet is seen once that packet is ready: at most one packet's generation time (≈0.2 s at 3× real time for a 640 ms packet). No callback can occur after the coroutine exits.
+Cooperative, as for every module: `stop` is polled between packets, and the generator is closed on every path through the shared `cleanup` helper — which cancels and joins the native synthesis before `_generate` returns or raises, and never lets a failing close replace the utterance's own error. `next()` blocks until the next packet, so a stop set mid-packet is seen once that packet is ready: at most one packet's generation time (≈0.2 s at 3× real time for a 640 ms packet). No callback can occur after the coroutine exits.
 
 ### Error handling
 
@@ -190,13 +190,13 @@ Registered in `REGISTRY` as `"qwen3"` ([modules/__init__.py](../../src/tts_engin
 
 - **Unit (`tests/modules/test_qwen3.py`)** — `qwentts_cpp` is **faked** (a stub module with `QwenTTS.from_pretrained` and `QwenTTSError`, injected through `monkeypatch.setitem(sys.modules, "qwentts_cpp", ...)`), so the fast tier never loads a model, touches the Hub, or needs the macOS wheel. The fake `QwenTTS` records its load arguments, lists speakers and languages, and its `stream()` is a generator over given float32 arrays that records the call kwargs and whether it was closed. Covers:
   - `ConfigError` with the install hint when `qwentts_cpp` is unimportable;
-  - pre-load validation: empty/non-string fields, non-positive or boolean `temperature`, a `-Base` model, VoiceDesign without `instruct` or with `voice` — none of which reaches `from_pretrained`;
+  - pre-load validation: empty/non-string fields, non-positive, boolean or non-finite `temperature`, a `-Base` model, VoiceDesign without `instruct` or with `voice` — none of which reaches `from_pretrained`;
   - load arguments: defaults (`0.6B-CustomVoice`, `Q8_0`, `log_level="warning"`) and set values passed through;
   - post-load validation: an unknown voice or language → `ConfigError` and the fake closed; matching is case-insensitive and the canonical lowercase value is sent;
   - library rejections: `ValueError` from `from_pretrained` → `ConfigError`; another exception → `TTSError`;
   - `synthesize_text`: float chunks (including out-of-range values) become whole little-endian int16 samples, clipped; `stream` gets the sentence, the language, the speaker and only the set options (no `instruct`/`temperature` by default; VoiceDesign sends `instruct` and no `speaker`); a multi-sentence text makes one `stream` call per sentence; every generator is closed;
   - a rate other than 24000 → `TTSError`;
-  - an error while iterating → `TTSError` and the generator closed; a callback error propagates unchanged and the generator is closed;
+  - an error while iterating → `TTSError` and the generator closed; a callback error propagates unchanged and the generator is closed, and survives a failing close;
   - cancellation while a packet is pending closes the generator before `CancelledError` surfaces (event-driven, no sleeps), for both input shapes;
   - `synthesize_text_stream`: one `stream()` call per sentence, and audio reaches the callback before the source finishes.
 - **Lazy imports (`tests/modules/test_lazy_imports.py`)** — `qwentts_cpp` joins the poisoned libraries, `qwen3` joins the expected registry keys, and constructing `{"type": "qwen3"}` must raise the `tts-engine[qwen3]` hint.

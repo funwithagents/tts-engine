@@ -181,7 +181,7 @@ The pocket module runs [kyutai-labs/pocket-tts](https://github.com/kyutai-labs/p
 Install the optional dependencies:
 
 ```bash
-uv sync --extra pocket
+uv sync --no-dev --extra pocket
 # For an installed package:
 pip install "tts-engine[pocket]"
 ```
@@ -220,7 +220,7 @@ The phonon module runs Gradium's open-weight [Phonon](https://gradium.ai/phonon)
 Install the optional dependencies:
 
 ```bash
-uv sync --extra phonon
+uv sync --no-dev --extra phonon
 # For an installed package:
 pip install "tts-engine[phonon]"
 ```
@@ -255,7 +255,7 @@ The qwen3 module runs [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) (Apache-2
 The extra installs on **Apple-silicon macOS 14+ only**, because PyPI has no CPU or Windows build of the runtime. On Linux with an NVIDIA GPU, glibc 2.39+ and the CUDA 12.8 runtime, install the CUDA wheel yourself (`pip install "qwentts-cpp-python>=0.5,<0.6"`); that path is not tested here.
 
 ```bash
-uv sync --extra qwen3
+uv sync --no-dev --extra qwen3
 # For an installed package:
 pip install "tts-engine[qwen3]"
 ```
@@ -290,7 +290,7 @@ The kokoro module runs [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (
 It uses `kokoro-onnx` rather than hexgrad's official `kokoro` package because the official package needs PyTorch and does not support Python 3.13. The trade-off is English pronunciation: `kokoro-onnx` uses espeak-ng directly instead of the official package's misaki dictionary.
 
 ```bash
-uv sync --extra kokoro
+uv sync --no-dev --extra kokoro
 # For an installed package:
 pip install "tts-engine[kokoro]"
 ```
@@ -325,7 +325,7 @@ The module emits mono PCM at 24,000 Hz. It synthesizes one sentence per call, fo
 The piper module runs [Piper](https://github.com/OHF-Voice/piper1-gpl) voices in process through the `piper-tts` package: small VITS models on onnxruntime, with espeak-ng built in. It needs no API key and no PyTorch, and it is the fastest local module: on an Apple M5 Pro CPU the default voice makes about 50 seconds of audio per second, with first audio in well under 0.1 s, and Piper runs in real time on a Raspberry Pi. There are 178 voices in 58 locales in [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) ([samples](https://rhasspy.github.io/piper-samples/)). They sound less natural than Kokoro. The first use of a voice downloads it into the Hugging Face cache (63 MB for the default). It installs on Linux (x86_64 and arm64), Apple-silicon macOS and Windows, but not on Intel Macs, which have no onnxruntime wheel.
 
 ```bash
-uv sync --extra piper
+uv sync --no-dev --extra piper
 # For an installed package:
 pip install "tts-engine[piper]"
 ```
@@ -359,7 +359,7 @@ Catalog voices are pinned to one commit of the repository. The module emits mono
 The ElevenLabs module streams MP3 from the ElevenLabs API and decodes it to signed 16-bit PCM in process before passing it to the audio sink. Install it with the `elevenlabs` extra:
 
 ```bash
-uv sync --extra elevenlabs
+uv sync --no-dev --extra elevenlabs
 # For an installed package:
 pip install "tts-engine[elevenlabs]"
 ```
@@ -395,7 +395,7 @@ The module emits mono PCM at 44,100 Hz.
 The Gradium module streams raw PCM from the [Gradium](https://gradium.ai) API over a WebSocket, so no decoding happens in process. Install it with the `gradium` extra:
 
 ```bash
-uv sync --extra gradium
+uv sync --no-dev --extra gradium
 # For an installed package:
 pip install "tts-engine[gradium]"
 ```
@@ -435,7 +435,7 @@ The module emits mono PCM at the configured `sample_rate`. Voice-setting fields 
 The Mistral module streams speech from Mistral's hosted Voxtral TTS models through the official `mistralai` SDK. Install it with the `mistral` extra:
 
 ```bash
-uv sync --extra mistral
+uv sync --no-dev --extra mistral
 # For an installed package:
 pip install "tts-engine[mistral]"
 ```
@@ -466,7 +466,7 @@ The module emits mono PCM at 24,000 Hz. Text is sent verbatim, so the model's in
 The Deepgram module streams speech from Deepgram's hosted Aura-2 voices over the official `deepgram-sdk` WebSocket. Install it with the `deepgram` extra:
 
 ```bash
-uv sync --extra deepgram
+uv sync --no-dev --extra deepgram
 # For an installed package:
 pip install "tts-engine[deepgram]"
 ```
@@ -497,7 +497,7 @@ The module emits mono PCM at the configured `sample_rate`. A text stream goes to
 The Gemini module streams speech from Google's Gemini TTS models through the official `google-genai` SDK and the Gemini Developer API. Install it with the `gemini` extra:
 
 ```bash
-uv sync --extra gemini
+uv sync --no-dev --extra gemini
 # For an installed package:
 pip install "tts-engine[gemini]"
 ```
@@ -530,7 +530,7 @@ The module emits mono PCM at 24,000 Hz. Text is sent verbatim as the prompt, so 
 The Cartesia module streams speech from Cartesia's Sonic models through the official `cartesia` SDK and its realtime WebSocket. Install it with the `cartesia` extra:
 
 ```bash
-uv sync --extra cartesia
+uv sync --no-dev --extra cartesia
 # For an installed package:
 pip install "tts-engine[cartesia]"
 ```
@@ -565,7 +565,7 @@ The module emits mono PCM at the configured `sample_rate`. A text stream goes to
 The OpenAI module streams speech from OpenAI's `/v1/audio/speech` endpoint through the official `openai` SDK. With `base_url` it can instead use any OpenAI-compatible speech server that returns raw `pcm`. Install it with the `openai` extra:
 
 ```bash
-uv sync --extra openai
+uv sync --no-dev --extra openai
 # For an installed package:
 pip install "tts-engine[openai]"
 ```
@@ -715,7 +715,7 @@ Call `engine.say()` directly when you want the raw exception-raising engine cont
 
 ### Run the MCP server
 
-The MCP server exposes `TTSTools.say` over StreamableHTTP. It needs the `mcp` extra (`uv sync --extra mcp`, or `pip install "tts-engine[mcp]"`) plus the extra for your provider. Without it, `tts-engine-mcp` exits with `tts-engine-mcp requires the mcp extra: pip install tts-engine[mcp]`.
+The MCP server exposes `TTSTools.say` over StreamableHTTP. It needs the `mcp` extra (`uv sync --no-dev --extra mcp`, or `pip install "tts-engine[mcp]"`) plus the extra for your provider. Without it, `tts-engine-mcp` exits with `tts-engine-mcp requires the mcp extra: pip install tts-engine[mcp]`.
 
 Its configuration wraps the same engine block documented above with an optional `server` block:
 
@@ -772,7 +772,7 @@ engine = TTSEngine(mcp_config.engine)
 
 ### A provider module requires its extra
 
-A `ConfigError` such as `The 'pocket' module requires the pocket extra` means that provider's libraries are not installed. Run `uv sync --extra <name>` (or `pip install "tts-engine[<name>]"`), e.g. `--extra pocket`, `--extra phonon`, `--extra qwen3`, `--extra kokoro`, `--extra piper`, `--extra elevenlabs`, `--extra gradium`, `--extra mistral`, `--extra deepgram`, `--extra gemini`, `--extra cartesia`, or `--extra openai`.
+A `ConfigError` such as `The 'pocket' module requires the pocket extra` means that provider's libraries are not installed. Run `uv sync --no-dev --extra <name>` (or `pip install "tts-engine[<name>]"`), e.g. `--extra pocket`, `--extra phonon`, `--extra qwen3`, `--extra kokoro`, `--extra piper`, `--extra elevenlabs`, `--extra gradium`, `--extra mistral`, `--extra deepgram`, `--extra gemini`, `--extra cartesia`, or `--extra openai`.
 
 ### pocket-tts
 
@@ -854,7 +854,7 @@ Install development dependencies and run all default checks:
 ```bash
 uv sync --dev
 uv run ruff check .
-uv run ruff format --check .
+uv run ruff format --check src tests tests-e2e
 uv run pyright
 uv run pytest
 ```

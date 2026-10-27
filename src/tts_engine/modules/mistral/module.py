@@ -25,6 +25,7 @@ from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    cleanup,
     run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
@@ -34,6 +35,7 @@ log = logging.getLogger(__name__)
 
 _SAMPLE_RATE = 24000
 _DEFAULT_MODEL = "voxtral-mini-tts-3-0"
+_DEFAULT_TIMEOUT = 30.0
 # Feed at most 100 ms per callback: `AudioPlayer.feed` blocks for the whole
 # chunk, and `stop` is polled between slices.
 _SLICE_BYTES = 2 * (_SAMPLE_RATE // 10)
@@ -88,12 +90,25 @@ class MistralModule(TTSModule):
 
         server_url = _optional_str(config, "server_url")
 
-        # Only the fields that were set: the API's own defaults apply to the rest.
+        timeout = config.get("timeout", _DEFAULT_TIMEOUT)
+        if (
+            isinstance(timeout, bool)
+            or not isinstance(timeout, int | float)
+            or not math.isfinite(timeout)
+            or timeout <= 0
+        ):
+            raise ConfigError("Mistral module 'timeout' must be a finite number > 0")
+
+        # Only the fields that were set: the API's own defaults apply to the
+        # rest. `timeout_ms` bounds the wait for the response and for each
+        # read of the stream, so a stalled request fails instead of holding
+        # the worker (and a cancel) indefinitely.
         self._request_kwargs: dict = {
             "model": model,
             "voice_id": voice_id,
             "response_format": "pcm",
             "stream": True,
+            "timeout_ms": math.ceil(timeout * 1000),
         }
         if expressiveness is not None:
             self._request_kwargs["expressiveness"] = float(expressiveness)
@@ -148,7 +163,9 @@ class MistralModule(TTSModule):
             raise TTSError(f"Mistral request failed: {exc}") from exc
 
         carry = b""  # a float32 sample split across two deltas
-        with events:  # leaving the block closes the HTTP response, on every path
+        # Leaving the block closes the HTTP response, on every path; a failing
+        # close never hides the utterance's own error.
+        with cleanup(lambda: events.__exit__(None, None, None), "Mistral response"):
             while not stop.is_set():
                 # Advance and decode inside the provider try so SDK/transport
                 # errors become TTSError; feed outside it so a playback failure

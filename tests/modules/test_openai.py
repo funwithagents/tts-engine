@@ -39,6 +39,8 @@ class _FakeResponse:
 
     def __exit__(self, *_exc) -> bool:
         self.closed = True
+        if self._backend.raise_on_close is not None:
+            raise self._backend.raise_on_close
         return False
 
     def iter_bytes(self):
@@ -64,6 +66,7 @@ class _FakeBackend:
         self.responses: list[_FakeResponse] = []
         self.chunks: list = [_pcm([1, 2]), _pcm([3, -4, 5])]
         self.raise_on_enter: Exception | None = None
+        self.raise_on_close: Exception | None = None
         self.block: threading.Event | None = None
         self.reached = threading.Event()
 
@@ -169,11 +172,20 @@ def test_api_key_env_pointing_to_unset_var_raises(fake, monkeypatch):
         ({"sample_rate": 24000.0}, "sample_rate"),
         ({"sample_rate": True}, "sample_rate"),
         ({"sample_rate": 44100}, "base_url"),  # OpenAI itself is fixed at 24 kHz
+        ({"timeout": 0}, "timeout"),
+        ({"timeout": True}, "timeout"),
+        ({"timeout": "30"}, "timeout"),
+        ({"timeout": float("nan")}, "timeout"),
     ],
 )
 def test_invalid_field_raises_config_error(fake, override, field):
     with pytest.raises(ConfigError, match=field):
         OpenAIModule({**_BASE, **override})
+
+
+def test_timeout_reaches_the_request(fake):
+    _say(OpenAIModule({**_BASE, "timeout": 5}))
+    assert fake.requests[0]["timeout"] == 5.0
 
 
 def test_base_url_reaches_the_client_only_when_set(fake):
@@ -203,6 +215,7 @@ def test_defaults_reach_the_request(fake):
             "model": "gpt-4o-mini-tts",
             "voice": "v",
             "response_format": "pcm",
+            "timeout": 30.0,
         }
     ]
 
@@ -289,6 +302,17 @@ def test_mid_body_error_is_tts_error_and_closes(fake):
 
 
 def test_callback_error_propagates_unchanged_and_closes(fake):
+    def bad_callback(_b: bytes) -> None:
+        raise ValueError("playback failed")
+
+    with pytest.raises(ValueError, match="playback failed"):
+        _say(OpenAIModule(_BASE), bad_callback)
+    assert fake.responses[0].closed
+
+
+def test_callback_error_wins_over_a_failing_close(fake):
+    fake.raise_on_close = RuntimeError("connection teardown failed")
+
     def bad_callback(_b: bytes) -> None:
         raise ValueError("playback failed")
 

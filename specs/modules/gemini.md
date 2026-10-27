@@ -31,6 +31,7 @@ All fields go under the `engine.module` block in `config.json` alongside `"type"
 | `voice` | non-empty string | no | — (API default) | A prebuilt voice name (`Kore`, `Puck`, `Charon`, `Zephyr`, …). Omitted, the request carries no voice config and the API picks its default voice. |
 | `model` | non-empty string | no | `"gemini-3.8-flash-tts"` | Gemini TTS model id (`gemini-3.8-flash-lite-tts`, `gemini-2.5-pro-preview-tts`, …). |
 | `language_code` | non-empty string | no | — (auto-detected) | BCP-47 code (`en-US`, `fr-FR`) pinning the spoken language. Omitted, the model detects the language from the text. |
+| `timeout` | finite number > 0 (seconds) | no | `30` | Request bound passed to the client as `http_options.timeout` (milliseconds, rounded up): the wait for the response and for each read of the stream. A stalled request fails as `TTSError` after at most this long, which is also how long a cancel issued during the stall can take ([tts-module-interface.md](../tts-module-interface.md), "What cancellation guarantees"). |
 
 ### API key resolution
 
@@ -42,6 +43,7 @@ Validated at construction, raising `ConfigError` before the SDK client is built:
 
 - `model` — non-empty string (defaults when absent).
 - `voice`, `language_code` — if present, non-empty strings.
+- `timeout` — if present, a finite number (not bool) `> 0`.
 
 `voice` and `language_code` are **omitted from the request when unset**, so the API's own defaults apply and the module never hardcodes a copy of them. Whether a voice, model or language code exists is only known to the API: a wrong one fails at the first synthesis as `TTSError` (the API answers 400 "No matching speaker voice found" / 404 model "not found" / 400 "Invalid language_code").
 
@@ -81,7 +83,7 @@ The config is passed as a plain dict (the SDK accepts `GenerateContentConfigDict
 
 Every audio part is `inline_data` with `mime_type` `audio/l16; rate=24000; channels=1`. Despite RFC 2586's network byte order for L16, the bytes are **signed 16-bit little-endian** — confirmed live (read as LE the waveform is smooth, mean |Δ| ≈ 900; read as BE it is noise, ≈ 17 000). That is already the contract's encoding ([tts-module-interface.md](../tts-module-interface.md), "Audio format contract"): the module feeds the bytes unchanged. `sample_rate` is the constant `24000`; `GenerateContentConfig` has no output-rate option (its `response_format` / `AudioResponseFormat.sample_rate` is rejected as an extra field by SDK 2.33).
 
-The module checks each audio part's mime type and raises `TTSError` if it is not `audio/l16` or names a `rate=` other than 24000, so a future format change fails loudly instead of playing noise. A part whose byte length is odd (a sample split across two chunks — not observed, chunks are multiples of 1920 bytes) carries the odd byte over to the next part; a lone byte left at the end is dropped. Parts without `inline_data` (a text part) are skipped.
+The module checks each audio part's mime type and raises `TTSError` if it is not `audio/l16`, names a `rate=` other than 24000, or names a `channels=` other than 1 (a stereo response fed to a mono sink would play interleaved at half speed), so a future format change fails loudly instead of playing noise; a parameter the API omits is taken at its documented value (24 kHz, mono). A part whose byte length is odd (a sample split across two chunks — not observed, chunks are multiples of 1920 bytes) carries the odd byte over to the next part; a lone byte left at the end is dropped. Parts without `inline_data` (a text part) are skipped.
 
 Chunks are small — observed 1920–7680 bytes (40–160 ms) — so each is handed to `callback` as is, without slicing: a cancel is honored within one chunk's playback.
 
@@ -91,7 +93,7 @@ The stream ends when the generator is exhausted (the last chunk carries `finish_
 
 ### Threading and cancellation
 
-Cooperative via `run_cancellable_worker` ([tts-module-interface.md](../tts-module-interface.md), "Cancellation"), the Mistral shape: the worker creates the generator, polls `stop` between chunks, and **closes the generator** in a `finally` on every path — normal end, `stop`, error. Closing it runs the SDK's response iteration to `GeneratorExit`; observed live, it returns at once and the pooled HTTP connection is dropped (the pool is empty afterwards), so the server stops sending. `synthesize_text` re-raises `CancelledError` only once the thread has exited.
+Cooperative via `run_cancellable_worker` ([tts-module-interface.md](../tts-module-interface.md), "Cancellation"), the Mistral shape: the worker creates the generator, polls `stop` between chunks, and **closes the generator** on every path — normal end, `stop`, error — through the shared `cleanup` helper, so a failing close never replaces the utterance's own error. While the worker is blocked in `next(chunks)` waiting for the server, it cannot see `stop`: that wait is bounded by `timeout`. Closing it runs the SDK's response iteration to `GeneratorExit`; observed live, it returns at once and the pooled HTTP connection is dropped (the pool is empty afterwards), so the server stops sending. `synthesize_text` re-raises `CancelledError` only once the thread has exited.
 
 ### Text stream (grouped)
 
@@ -137,7 +139,7 @@ Registered in `REGISTRY` as `"gemini"` ([modules/__init__.py](../../src/tts_engi
 
 ## Testing
 
-- **Unit (`tests/modules/test_gemini.py`)** — `google.genai` is **faked** in `sys.modules` (a stub `genai.Client` whose `models.generate_content_stream` records its kwargs and returns a scripted generator with a `closed` flag), so no request is ever made and the fast tier runs without the extra. Covers: `ConfigError` on a missing extra, on a missing/empty key and on each invalid field (parametrized); key resolution (`api_key_env`, literal precedence, unset variable); the request kwargs (`model` default, `contents`, `response_modalities`, `speech_config` present only with the keys that were set); audio parts reaching the callback unchanged, text parts skipped; an odd-length part carried over; a wrong mime type or rate as `TTSError`; a non-`STOP` finish reason and a block reason as `TTSError`; SDK errors on the first `next()` and mid-stream wrapped in `TTSError` with the generator closed, callback errors propagating unchanged; cancellation closing the generator before `CancelledError`; and for `synthesize_text_stream`: one request per sentence, the first sentence's audio reaching the callback before the source has yielded its last piece, and cancellation with the source still open.
+- **Unit (`tests/modules/test_gemini.py`)** — `google.genai` is **faked** in `sys.modules` (a stub `genai.Client` whose `models.generate_content_stream` records its kwargs and returns a scripted generator with a `closed` flag), so no request is ever made and the fast tier runs without the extra. Covers: `ConfigError` on a missing extra, on a missing/empty key and on each invalid field (parametrized); key resolution (`api_key_env`, literal precedence, unset variable); the request kwargs (`model` default, `contents`, `response_modalities`, `speech_config` present only with the keys that were set); audio parts reaching the callback unchanged, text parts skipped; an odd-length part carried over; a wrong mime type, rate or channel count as `TTSError`, and a mime with or without its parameters accepted when they are mono 24 kHz; a non-`STOP` finish reason and a block reason as `TTSError`; SDK errors on the first `next()` and mid-stream wrapped in `TTSError` with the generator closed, callback errors propagating unchanged, and a callback error surviving a failing generator close; `timeout` reaching the client in milliseconds (default and set) and invalid values rejected; cancellation closing the generator before `CancelledError`; and for `synthesize_text_stream`: one request per sentence, the first sentence's audio reaching the callback before the source has yielded its last piece, and cancellation with the source still open.
 - **Live (`tests-e2e/test_modules.py`)** — one `MODULES` row (`gemini`, `api_key_env: "GEMINI_API_KEY"`, voice `Kore`) plus `_REQUIRED_IMPORT["gemini"] = "google.genai"` in `support.py`, so every per-module scenario runs against the real API and **skips cleanly** when the key or the extra is absent ([testing.md](../testing.md), "Live tier"). CI maps an optional `GEMINI_API_KEY` secret ([ci.md](../ci.md)).
 
 ## Validated against `google-genai==2.33.0`

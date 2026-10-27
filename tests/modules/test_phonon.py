@@ -36,6 +36,8 @@ class _FakeAudioStream:
 
     def close(self) -> None:
         self.closed = True
+        if self._backend.raise_on_close is not None:
+            raise self._backend.raise_on_close
 
     def __iter__(self):
         return self
@@ -63,6 +65,7 @@ class _FakeBackend:
         self.raise_on_init: Exception | None = None
         self.raise_on_stream: Exception | None = None
         self.raise_on_next: Exception | None = None
+        self.raise_on_close: Exception | None = None
         self.chunks = [
             np.asarray([0.0, 0.5, -0.5], dtype=np.float32),
             np.asarray([1.5, -2.0], dtype=np.float32),  # out of range: clipped
@@ -133,13 +136,13 @@ def test_invalid_device_raises(bad):
         PhononModule({"type": "phonon", "device": bad})
 
 
-@pytest.mark.parametrize("bad", [-0.1, True, "0.3"])
+@pytest.mark.parametrize("bad", [-0.1, True, "0.3", float("nan"), float("inf")])
 def test_invalid_temperature_raises(bad):
     with pytest.raises(ConfigError, match="temperature"):
         PhononModule({"type": "phonon", "temperature": bad})
 
 
-@pytest.mark.parametrize("bad", [False, "2"])
+@pytest.mark.parametrize("bad", [False, "2", float("nan"), float("-inf")])
 def test_invalid_cfg_coef_raises(bad):
     with pytest.raises(ConfigError, match="cfg_coef"):
         PhononModule({"type": "phonon", "cfg_coef": bad})
@@ -263,6 +266,18 @@ def test_iteration_error_is_tts_error_and_closes(fake):
 
 def test_callback_error_propagates_unchanged_and_closes(fake):
     module = PhononModule({"type": "phonon"})
+
+    def bad_callback(_b: bytes) -> None:
+        raise ValueError("playback failed")
+
+    with pytest.raises(ValueError, match="playback failed"):
+        _run(module.synthesize_text("Hi.", TTSOptions(), bad_callback))
+    assert fake.streams[0].closed
+
+
+def test_callback_error_wins_over_a_failing_close(fake):
+    module = PhononModule({"type": "phonon"})
+    fake.raise_on_close = RuntimeError("decoder teardown failed")
 
     def bad_callback(_b: bytes) -> None:
         raise ValueError("playback failed")

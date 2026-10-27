@@ -15,6 +15,8 @@ is a true stream-to-stream pass over one connection.
 """
 
 import asyncio
+import logging
+import math
 import os
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator
@@ -29,9 +31,12 @@ from tts_engine.modules.base import (
     split_at_last_space,
 )
 
+log = logging.getLogger(__name__)
+
 _SAMPLE_RATES = (8000, 16000, 24000, 44100, 48000)
-# How often the receive loop wakes to poll `stop` while the server is silent
-# (no audio yet, or no end-of-stream sent), so a cancel is honored promptly.
+_DEFAULT_TIMEOUT = 30.0
+# How often the receive loop (and the connection setup) wakes to poll `stop`
+# while the server is silent, so a cancel is honored promptly.
 _RECV_POLL_SECONDS = 0.1
 
 # json_config voice settings: field -> inclusive range. Sent only when set so
@@ -107,6 +112,16 @@ class GradiumModule(TTSModule):
         if rewrite_rules is not None:
             json_config["rewrite_rules"] = rewrite_rules
 
+        timeout = config.get("timeout", _DEFAULT_TIMEOUT)
+        if (
+            isinstance(timeout, bool)
+            or not isinstance(timeout, (int, float))
+            or not math.isfinite(timeout)
+            or timeout <= 0
+        ):
+            raise ConfigError("Gradium module 'timeout' must be a finite number > 0")
+        self._timeout = float(timeout)
+
         self._voice_id: str = voice_id
         self._model: str = model
         self._sample_rate: int = sample_rate
@@ -167,29 +182,70 @@ class GradiumModule(TTSModule):
             setup["pronunciation_id"] = self._pronunciation_id
         return setup
 
-    async def _open(self):
+    async def _open(self, stop: threading.Event):
         """Open one realtime connection and check its `ready` message.
 
-        Returns `(context_manager, tts)`; the caller must `__aexit__` the
-        context manager. Connection/setup failures and a `ready` sample-rate
-        mismatch are `TTSError` (the connection is closed on the mismatch).
+        Returns `(context_manager, tts)`, or None when `stop` was set while
+        the connection was still being set up (the utterance is aborted, the
+        partial connection released). The caller must `_leave` the context
+        manager. The setup (socket, setup message, `ready`) is polled against
+        `stop` every 100 ms and bounded by `timeout`; a failure, the timeout
+        and a `ready` sample-rate mismatch are `TTSError`, and in every
+        failing case whatever the SDK had already opened is closed again.
         """
         try:
             tts_cm = self._client.tts_realtime(
                 wait_for_ready_on_start=True, **self._setup()
             )
-            tts = await tts_cm.__aenter__()
         except Exception as exc:
+            raise TTSError(f"Gradium request failed: {exc}") from exc
+
+        # The SDK's `__aenter__` opens the session and socket, sends the setup
+        # and waits for `ready` with no timeout of its own, and closes nothing
+        # when it fails or is cancelled partway: `_leave` does that here.
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self._timeout
+        entering = asyncio.ensure_future(tts_cm.__aenter__())
+        while not entering.done():
+            await asyncio.wait({entering}, timeout=_RECV_POLL_SECONDS)
+            if entering.done():
+                break
+            if stop.is_set() or loop.time() >= deadline:
+                entering.cancel()
+                await asyncio.wait({entering})
+                await self._leave(tts_cm, failed=True)
+                if stop.is_set():
+                    return None
+                raise TTSError(
+                    f"Gradium request failed: not ready within {self._timeout} s"
+                )
+        try:
+            tts = entering.result()
+        except Exception as exc:
+            await self._leave(tts_cm, failed=True)
             raise TTSError(f"Gradium request failed: {exc}") from exc
 
         ready_rate = (tts.ready or {}).get("sample_rate")
         if ready_rate is not None and ready_rate != self._sample_rate:
-            await tts_cm.__aexit__(None, None, None)
+            await self._leave(tts_cm, failed=True)
             raise TTSError(
                 f"Gradium stream is {ready_rate} Hz but the module "
                 f"declares {self._sample_rate} Hz"
             )
         return tts_cm, tts
+
+    @staticmethod
+    async def _leave(tts_cm, *, failed: bool) -> None:
+        """Close the connection (socket and session at once). After a failure
+        a close error is only logged, so the primary error is what the caller
+        sees; on a normal end it propagates as `TTSError`."""
+        try:
+            await tts_cm.__aexit__(None, None, None)
+        except Exception as exc:
+            if failed:
+                log.warning("Gradium connection close failed", exc_info=True)
+                return
+            raise TTSError(f"Gradium request failed: {exc}") from exc
 
     @staticmethod
     async def _receive(
@@ -257,7 +313,10 @@ class GradiumModule(TTSModule):
         become TTSError; `callback` is invoked outside that boundary so a
         downstream playback failure keeps its own identity.
         """
-        tts_cm, tts = await self._open()
+        opened = await self._open(stop)
+        if opened is None:
+            return  # cancelled during setup
+        tts_cm, tts = opened
         try:
             try:
                 await tts.send_text(text)
@@ -265,10 +324,12 @@ class GradiumModule(TTSModule):
             except Exception as exc:
                 raise TTSError(f"Gradium request failed: {exc}") from exc
             await self._receive(tts, callback, stop, sender=None)
-        finally:
+        except BaseException:
             # Closes the socket and session at once, so a cancel mid-utterance
             # drops the request instead of draining the rest of the audio.
-            await tts_cm.__aexit__(None, None, None)
+            await self._leave(tts_cm, failed=True)
+            raise
+        await self._leave(tts_cm, failed=False)
 
     @staticmethod
     async def _send_all(tts, pieces: Iterator[str], stop: threading.Event) -> None:
@@ -302,10 +363,15 @@ class GradiumModule(TTSModule):
     ) -> None:
         """Run one text-stream utterance over one WebSocket: a sender task
         forwarding text concurrently with the receiver feeding audio."""
-        tts_cm, tts = await self._open()
+        opened = await self._open(stop)
+        if opened is None:
+            return  # cancelled during setup
+        tts_cm, tts = opened
         sender = asyncio.create_task(self._send_all(tts, pieces, stop))
+        failed = True
         try:
             await self._receive(tts, callback, stop, sender)
+            failed = False
         finally:
             # Release a sender still blocked on text (`stop` ends `pieces`) so
             # its executor thread exits before this loop is torn down, then
@@ -314,7 +380,7 @@ class GradiumModule(TTSModule):
             if not sender.done():
                 sender.cancel()
             await asyncio.wait([sender])
-            await tts_cm.__aexit__(None, None, None)
+            await self._leave(tts_cm, failed=failed)
 
     async def synthesize_text(
         self,

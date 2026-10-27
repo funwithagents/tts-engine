@@ -49,6 +49,8 @@ class _FakeEvents:
 
     def __exit__(self, *_exc) -> bool:
         self.closed = True
+        if self._backend.raise_on_close is not None:
+            raise self._backend.raise_on_close
         return False
 
     def __iter__(self):
@@ -82,6 +84,7 @@ class _FakeBackend:
         ]
         self.raise_on_request: Exception | None = None
         self.raise_on_next: Exception | None = None
+        self.raise_on_close: Exception | None = None
         self.block: threading.Event | None = None
         self.reached = threading.Event()
 
@@ -183,11 +186,21 @@ def test_api_key_env_pointing_to_unset_var_raises(fake, monkeypatch):
         ({"expressiveness": float("inf")}, "expressiveness"),
         ({"server_url": ""}, "server_url"),
         ({"server_url": 3}, "server_url"),
+        ({"timeout": 0}, "timeout"),
+        ({"timeout": True}, "timeout"),
+        ({"timeout": "30"}, "timeout"),
+        ({"timeout": float("inf")}, "timeout"),
     ],
 )
 def test_invalid_field_raises_config_error(fake, override, field):
     with pytest.raises(ConfigError, match=field):
         MistralModule({**_BASE, **override})
+
+
+def test_timeout_reaches_the_request_in_milliseconds(fake):
+    module = MistralModule({**_BASE, "timeout": 2.5})
+    _run(module.synthesize_text("Hi.", TTSOptions(), lambda _b: None))
+    assert fake.requests[0]["timeout_ms"] == 2500
 
 
 def test_server_url_reaches_the_client_only_when_set(fake):
@@ -210,6 +223,7 @@ def test_defaults_reach_the_request(fake):
             "voice_id": "v",
             "response_format": "pcm",
             "stream": True,
+            "timeout_ms": 30000,
         }
     ]
 
@@ -278,6 +292,17 @@ def test_undecodable_audio_is_tts_error(fake):
 
 
 def test_callback_error_propagates_unchanged_and_closes(fake):
+    def bad_callback(_b: bytes) -> None:
+        raise ValueError("playback failed")
+
+    with pytest.raises(ValueError, match="playback failed"):
+        _run(MistralModule(_BASE).synthesize_text("Hi.", TTSOptions(), bad_callback))
+    assert fake.streams[0].closed
+
+
+def test_callback_error_wins_over_a_failing_close(fake):
+    fake.raise_on_close = RuntimeError("connection teardown failed")
+
     def bad_callback(_b: bytes) -> None:
         raise ValueError("playback failed")
 
