@@ -146,6 +146,10 @@ At synthesis:
 - Exceptions raised by `callback` propagate unchanged; the `with` block still closes the stream.
 - Text-stream failures propagate unchanged through `run_text_stream_worker`.
 
+### Lifetime
+
+Built in `__init__`, released by `TTSModule.close()` when the engine closes ([tts-module-interface.md](../tts-module-interface.md), "Lifetime and ownership"): `close()` drops the `ptts` runtime so its weights can be collected; the module is not usable afterwards.
+
 ## Module ID
 
 Registered in `REGISTRY` as `"phonon"` ([modules/__init__.py](../../src/tts_engine/modules/__init__.py)); class `PhononModule` in `modules/phonon/module.py`, re-exported from `modules/phonon/__init__.py`.

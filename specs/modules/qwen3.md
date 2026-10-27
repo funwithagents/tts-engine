@@ -164,6 +164,10 @@ At synthesis:
 - Exceptions raised by `callback` propagate unchanged; the generator is still closed.
 - Text-stream failures propagate unchanged through `run_text_stream_worker`.
 
+### Lifetime
+
+Built in `__init__`, released by `TTSModule.close()` when the engine closes ([tts-module-interface.md](../tts-module-interface.md), "Lifetime and ownership"): `close()` calls the runtime's own `close()` (freeing the native context and any GPU memory at once, the same call the constructor makes when a post-load check fails) and drops it; the module is not usable afterwards.
+
 ## Module ID
 
 Registered in `REGISTRY` as `"qwen3"` ([modules/__init__.py](../../src/tts_engine/modules/__init__.py)); class `Qwen3Module` in `modules/qwen3/module.py`, re-exported from `modules/qwen3/__init__.py`.

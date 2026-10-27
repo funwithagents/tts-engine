@@ -73,7 +73,8 @@ Unexpected exceptions, including downstream playback/device failures, are delibe
 
 ## Lifecycle
 
-- `main` runs in this order: parse `--config`/`--log-level` → import the MCP stack (the extra check above) → `MCPServerConfig.from_json_file` → `logging.basicConfig` → `TTSEngine(cfg.engine)` → `create_server(engine)` → `uvicorn.run`.
+- `main` runs in this order: parse `--config`/`--log-level` → import the MCP stack (the extra check above) → `MCPServerConfig.from_json_file` → `logging.basicConfig` → `TTSEngine(cfg.engine)` → `create_server(engine)` → `uvicorn.run` → `engine.close()`.
+- The engine is **closed once `uvicorn.run` returns** — on SIGINT/SIGTERM, which uvicorn handles, or when it raises (a bind failure) — in a `finally`, through `asyncio.run(engine.close())`: the provider's client or the local model is released before the process exits rather than left to interpreter teardown ([architecture.md](architecture.md), "Ownership and lifetime").
 - The server is created by `create_server(engine)` and started in [`mcp_server_cli.py`](../src/tts_engine/mcp_server_cli.py) via `uvicorn.run`.
 - `TTSEngine` is constructed before the server starts (via `TTSEngine(cfg.engine)`) and injected into `create_server` (no lazy init).
 - The server does not restart the engine on failure — crash = process exit.

@@ -129,6 +129,10 @@ Because `_ChunkSource` subclasses `miniaudio.StreamableSource`, that class canno
 - The raw source (the HTTP response generator, or the stream-input socket) is released through the shared `cleanup` helper: a failing release never replaces a synthesis, callback or source error, or a cancellation — it is logged ([tts-module-interface.md](../tts-module-interface.md), "`cleanup`").
 - Cancellation requests cooperative worker shutdown and waits until callback activity has stopped before propagating.
 
+### Lifetime
+
+Built in `__init__`, released by `TTSModule.close()` when the engine closes ([tts-module-interface.md](../tts-module-interface.md), "Lifetime and ownership"): `close()` releases nothing of its own: the `ElevenLabs` client exposes no close and holds only a lazily opened HTTP pool, which goes with the module; every socket and decoder is per utterance.
+
 ## Module ID
 
 Registered in `REGISTRY` as `"elevenlabs"`.

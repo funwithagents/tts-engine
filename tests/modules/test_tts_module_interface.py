@@ -13,10 +13,12 @@ from tts_engine.modules.base import (
     TTSOptions,
     cleanup,
     feed_with_lookahead,
+    open_cancellable,
     resolve_path,
     run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
+    slice_text,
 )
 
 
@@ -509,3 +511,103 @@ def test_cleanup_closes_once_on_success():
     with cleanup(lambda: closes.append(True), "thing"):
         pass
     assert closes == [True]
+
+
+# --- close hook --------------------------------------------------------------
+
+
+def test_close_defaults_to_a_no_op():
+    class Minimal(TTSModule):
+        @property
+        def sample_rate(self) -> int:
+            return 8000
+
+        async def synthesize_text(self, text, options, callback) -> None:
+            pass
+
+        async def synthesize_text_stream(self, text_stream, options, callback) -> None:
+            pass
+
+    module = Minimal({"type": "minimal"})
+    module.close()
+    module.close()  # nothing to release, nothing to break
+
+
+# --- open_cancellable --------------------------------------------------------
+
+
+class _Resource:
+    def __init__(self) -> None:
+        self.left = threading.Event()
+
+
+def test_open_cancellable_returns_what_enter_returned():
+    resource = _Resource()
+    stop = threading.Event()
+
+    got = open_cancellable(
+        lambda: resource, lambda r: r.left.set(), stop=stop, timeout=1, what="x"
+    )
+
+    assert got is resource
+    assert not resource.left.is_set()
+
+
+def test_open_cancellable_raises_enters_error_unchanged():
+    def enter():
+        raise ConnectionError("refused")
+
+    with pytest.raises(ConnectionError, match="refused"):
+        open_cancellable(
+            enter, lambda r: None, stop=threading.Event(), timeout=1, what="x"
+        )
+
+
+def test_open_cancellable_gives_up_on_stop_and_releases_the_late_resource():
+    resource = _Resource()
+    release = threading.Event()
+    stop = threading.Event()
+
+    def enter():
+        release.wait(5)
+        return resource
+
+    stop.set()
+    started = time.perf_counter()
+    got = open_cancellable(
+        enter, lambda r: r.left.set(), stop=stop, timeout=5, what="x"
+    )
+    assert got is None
+    assert time.perf_counter() - started < 1  # not the timeout, not enter's wait
+
+    release.set()  # the handshake completes after the caller has gone
+    assert resource.left.wait(1)
+
+
+def test_open_cancellable_times_out_without_stop():
+    release = threading.Event()
+
+    def enter():
+        release.wait(5)
+        return _Resource()
+
+    with pytest.raises(TimeoutError, match="not open within"):
+        open_cancellable(
+            enter, lambda r: None, stop=threading.Event(), timeout=0.1, what="x"
+        )
+    release.set()
+
+
+# --- slice_text --------------------------------------------------------------
+
+
+def test_slice_text_cuts_at_sentence_ends_and_concatenates_back():
+    text = "One two. Three four! Five six seven eight nine."
+    slices = list(slice_text(text, 20))
+    assert slices == ["One two. ", "Three four! ", "Five six seven ", "eight nine."]
+    assert "".join(slices) == text
+
+
+def test_slice_text_short_text_is_one_slice_and_a_long_word_passes_whole():
+    assert list(slice_text("short", 20)) == ["short"]
+    assert list(slice_text("a" * 30 + " tail", 20)) == ["a" * 20, "a" * 10 + " tail"]

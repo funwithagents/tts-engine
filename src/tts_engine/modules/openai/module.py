@@ -130,6 +130,10 @@ class OpenAIModule(TTSModule):
             client_kwargs["base_url"] = base_url
         self._client = OpenAI(**client_kwargs)
 
+    def close(self) -> None:
+        # Closes the SDK's pooled HTTP connections; the module is done.
+        self._client.close()
+
     @property
     def sample_rate(self) -> int:
         return self._sample_rate

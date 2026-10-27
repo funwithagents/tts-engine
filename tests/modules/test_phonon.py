@@ -73,6 +73,7 @@ class _FakeBackend:
         self.texts: list[str] = []
         self.voices_used: list[str | None] = []
         self.streams: list[_FakeAudioStream] = []
+        self.instances: list = []
         self.block: threading.Event | None = None
         self.reached = threading.Event()
 
@@ -85,6 +86,7 @@ def _fake_ptts(backend: _FakeBackend) -> types.SimpleNamespace:
 
         def __init__(self, **kwargs) -> None:
             backend.init_kwargs = kwargs
+            backend.instances.append(self)
             if backend.raise_on_init is not None:
                 raise backend.raise_on_init
 
@@ -367,3 +369,10 @@ async def test_text_stream_cancel_closes_the_stream_before_cancelled_error(fake)
     assert count == settled
     assert fake.streams[0].closed
     assert fake.texts == ["Hi."]
+
+
+def test_close_drops_the_runtime(fake):
+    module = PhononModule({"type": "phonon"})
+    (runtime,) = fake.instances
+    module.close()
+    assert all(value is not runtime for value in vars(module).values())

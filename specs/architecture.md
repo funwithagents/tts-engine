@@ -49,6 +49,7 @@ A library user stops at layer 1 or 2; an agent embeds layer 2 directly; an MCP c
 │  • say_stream(text_stream)                          │
 │      → module.synthesize_text_stream                │
 │    both feed the sink via callback, then drain it   │
+│  • close() / async with → module.close()            │
 └────────────┬─────────────────────────┬──────────────┘
              │                         │
 ┌────────────▼──────────┐  ┌──────────▼──────────────┐
@@ -219,6 +220,14 @@ await engine.say_stream(llm_tokens())
 | `mcp_server_cli.py` | Argument parsing (`--config`, `--log-level`); imports the MCP stack inside `main`, exiting with the `pip install tts-engine[mcp]` hint when the extra is absent; `MCPServerConfig.from_json_file` → `TTSEngine(cfg.engine)` → MCP server; `logging.basicConfig(level=args.log_level)`; starts uvicorn |
 | `__init__.py` | Public API surface: re-exports `TTSEngine`, `TTSEngineConfig`, `MCPServerConfig`, `TTSTools`, `AudioSink` |
 
+## Ownership and lifetime
+
+- **Module.** The engine builds it and is the only thing that closes it. `await engine.close()` waits for an utterance in flight (it takes the say lock), then calls `module.close()` once: a provider's SDK client is closed, a local model dropped ([tts-module-interface.md](tts-module-interface.md), "Lifetime and ownership"). Later calls do nothing; `say` and `say_stream` raise `RuntimeError` on a closed engine. `async with TTSEngine(config) as engine:` closes on exit. An engine that is never closed releases its module when the interpreter collects it, which is the pre-existing behaviour and still fine for a process-long engine.
+- **Sink.** The engine never closes the sink: an injected sink is the embedder's; the default player holds nothing between utterances. `drain` once per utterance is the whole sink lifecycle ([audio-sink.md](audio-sink.md)).
+- **Text source.** `say_stream` owns the iterator it is given for the length of the utterance: it is read at the worker's pace (bounded bridge), closed early when the utterance fails or is cancelled, and its `aclose()` is awaited at the end on every path when it has one, under the `cleanup` precedence rule (a failing `aclose` is logged after another error, raised when it is the only one).
+- **Threads.** Worker threads are joined before `say`/`say_stream` return (the cancellation contract). Daemon threads that outlive an utterance — a socket's closing tail, a lookahead inference, an abandoned handshake — hold nothing of the engine's and are not waited for by `close()`.
+- **MCP server.** The entry point closes the engine once `uvicorn.run` returns ([mcp-server.md](mcp-server.md), "Lifecycle").
+
 ## Public API
 
 The package exposes the library entry points at the top level:
@@ -227,7 +236,7 @@ The package exposes the library entry points at the top level:
 from tts_engine import TTSEngine, TTSEngineConfig, MCPServerConfig, TTSTools, AudioSink
 ```
 
-`TTSTools` is curated so agents can register its bound methods directly (see [tools.md](tools.md), "Consumers"). `AudioSink` is exported so embedders can type their own playback destination against the seam ([audio-sink.md](audio-sink.md)). Everything else (modules, the concrete `AudioPlayer`, mcp, mcp_server_cli) is reachable by submodule import but is not part of the curated top-level surface. None of the top-level names needs an extra: `MCPServerConfig` is a plain dataclass, while `tts_engine.mcp` itself requires the `mcp` extra.
+`TTSEngine` exposes `say`, `say_stream`, `sample_rate`, `close` and the async context-manager protocol. `TTSTools` is curated so agents can register its bound methods directly (see [tools.md](tools.md), "Consumers"). `AudioSink` is exported so embedders can type their own playback destination against the seam ([audio-sink.md](audio-sink.md)). Everything else (modules, the concrete `AudioPlayer`, mcp, mcp_server_cli) is reachable by submodule import but is not part of the curated top-level surface. None of the top-level names needs an extra: `MCPServerConfig` is a plain dataclass, while `tts_engine.mcp` itself requires the `mcp` extra.
 
 ## Threading / async model
 

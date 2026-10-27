@@ -97,9 +97,25 @@ class TTSModule(ABC):
         Returns or raises only after it has stopped invoking `callback`, including
         when the coroutine is cancelled.
         """
+
+    def close(self) -> None:
+        """Release what the module holds for its lifetime: a provider closes
+        its SDK client, a local model drops its weights. Called once, by
+        `TTSEngine.close()`, with no utterance in flight; the module must not
+        be used afterwards. The default releases nothing."""
 ```
 
 Both methods are abstract: every module implements both. A backend whose API accepts text incrementally (a WebSocket that takes repeated text messages before an end-of-stream marker — Gradium, ElevenLabs, Deepgram, Cartesia) implements `synthesize_text_stream` as a true stream-to-stream pass: pieces go to the backend as they arrive and audio comes back while more text is still being received. A backend that needs a complete prompt before it can produce any audio (a local model conditioned on the whole text — pocket; a request/response API — mistral, gemini, openai; a fixture matching whole sentences — audiofile) **groups the pieces into sentences** and synthesizes each sentence as soon as it is complete, so audio for sentence one plays while the stream is still delivering sentence two. The grouping is the module's own concern, done with the shared `segment_sentences` helper (below) — the engine never cuts text. Which shape a module uses is stated in its own spec.
+
+## Lifetime and ownership
+
+Who constructs, who releases, and when:
+
+- **The engine owns the module.** `TTSEngine.__init__` builds it through `load_module`; `TTSEngine.close()` calls its `close()` once, with no utterance in flight. A module holds for its lifetime what it builds in `__init__` — an SDK client with its HTTP connection pool (elevenlabs, gradium, mistral, deepgram, gemini, cartesia, openai) or a loaded model (pocket, phonon, qwen3, kokoro, piper) — and that is what `close()` releases: the clients that have a close call get it (`OpenAI.close`, `genai.Client.close`, `Cartesia.close`, Mistral's context exit), a local model is dropped so its weights can be collected (qwen3 also frees its native context). ElevenLabs, Gradium and Deepgram clients expose no close; they hold only a lazily opened pool that goes with the module. Fixtures release nothing. Each module's spec has a "Lifetime" line saying which applies.
+- **An utterance owns its transport.** Sockets, HTTP responses, decoders and generators are opened by `synthesize_text` / `synthesize_text_stream` and released before they return or raise, through `cleanup` (below), on every path. Nothing of an utterance survives it except the threads below.
+- **Threads that outlive an utterance** hold nothing of the module's and are never waited for: a socket's closing tail (deepgram and cartesia close off the worker after an abort, since the server can hold the handshake for seconds), a lookahead producer finishing one uninterruptible inference (kokoro, piper), an abandoned connection setup (`open_cancellable`, below). All are daemon threads; `close()` does not join them. Their completion is best effort and must not be mistaken for a guarantee.
+- **The engine owns the text source for one utterance.** `say_stream` consumes the iterator it was given and, once the utterance is over on any path, awaits the iterator's `aclose()` when it has one (an async generator's `finally` runs then; an SDK stream object is closed), under the `cleanup` precedence rule: after a failure a failing `aclose` is only logged. The bridge also cancels its pump early when the worker fails or returns first, so the source is not read to the end for nothing ([architecture.md](architecture.md), "Ownership and lifetime").
+- **The sink is the embedder's.** An injected `AudioSink` is neither constructed nor closed by the engine; the default `AudioPlayer` holds nothing between utterances (its stream opens on the first `feed` and closes in `drain`). See [audio-sink.md](audio-sink.md).
 
 ## Module registry
 
@@ -182,7 +198,7 @@ Three milestones are distinct, and only the first is the interface's promise:
 2. **Backend work stopped** — inference halted, the request dropped. Each module's spec says what it does here: a library with a stop signal is handed `stop` (pocket, phonon, qwen3), a socket is closed (gradium, elevenlabs, deepgram, cartesia), an HTTP response is closed (mistral, gemini, openai). Where the backend cannot be interrupted (kokoro-onnx, piper-tts), one sentence's inference finishes in the background and is discarded. A module whose runtime is **not thread-safe** must reach a point where that runtime is idle before returning, since the engine may start the next utterance on the same model immediately (pocket drains its generator so the library joins its decoder thread; see [pocket.md](modules/pocket.md)).
 3. **Transport closed** — the socket's close handshake done. Deepgram and Cartesia finish it off the worker thread after an abort, since the server can hold it for seconds; nothing waits for it.
 
-**Latency.** The worker sees `stop` only between the operations it polls around. Between chunks that is one chunk's playback (modules feeding big chunks slice them to 100 ms). While the worker is **blocked inside a network call** — opening a connection, waiting for the next byte of a stalled response — it cannot see `stop` until that call returns, so every API-backed module bounds such calls with a `timeout` config field (default 30 s) or its own poll: a stalled request becomes a `TTSError` after at most that long, and a cancel issued during a stall is honored by then. Modules whose receive loop polls (gradium, elevenlabs stream-input, deepgram, cartesia) honor a cancel within 100 ms while the server is silent; their connection *setup* is bounded by the SDK's own open timeout (10 s for `websockets`) except gradium, which polls `stop` during setup too. None of this is a contractual bound on cancellation latency; each module's spec states what it measured.
+**Latency.** The worker sees `stop` only between the operations it polls around. Between chunks that is one chunk's playback (modules feeding big chunks slice them to 100 ms). While the worker is **blocked inside a network call** — opening a connection, waiting for the next byte of a stalled response — it cannot see `stop` until that call returns, so every API-backed module bounds such calls with a `timeout` config field (default 30 s) or its own poll: a stalled request becomes a `TTSError` after at most that long, and a cancel issued during a stall is honored by then. Modules whose receive loop polls (gradium, elevenlabs stream-input, deepgram, cartesia) honor a cancel within 100 ms while the server is silent, and their connection *setup* polls `stop` too, bounded by `timeout` (gradium on its private loop; deepgram and cartesia through `open_cancellable`, below), so a cancel during a handshake surfaces within 100 ms and the late connection is closed behind it. None of this is a contractual bound on cancellation latency; each module's spec states what it measured. Modules that feed a provider's chunks unsliced rely on the chunk sizes they observed (gemini: 40 to 160 ms); their spec says so.
 
 ## Text-stream helpers
 
@@ -262,6 +278,32 @@ Some local runtimes return a sentence's audio **all at once** rather than frame 
 
 Users of `feed_with_lookahead`: kokoro and piper. A runtime that streams frames itself (pocket, phonon, qwen3) does not need it. Every backend that groups with `segment_sentences` (pocket, phonon, qwen3, kokoro, piper, mistral, gemini, openai, audiofile) tolerates a short segment; correctness of the audio is unaffected.
 
+### `open_cancellable` — a handshake that honors `stop`
+
+```python
+def open_cancellable(
+    enter: Callable[[], T],
+    leave: Callable[[T], object],
+    *,
+    stop: threading.Event,
+    timeout: float,
+    what: str,
+) -> T | None:
+    """Run a blocking setup step on a helper thread and wait for it while polling ``stop``."""
+```
+
+A synchronous SDK's connection setup (`websockets.sync.client.connect` behind Deepgram's `speak.v1.connect` and Cartesia's `websocket_connect`) blocks the worker until the handshake completes, and the SDK does not always let its open timeout be set. The helper runs `enter` on a daemon thread and waits for it in 100 ms polls: it returns the connection, or `None` once `stop` is set meanwhile (the module returns silently: the utterance was cancelled before anything was sent), or raises `TimeoutError` past `timeout` (the module wraps it in `TTSError`); `enter`'s own exception propagates unchanged. A connection that completes **after** the wait gave up is handed to `leave` on the helper thread, so an abandoned handshake is closed rather than leaked; a failure of that late close is logged at DEBUG. The helper thread is one of the threads that may outlive an utterance ("Lifetime and ownership"). Gradium does the same inline on its private loop.
+
+### `slice_text` — a grain for the admission gate
+
+```python
+def cut_at_boundary(text: str, room: int) -> int: ...
+def slice_text(text: str, max_chars: int) -> Iterator[str]:
+    """Yield ``text`` verbatim in slices of at most ``max_chars`` characters."""
+```
+
+A native-stream backend forwards a complete text over the same socket as a stream, but `synthesize_text` hands it one piece. Sent whole, that piece would defeat the admission gate below (the server would hold the entire text at once). `slice_text` cuts it, verbatim, into slices of at most `max_chars` characters (deepgram and cartesia pass 50, a few seconds of speech): after the last sentence end inside the window, else after the last whitespace, else hard (a single word longer than the window is the one slice allowed past it). The slices concatenate back to the text exactly; the backend's own word grouping and segmentation apply to them as to an LLM's pieces. `cut_at_boundary` is the same rule for one cut, which Deepgram's segmenter also uses.
+
 ### `cleanup` — a failing release never hides the outcome
 
 ```python
@@ -271,6 +313,17 @@ def cleanup(close: Callable[[], object], what: str) -> Iterator[None]:
 ```
 
 Every module releases something at the end of an utterance — an HTTP response, a socket, a decoder, the sink's `drain` in the engine — and a release can fail (a socket already broken, a device gone). A bare `try/finally` would let that failure **replace** the utterance's own exception, so a caller promised the callback's `ValueError`, the source's error or `CancelledError` would see an `OSError` from the close instead. The helper fixes the precedence: if the block raised, `close()` runs and its failure is **logged at WARNING** with the original exception propagating unchanged; if the block completed, `close()` runs and its failure propagates, since it is then the only thing that went wrong. The engine wraps `drain` in it, and every module wraps its release step (`with cleanup(response.close, "OpenAI response"):`); Deepgram and Cartesia, which close off the worker thread, log a close failure the same way. A module with an async release (gradium) applies the same rule inline.
+
+## Bounded unread audio
+
+The text bridge bounds how far a **source** runs ahead of the worker. The native-stream providers (deepgram, cartesia) also bound how far the **provider** runs ahead of playback, since both servers generate several times faster than real time and would otherwise pile up unread PCM for the length of the utterance (about 48 kB per second of audio ahead at 24 kHz). The rule, the same in both modules:
+
+- The reader thread counts the audio it has read into the worker's inbox and not yet fed (`unread`); the worker subtracts as it feeds.
+- The sender **admits** a text message only while `unread` is under **10 s** of audio at the module's rate, polling `stop` meanwhile. Text admission is thereby coupled to playback progress: with the default sink the server is fed at the pace it is played, after an initial lead of ten seconds.
+- What the server already holds is bounded by the provider's own acknowledgement, not by `unread`: Deepgram's flushed segments (at most two of ≤ 900 characters unanswered, "Pending-text backpressure" in its spec) and Cartesia's one segment per context, the next opened only after the server's `done`. So the audio read and not yet fed never exceeds the lead plus the audio of those segments: in the order of a minute, not of the utterance.
+- A complete text is sent in `slice_text` slices so the gate has a grain; a stream's word groups are a grain already.
+
+This is a bound, not a latency device: the lead is what protects playback from a network stall. The values are module constants (no config field until there is a reason), and each module's spec states what it measured against the live service.
 
 ## Local-model modules
 
@@ -307,4 +360,4 @@ Every **provider** module — API-backed or local-model — ships behind its own
 Deferrals only (design is settled):
 
 1. **Configurable `max_chars`** for `segment_sentences`. A fixed default serves the known backends; a per-module config field (or a `TTSOptions` field) can be added without changing the helper's shape if a backend wants shorter or longer segments.
-2. **Bounded unread audio.** The text bridge is bounded (above), but audio a provider has already sent and the worker has not fed yet is not: Deepgram's reader thread queues every message in an unbounded inbox, and Cartesia's socket runs with receive flow control off (`max_queue: None`) because the default limit made an aborted utterance wait for the 10 s close timeout. With the default sink the worker feeds in real time while both servers generate several times faster, so unread PCM grows with the utterance's length — at 24 kHz about 48 kB per second of audio ahead, a few MB for a minute-long reply. Bounding it means coupling text admission to playback progress (a bounded inbox would stall the reader, hence its `Flushed` acknowledgements, hence the sender's gate; Cartesia would need a close path that works with a full receive queue) and has to be validated against the live services. Deferred; the per-module specs state the current behaviour.
+2. **Resolved: bounded unread audio** (see "Bounded unread audio" above). Kept for the record of what was deferred: The text bridge is bounded (above), but audio a provider has already sent and the worker has not fed yet is not: Deepgram's reader thread queues every message in an unbounded inbox, and Cartesia's socket runs with receive flow control off (`max_queue: None`) because the default limit made an aborted utterance wait for the 10 s close timeout. With the default sink the worker feeds in real time while both servers generate several times faster, so unread PCM grows with the utterance's length — at 24 kHz about 48 kB per second of audio ahead, a few MB for a minute-long reply. Bounding it means coupling text admission to playback progress (a bounded inbox would stall the reader, hence its `Flushed` acknowledgements, hence the sender's gate; Cartesia would need a close path that works with a full receive queue) and has to be validated against the live services. Deferred; the per-module specs state the current behaviour.

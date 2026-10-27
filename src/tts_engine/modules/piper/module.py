@@ -215,6 +215,10 @@ class PiperModule(TTSModule):
             )
         return speaker
 
+    def close(self) -> None:
+        # Drop the voice so its ONNX session can be collected; the module is done.
+        vars(self).pop("_voice", None)
+
     @property
     def sample_rate(self) -> int:
         return self._sample_rate

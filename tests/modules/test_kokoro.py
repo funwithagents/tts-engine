@@ -52,6 +52,7 @@ class _Fakes:
         self.create_error: Exception | None = None
         self.audio = np.array([0.0, 0.5, -0.5, 1.0, 1.5, -2.0], dtype=np.float32)
         self.rate = 24000
+        self.instances: list = []
         # Called with the sentence index at the start of each `create`.
         self.on_create = lambda _index: None
 
@@ -78,6 +79,7 @@ def _install_fakes(monkeypatch, fakes: _Fakes, *, kokoro: bool = True) -> None:
             fakes.loaded.append((model_path, voices_path))
             if fakes.init_error is not None:
                 raise fakes.init_error
+            fakes.instances.append(self)
             self.tokenizer = _FakeTokenizer(fakes)
             self.sess = types.SimpleNamespace(
                 get_providers=lambda: ["CPUExecutionProvider"]
@@ -451,3 +453,10 @@ def test_relative_local_path_without_base_dir_uses_cwd(fakes, tmp_path, monkeypa
     (tmp_path / "m.onnx").touch()
     KokoroModule({"type": "kokoro", "model": "m.onnx"})
     assert fakes.loaded[0][0] == str(Path.cwd() / "m.onnx")
+
+
+def test_close_drops_the_runtime(fakes):
+    module = KokoroModule({"type": "kokoro"})
+    (runtime,) = fakes.instances
+    module.close()
+    assert all(value is not runtime for value in vars(module).values())

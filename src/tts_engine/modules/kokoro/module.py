@@ -187,6 +187,10 @@ class KokoroModule(TTSModule):
             kokoro.sess.get_providers(),
         )
 
+    def close(self) -> None:
+        # Drop the runtime so its ONNX session can be collected; the module is done.
+        vars(self).pop("_kokoro", None)
+
     @property
     def sample_rate(self) -> int:
         return _SAMPLE_RATE

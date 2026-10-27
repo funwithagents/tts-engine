@@ -494,3 +494,10 @@ async def test_text_stream_cancel_mid_audio_stops_callbacks_before_raising(
     assert count == settled
     assert fresh_model.texts == ["Hello world."]
     assert fresh_model.stops[0].is_set()
+
+
+def test_close_drops_the_model(monkeypatch, fresh_model):
+    _install_fakes(monkeypatch)
+    module = PocketModule({"type": "pocket"})
+    module.close()
+    assert all(value is not fresh_model for value in vars(module).values())

@@ -53,6 +53,11 @@ async def test_module_say_produces_pcm(module_type: str, module_config: dict) ->
     assert sink.drains == 1
     assert engine.sample_rate > 0  # module-declared rate the sink would resample from
 
+    # The backend's own release step runs against the real client or model.
+    await engine.close()
+    with pytest.raises(RuntimeError):
+        await engine.say("closed")
+
 
 @pytest.mark.parametrize("module_type, module_config", MODULES)
 async def test_module_say_completes(module_type: str, module_config: dict) -> None:

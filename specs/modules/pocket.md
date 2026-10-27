@@ -138,6 +138,10 @@ pocket-tts has no incremental text API: the model conditions on its whole prompt
 - Any exception from inference is caught and re-raised as `TTSError(f"pocket-tts synthesis failed: {exc}")`, chained via `raise ... from exc` — same discipline as ElevenLabs.
 - Exceptions raised by `callback` are downstream playback failures: they propagate unchanged and must not be relabeled as synthesis failures — `callback` is invoked outside the `try` that wraps the generator's `next(...)`, so its exceptions escape the provider boundary (mirroring the ElevenLabs note in [elevenlabs-module.md](elevenlabs.md)). When `callback` raises, the module sets the worker's `stop` event before the exception propagates (unchanged), so the library's generation thread halts as it does on cancellation instead of running the sentence to its end in the background — the library documents generation as not thread-safe, and the model is reused for the next utterance — and then drains the generator as on cancellation (above), so the decoder thread has been joined before the exception surfaces.
 
+### Lifetime
+
+Built in `__init__`, released by `TTSModule.close()` when the engine closes ([tts-module-interface.md](../tts-module-interface.md), "Lifetime and ownership"): `close()` drops the loaded model and the voice state so their tensors can be collected; the module is not usable afterwards.
+
 ## Module ID
 
 Registered in `REGISTRY` as `"pocket"` ([modules/__init__.py](../../src/tts_engine/modules/__init__.py)).

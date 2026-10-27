@@ -53,6 +53,7 @@ class _FakeBackend:
 
     def __init__(self) -> None:
         self.client_kwargs: dict | None = None
+        self.client_closed = False
         self.requests: list[dict] = []
         self.closed: list[bool] = []
         self.chunks: list = [
@@ -105,6 +106,9 @@ def fake(monkeypatch) -> _FakeBackend:
         def __init__(self, **kwargs) -> None:
             backend.client_kwargs = kwargs
             self.models = Models()
+
+        def close(self) -> None:
+            backend.client_closed = True
 
     google = types.ModuleType("google")
     genai = types.ModuleType("google.genai")
@@ -405,3 +409,8 @@ async def test_text_stream_cancel_closes_the_stream_before_cancelled_error(fake)
     assert count == settled
     assert fake.closed == [True]
     assert fake.texts == ["Hi."]
+
+
+def test_close_closes_the_sdk_client(fake):
+    GeminiModule(_BASE).close()
+    assert fake.client_closed

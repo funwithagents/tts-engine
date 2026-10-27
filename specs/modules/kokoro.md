@@ -159,6 +159,10 @@ At synthesis:
 - Exceptions raised by `callback` propagate unchanged.
 - Text-stream failures propagate unchanged through `run_text_stream_worker`.
 
+### Lifetime
+
+Built in `__init__`, released by `TTSModule.close()` when the engine closes ([tts-module-interface.md](../tts-module-interface.md), "Lifetime and ownership"): `close()` drops the `Kokoro` runtime so its ONNX session can be collected; the module is not usable afterwards.
+
 ## Module ID
 
 Registered in `REGISTRY` as `"kokoro"` ([modules/__init__.py](../../src/tts_engine/modules/__init__.py)); class `KokoroModule` in `modules/kokoro/module.py`, re-exported from `modules/kokoro/__init__.py`.

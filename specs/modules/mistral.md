@@ -123,6 +123,10 @@ except ImportError as exc:
 - Exceptions raised by `callback` are downstream playback failures. They propagate unchanged and are not mislabeled as Mistral request failures: the event iterator is advanced inside the provider `try`, `callback` is invoked outside it.
 - A missing extra surfaces as `ConfigError` at construction, not `TTSError`.
 
+### Lifetime
+
+Built in `__init__`, released by `TTSModule.close()` when the engine closes ([tts-module-interface.md](../tts-module-interface.md), "Lifetime and ownership"): `close()` closes the SDK client's HTTP pool through its context exit (`Mistral.__exit__`, the speakeasy SDK's only close path); every event stream is per utterance.
+
 ## Module ID
 
 Registered in `REGISTRY` as `"mistral"` ([modules/__init__.py](../../src/tts_engine/modules/__init__.py)).

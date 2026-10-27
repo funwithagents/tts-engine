@@ -413,3 +413,118 @@ async def test_a_failing_drain_alone_is_reported(mock_module, mocker):
 
     with pytest.raises(OSError, match="device gone"):
         await engine.say("hello")
+
+
+# --- close -------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_close_closes_the_module_once_and_say_raises_afterwards(
+    engine, mock_module
+):
+    await engine.close()
+    await engine.close()
+
+    mock_module.close.assert_called_once_with()
+    with pytest.raises(RuntimeError, match="closed"):
+        await engine.say("hello")
+    with pytest.raises(RuntimeError, match="closed"):
+        await engine.say_stream(["hello"])
+    mock_module.synthesize_text.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_async_with_closes_the_engine(engine, mock_module):
+    async with engine as same:
+        assert same is engine
+        await engine.say("hello")
+    mock_module.close.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_close_waits_for_the_utterance_in_flight(engine, mock_module):
+    release = asyncio.Event()
+    order: list[str] = []
+
+    async def slow_synthesis(text, options, callback):
+        await release.wait()
+        order.append("synthesized")
+
+    mock_module.synthesize_text.side_effect = slow_synthesis
+    mock_module.close.side_effect = lambda: order.append("closed")
+
+    say = asyncio.create_task(engine.say("hello"))
+    await asyncio.sleep(0)
+    close = asyncio.create_task(engine.close())
+    await asyncio.sleep(0.01)
+    assert not close.done()
+
+    release.set()
+    await asyncio.gather(say, close)
+    assert order == ["synthesized", "closed"]
+
+
+# --- source ownership --------------------------------------------------------
+
+
+class _Source:
+    """An async iterator with an `aclose`, like an SDK stream object."""
+
+    def __init__(self, pieces: list[str]) -> None:
+        self._pieces = iter(pieces)
+        self.closed = 0
+        self.close_error: Exception | None = None
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self) -> str:
+        try:
+            return next(self._pieces)
+        except StopIteration:
+            raise StopAsyncIteration from None
+
+    async def aclose(self) -> None:
+        self.closed += 1
+        if self.close_error is not None:
+            raise self.close_error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "outcome", [None, TTSError("synthesis failed"), asyncio.CancelledError()]
+)
+async def test_say_stream_closes_the_source_on_every_path(engine, mock_module, outcome):
+    source = _Source(["hello"])
+    mock_module.synthesize_text_stream.side_effect = outcome
+
+    if outcome is None:
+        await engine.say_stream(source)
+    else:
+        with pytest.raises(type(outcome)):
+            await engine.say_stream(source)
+    assert source.closed == 1
+
+
+@pytest.mark.asyncio
+async def test_a_failing_source_close_never_hides_the_utterance_error(
+    engine, mock_module, caplog
+):
+    source = _Source(["hello"])
+    source.close_error = OSError("stream gone")
+    mock_module.synthesize_text_stream.side_effect = TTSError("synthesis failed")
+
+    with pytest.raises(TTSError, match="synthesis failed"), caplog.at_level("WARNING"):
+        await engine.say_stream(source)
+    assert "stream gone" in caplog.text
+
+    # With no other error, the close failure is the one to report.
+    mock_module.synthesize_text_stream.side_effect = None
+    with pytest.raises(OSError, match="stream gone"):
+        await engine.say_stream(_Source_with_error())
+
+
+def _Source_with_error() -> _Source:
+    source = _Source(["hello"])
+    source.close_error = OSError("stream gone")
+    return source

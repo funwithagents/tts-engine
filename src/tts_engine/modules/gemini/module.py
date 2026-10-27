@@ -112,6 +112,10 @@ class GeminiModule(TTSModule):
             api_key=api_key, http_options={"timeout": math.ceil(timeout * 1000)}
         )
 
+    def close(self) -> None:
+        # Closes the SDK's pooled HTTP connections; the module is done.
+        self._client.close()
+
     @property
     def sample_rate(self) -> int:
         # Gemini TTS audio is fixed at 24 kHz; the API has no rate option.

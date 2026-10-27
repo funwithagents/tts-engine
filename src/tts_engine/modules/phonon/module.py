@@ -139,6 +139,10 @@ class PhononModule(TTSModule):
             getattr(tts, "quant", "?"),
         )
 
+    def close(self) -> None:
+        # Drop the runtime so its weights can be collected; the module is done.
+        vars(self).pop("_tts", None)
+
     @property
     def sample_rate(self) -> int:
         return self._sample_rate
