@@ -536,7 +536,15 @@ async def test_cancel_during_the_handshake_surfaces_promptly_and_closes_late(fak
     assert time.perf_counter() - started < 1  # not the handshake's wait
 
     fake.connect_gate.set()  # the handshake completes after the caller left
-    assert await asyncio.to_thread(lambda: fake.sockets and fake.socket.closed.wait(1))
+
+    # The helper thread finishes the connect after the gate opens, then closes it.
+    def opened_then_closed() -> bool:
+        deadline = time.perf_counter() + 2
+        while not fake.sockets and time.perf_counter() < deadline:
+            time.sleep(0.01)
+        return bool(fake.sockets) and fake.socket.closed.wait(1)
+
+    assert await asyncio.to_thread(opened_then_closed)
     assert fake.socket.sent == []
 
 
