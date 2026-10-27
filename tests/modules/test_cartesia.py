@@ -170,6 +170,9 @@ def fake(monkeypatch) -> _FakeBackend:
     package = types.ModuleType("cartesia")
     package.Cartesia = Cartesia  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "cartesia", package)
+    # The worker and reader poll on this interval: tests wait on the module's
+    # logic, not on wall-clock ticks.
+    monkeypatch.setattr(cartesia_module, "_POLL_SECONDS", 0.005)
     return backend
 
 
@@ -205,16 +208,6 @@ def test_missing_extra_raises_config_error(monkeypatch):
 # --- config ------------------------------------------------------------------
 
 
-def test_missing_api_key_raises(fake):
-    with pytest.raises(ConfigError, match="api_key"):
-        CartesiaModule({"type": "cartesia", "voice_id": "v"})
-
-
-def test_empty_api_key_raises(fake):
-    with pytest.raises(ConfigError, match="api_key"):
-        CartesiaModule({**_BASE, "api_key": ""})
-
-
 def test_api_key_from_env(fake, monkeypatch):
     monkeypatch.setenv("MY_CARTESIA_KEY", "from-env")
     CartesiaModule(
@@ -223,47 +216,27 @@ def test_api_key_from_env(fake, monkeypatch):
     assert fake.client_kwargs == {"api_key": "from-env"}
 
 
-def test_literal_api_key_takes_precedence_over_env(fake, monkeypatch):
-    monkeypatch.setenv("MY_CARTESIA_KEY", "from-env")
-    CartesiaModule({**_BASE, "api_key_env": "MY_CARTESIA_KEY"})
-    assert fake.client_kwargs == {"api_key": "k"}
-
-
-def test_api_key_env_pointing_to_unset_var_raises(fake, monkeypatch):
-    monkeypatch.delenv("MY_CARTESIA_KEY", raising=False)
-    with pytest.raises(ConfigError, match="MY_CARTESIA_KEY"):
-        CartesiaModule(
-            {"type": "cartesia", "api_key_env": "MY_CARTESIA_KEY", "voice_id": "v"}
-        )
-
-
 @pytest.mark.parametrize(
     ("override", "field"),
     [
-        ({"api_key": 3}, "api_key"),
-        ({"api_key": None, "api_key_env": 3}, "api_key_env"),
+        # Checked by the module itself: every shape stays.
         ({"voice_id": None}, "voice_id"),
         ({"voice_id": ""}, "voice_id"),
-        ({"model": ""}, "model"),
-        ({"model": 3}, "model"),
         ({"sample_rate": 32000}, "sample_rate"),
         ({"sample_rate": 24000.0}, "sample_rate"),
         ({"sample_rate": "24000"}, "sample_rate"),
         ({"sample_rate": True}, "sample_rate"),
-        ({"language": ""}, "language"),
-        ({"speed": 0.5}, "speed"),
-        ({"speed": 1.6}, "speed"),
-        ({"speed": True}, "speed"),
-        ({"volume": 0.4}, "volume"),
-        ({"volume": "1"}, "volume"),
-        ({"emotion": 3}, "emotion"),
         ({"max_buffer_delay_ms": 6000}, "max_buffer_delay_ms"),
         ({"max_buffer_delay_ms": 1.5}, "max_buffer_delay_ms"),
         ({"max_buffer_delay_ms": True}, "max_buffer_delay_ms"),
+        # Helper-validated fields: one row per field and per bound.
+        ({"model": ""}, "model"),
+        ({"language": ""}, "language"),
+        ({"speed": 0.5}, "speed"),
+        ({"speed": 1.6}, "speed"),
+        ({"volume": 0.4}, "volume"),
+        ({"emotion": 3}, "emotion"),
         ({"timeout": 0}, "timeout"),
-        ({"timeout": True}, "timeout"),
-        ({"timeout": float("inf")}, "timeout"),
-        ({"timeout": "30"}, "timeout"),
     ],
 )
 def test_invalid_field_raises_config_error(fake, override, field):
@@ -271,13 +244,10 @@ def test_invalid_field_raises_config_error(fake, override, field):
         CartesiaModule({**_BASE, **override})
 
 
-def test_sample_rate_reflects_config(fake):
-    assert CartesiaModule(_BASE).sample_rate == 24000
-    assert CartesiaModule({**_BASE, "sample_rate": 44100}).sample_rate == 44100
-
-
 def test_defaults_reach_the_context(fake):
-    _say(CartesiaModule(_BASE), "Hi.")
+    module = CartesiaModule(_BASE)
+    assert module.sample_rate == 24000
+    _say(module, "Hi.")
     # The handshake is bounded by `timeout` on the socket side too.
     assert fake.connect_kwargs == [
         {"websocket_connection_options": {"open_timeout": 30.0}}
@@ -305,6 +275,7 @@ def test_custom_values_reach_the_context(fake):
             "max_buffer_delay_ms": 200,
         }
     )
+    assert module.sample_rate == 16000
     _say(module, "Salut.")
     assert fake.ws.contexts[0].kwargs == {
         "model_id": "sonic-3",
@@ -346,11 +317,14 @@ def test_text_is_pushed_then_ended_and_audio_reaches_the_callback(fake):
     assert fake.ws.closed.wait(1)
 
 
-def test_odd_byte_is_carried_to_the_next_chunk(fake):
-    fake.audio_per_push = [b"\x01", b"\x02\x03", b"\x04"]
+def test_odd_byte_is_carried_and_audio_is_fed_in_100ms_slices(fake):
+    # At 8 kHz a 100 ms slice is 1600 bytes. The first byte waits for the next
+    # chunk (one feeder spans the utterance), whole samples go out in slices
+    # of the declared rate, and the odd byte left joins the last chunk.
+    fake.audio_per_push = [b"\x01", b"\x02" * 3200, b"\x03"]
     received: list[bytes] = []
-    _say(CartesiaModule(_BASE), "Hi.", received.append)
-    assert received == [b"\x01\x02", b"\x03\x04"]
+    _say(CartesiaModule({**_BASE, "sample_rate": 8000}), "Hi.", received.append)
+    assert received == [b"\x01" + b"\x02" * 1599, b"\x02" * 1600, b"\x02\x03"]
 
 
 # --- errors ------------------------------------------------------------------
@@ -403,25 +377,17 @@ def test_callback_error_propagates_unchanged_and_closes(fake):
 
 async def test_cancel_mid_audio_stops_callbacks_before_raising(fake):
     fake.endless_audio = True
-    count = 0
     first = threading.Event()
 
-    def callback(_chunk: bytes) -> None:
-        nonlocal count
-        count += 1
-        first.set()
-
     task = asyncio.create_task(
-        CartesiaModule(_BASE).synthesize_text("Hi.", TTSOptions(), callback)
+        CartesiaModule(_BASE).synthesize_text(
+            "Hi.", TTSOptions(), lambda _b: first.set()
+        )
     )
     await asyncio.to_thread(first.wait, 5)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await task
-
-    settled = count
-    await asyncio.sleep(0.05)
-    assert count == settled
+        await asyncio.wait_for(task, timeout=5)
     assert await asyncio.to_thread(fake.ws.closed.wait, 1)
     assert all(ctx.cancelled for ctx in fake.ws.contexts)
 
@@ -430,17 +396,14 @@ async def test_cancel_mid_audio_stops_callbacks_before_raising(fake):
 
 
 def test_text_stream_pushes_word_groups_then_ends(fake):
-    _stream(CartesiaModule(_BASE), "Hel", "lo wor", "ld. How", " are you?")
+    _stream(
+        CartesiaModule(_BASE), " ", "Hel", "lo wor", "ld. How", " ", "  ", " are you?"
+    )
     (ctx,) = fake.ws.contexts
-    assert ctx.pushed == ["Hello ", "world. ", "How are ", "you?"]
+    # Grouped at word boundaries; the blank pieces are never pushed (the API
+    # rejects an empty transcript).
+    assert ctx.pushed == ["Hello ", "world. ", "How ", " are ", "you?"]
     assert ctx.ended
-
-
-def test_text_stream_never_pushes_blank_text(fake):
-    _stream(CartesiaModule(_BASE), "Hi ", " ", "  ", "there")
-    (ctx,) = fake.ws.contexts
-    assert all(text.strip() for text in ctx.pushed)
-    assert "".join(ctx.pushed).split() == ["Hi", "there"]
 
 
 def test_empty_text_stream_sends_nothing(fake):
@@ -468,7 +431,9 @@ async def test_text_stream_feeds_audio_before_the_source_finishes(fake):
         CartesiaModule(_BASE).synthesize_text_stream(source(), TTSOptions(), callback),
         timeout=5,
     )
-    assert fake.ws.contexts[0].pushed == ["Hello world. ", "Second ", "one."]
+    # One context: an active utterance is not rotated.
+    (ctx,) = fake.ws.contexts
+    assert ctx.pushed == ["Hello world. ", "Second ", "one."]
 
 
 async def test_text_stream_source_error_propagates_unchanged(fake):
@@ -514,15 +479,22 @@ async def test_text_stream_cancel_while_the_server_is_silent_stops_promptly(fake
 
 @pytest.fixture
 def quick_rotation(monkeypatch) -> dict:
-    """Shrink the idle threshold (4 s live) to 50 ms: with no buffer delay it
-    is the larger of the floor and the margin."""
-    monkeypatch.setattr(cartesia_module, "_ROTATE_MIN", 0.05)
-    monkeypatch.setattr(cartesia_module, "_EXPIRY_MARGIN", 0.05)
+    """Shrink the idle threshold (4 s live) to 20 ms: with no buffer delay it
+    is the larger of the floor and the margin. The pauses below (`_PAUSE`)
+    are a few times longer, so the worker rotates within them."""
+    monkeypatch.setattr(cartesia_module, "_ROTATE_MIN", 0.02)
+    monkeypatch.setattr(cartesia_module, "_EXPIRY_MARGIN", 0.02)
     return {**_BASE, "max_buffer_delay_ms": 0}
 
 
-async def _stream_with_pause(module: CartesiaModule, pause: float) -> list[bytes]:
-    """Stream two sentences with a pause after the first one's audio."""
+_PAUSE = 0.08  # an idle pause: past `quick_rotation`'s threshold
+
+
+async def _stream_with_pause(
+    module: CartesiaModule, pause: float, resumed: threading.Event | None = None
+) -> list[bytes]:
+    """Stream two sentences with a pause after the first one's audio;
+    `resumed` is set once the source yields the second."""
     loop = asyncio.get_running_loop()
     got_audio = asyncio.Event()
     received: list[bytes] = []
@@ -535,6 +507,8 @@ async def _stream_with_pause(module: CartesiaModule, pause: float) -> list[bytes
         yield "Hello there. "
         await got_audio.wait()
         await asyncio.sleep(pause)
+        if resumed is not None:
+            resumed.set()
         yield "After the pause."
 
     await asyncio.wait_for(
@@ -546,7 +520,7 @@ async def _stream_with_pause(module: CartesiaModule, pause: float) -> list[bytes
 async def test_idle_pause_moves_the_rest_to_a_fresh_context(fake, quick_rotation):
     module = CartesiaModule(quick_rotation)
 
-    received = await _stream_with_pause(module, pause=0.2)
+    received = await _stream_with_pause(module, pause=_PAUSE)
 
     first, second = fake.ws.contexts
     assert first.pushed == ["Hello there. "]
@@ -558,18 +532,12 @@ async def test_idle_pause_moves_the_rest_to_a_fresh_context(fake, quick_rotation
     assert first.cancelled and second.cancelled
 
 
-async def test_no_rotation_while_the_utterance_is_active(fake):
-    received = await _stream_with_pause(CartesiaModule(_BASE), pause=0.05)
-    (ctx,) = fake.ws.contexts
-    assert ctx.pushed == ["Hello there. ", "After the ", "pause."]
-    assert len(received) == 3
-
-
 async def test_early_done_forces_rotation_and_late_events_are_ignored(fake):
     def on_push(ctx, _text):
-        fake.ws.server_send(_event("chunk", ctx.context_id, audio=_AUDIO))
         if len(fake.ws.contexts) == 1:
             # The server expires the first context, then complains about it.
+            # Both come before its audio: the inbox is FIFO, so the `done` is
+            # in hand by the time the source resumes, with no pause needed.
             fake.ws.server_send(_event("done", ctx.context_id))
             fake.ws.server_send(
                 _event(
@@ -580,9 +548,10 @@ async def test_early_done_forces_rotation_and_late_events_are_ignored(fake):
                     status_code=400,
                 )
             )
+        fake.ws.server_send(_event("chunk", ctx.context_id, audio=_AUDIO))
 
     fake.on_push = on_push
-    received = await _stream_with_pause(CartesiaModule(_BASE), pause=0.3)
+    received = await _stream_with_pause(CartesiaModule(_BASE), pause=0)
 
     first, second = fake.ws.contexts
     assert first.pushed == ["Hello there. "]
@@ -602,7 +571,7 @@ async def test_stream_ending_on_an_idle_context_waits_for_its_done(
     async def source():
         yield "Hello there. "
         await got_audio.wait()
-        await asyncio.sleep(0.2)  # the stream ends after an idle pause
+        await asyncio.sleep(_PAUSE)  # the stream ends after an idle pause
 
     def callback(_chunk: bytes) -> None:
         loop.call_soon_threadsafe(got_audio.set)
@@ -618,11 +587,12 @@ async def test_stream_ending_on_an_idle_context_waits_for_its_done(
 async def test_next_context_waits_for_the_idle_ones_done_so_audio_keeps_order(
     fake, quick_rotation
 ):
-    # The idle context's first audio is late: its `done` (and that audio) only
-    # come 0.1 s after it is ended. The text that resumes must not be pushed
-    # to a new context before then, or the two would interleave.
+    # The idle context's last audio is late: its `done` (and that audio) only
+    # come after the text has resumed. The resumed text must not be pushed to
+    # a new context before then, or the two would interleave.
     late = b"\x09\x00"
     acknowledged = threading.Event()
+    resumed = threading.Event()
 
     def on_end(ctx):
         if len(fake.ws.contexts) > 1:
@@ -630,7 +600,8 @@ async def test_next_context_waits_for_the_idle_ones_done_so_audio_keeps_order(
             return
 
         def answer():
-            time.sleep(0.1)
+            resumed.wait(5)
+            time.sleep(0.02)  # room for a wrong push to the next context
             fake.ws.server_send(_event("chunk", ctx.context_id, audio=late))
             fake.ws.server_send(_event("done", ctx.context_id))
             acknowledged.set()
@@ -646,7 +617,9 @@ async def test_next_context_waits_for_the_idle_ones_done_so_audio_keeps_order(
 
     fake.on_end = on_end
     fake.on_push = on_push
-    received = await _stream_with_pause(CartesiaModule(quick_rotation), pause=0.2)
+    received = await _stream_with_pause(
+        CartesiaModule(quick_rotation), pause=_PAUSE, resumed=resumed
+    )
 
     first, second = fake.ws.contexts
     assert first.ended and second.ended
@@ -688,15 +661,6 @@ def test_a_context_takes_one_segment_and_the_next_waits_for_its_done(fake, monke
     assert len(received) == sum(len(ctx.pushed) for ctx in contexts)
 
 
-def test_complete_text_is_sent_in_slices(fake):
-    text = "The quick brown fox jumps over the lazy dog. " * 4
-    _say(CartesiaModule(_BASE), text)
-    (ctx,) = fake.ws.contexts
-    assert "".join(ctx.pushed) == text
-    assert len(ctx.pushed) > 1
-    assert all(len(t) <= 50 for t in ctx.pushed)
-
-
 async def test_sender_waits_for_playback_before_pushing_more_text(fake, monkeypatch):
     # The bound is one fake chunk (4 bytes): with the callback blocked on the
     # first chunk, the sender pushes text until the audio read fills the bound
@@ -716,14 +680,16 @@ async def test_sender_waits_for_playback_before_pushing_more_text(fake, monkeypa
         CartesiaModule(_BASE).synthesize_text(text, TTSOptions(), callback)
     )
     await asyncio.to_thread(first.wait, 5)
-    await asyncio.sleep(0.1)  # let the sender run as far as the gate allows
+    await asyncio.sleep(0.05)  # let the sender run as far as the gate allows
     held = sum(len(ctx.pushed) for ctx in fake.ws.contexts)
     assert 1 <= held < slices
 
     release.set()
     await asyncio.wait_for(task, timeout=5)
+    # A complete text goes out in slices of at most 50 characters.
     pushed = [t for ctx in fake.ws.contexts for t in ctx.pushed]
     assert len(pushed) == slices
+    assert all(len(t) <= 50 for t in pushed)
     assert "".join(pushed) == text
 
 

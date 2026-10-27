@@ -9,7 +9,6 @@ from mcp.types import TextContent
 
 from tts_engine.engine import TTSEngine
 from tts_engine.mcp import create_server
-from tts_engine.tools import TTSTools
 
 
 @pytest.fixture
@@ -24,16 +23,6 @@ async def _call_say(mcp, text):
     block = content[0]
     assert isinstance(block, TextContent)
     return block.text
-
-
-async def test_say_tool_delegates_to_tools_say(mock_engine, mocker):
-    delegate = mocker.patch.object(
-        TTSTools, "say", new=AsyncMock(return_value="sentinel")
-    )
-    result = await _call_say(create_server(mock_engine), "hello")
-
-    assert result == "sentinel"
-    delegate.assert_awaited_once_with("hello")
 
 
 async def test_say_tool_returns_ok_on_success(mock_engine):

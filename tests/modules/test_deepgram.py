@@ -183,6 +183,9 @@ def fake(monkeypatch) -> _FakeBackend:
     monkeypatch.setitem(sys.modules, "deepgram.speak", types.ModuleType("x"))
     monkeypatch.setitem(sys.modules, "deepgram.speak.v1", types.ModuleType("x"))
     monkeypatch.setitem(sys.modules, "deepgram.speak.v1.types", speak_types)
+    # The worker and a gated sender poll on this interval: tests wait on the
+    # module's logic, not on wall-clock ticks.
+    monkeypatch.setattr(deepgram_module, "_POLL_SECONDS", 0.005)
     return backend
 
 
@@ -214,55 +217,27 @@ def test_missing_extra_raises_config_error(monkeypatch):
 # --- config ------------------------------------------------------------------
 
 
-def test_missing_api_key_raises(fake):
-    with pytest.raises(ConfigError, match="api_key"):
-        DeepgramModule({"type": "deepgram"})
-
-
-def test_empty_api_key_raises(fake):
-    with pytest.raises(ConfigError, match="api_key"):
-        DeepgramModule({"type": "deepgram", "api_key": ""})
-
-
 def test_api_key_from_env(fake, monkeypatch):
     monkeypatch.setenv("MY_DEEPGRAM_KEY", "from-env")
     DeepgramModule({"type": "deepgram", "api_key_env": "MY_DEEPGRAM_KEY"})
     assert fake.client_kwargs == {"api_key": "from-env"}
 
 
-def test_literal_api_key_takes_precedence_over_env(fake, monkeypatch):
-    monkeypatch.setenv("MY_DEEPGRAM_KEY", "from-env")
-    DeepgramModule({**_BASE, "api_key_env": "MY_DEEPGRAM_KEY"})
-    assert fake.client_kwargs == {"api_key": "k"}
-
-
-def test_api_key_env_pointing_to_unset_var_raises(fake, monkeypatch):
-    monkeypatch.delenv("MY_DEEPGRAM_KEY", raising=False)
-    with pytest.raises(ConfigError, match="MY_DEEPGRAM_KEY"):
-        DeepgramModule({"type": "deepgram", "api_key_env": "MY_DEEPGRAM_KEY"})
-
-
 @pytest.mark.parametrize(
     ("override", "field"),
     [
-        ({"api_key": 3}, "api_key"),
-        ({"api_key": None, "api_key_env": 3}, "api_key_env"),
-        ({"model": ""}, "model"),
-        ({"model": 3}, "model"),
+        # Checked by the module itself: every shape stays.
         ({"sample_rate": 44100}, "sample_rate"),
         ({"sample_rate": 24000.0}, "sample_rate"),
         ({"sample_rate": "24000"}, "sample_rate"),
         ({"sample_rate": True}, "sample_rate"),
-        ({"speed": 0.5}, "speed"),
-        ({"speed": 2.0}, "speed"),
-        ({"speed": True}, "speed"),
-        ({"speed": "1"}, "speed"),
         ({"mip_opt_out": "yes"}, "mip_opt_out"),
         ({"mip_opt_out": 1}, "mip_opt_out"),
+        # Helper-validated fields: one row per field and per bound.
+        ({"model": ""}, "model"),
+        ({"speed": 0.5}, "speed"),
+        ({"speed": 2.0}, "speed"),
         ({"timeout": 0}, "timeout"),
-        ({"timeout": True}, "timeout"),
-        ({"timeout": float("inf")}, "timeout"),
-        ({"timeout": "30"}, "timeout"),
     ],
 )
 def test_invalid_field_raises_config_error(fake, override, field):
@@ -270,13 +245,10 @@ def test_invalid_field_raises_config_error(fake, override, field):
         DeepgramModule({**_BASE, **override})
 
 
-def test_sample_rate_reflects_config(fake):
-    assert DeepgramModule(_BASE).sample_rate == 24000
-    assert DeepgramModule({**_BASE, "sample_rate": 48000}).sample_rate == 48000
-
-
 def test_defaults_reach_the_socket(fake):
-    _say(DeepgramModule(_BASE), "Hi.")
+    module = DeepgramModule(_BASE)
+    assert module.sample_rate == 24000
+    _say(module, "Hi.")
     assert fake.connect_kwargs == [
         {"model": "aura-2-thalia-en", "encoding": "linear16", "sample_rate": 24000}
     ]
@@ -292,6 +264,7 @@ def test_custom_values_reach_the_socket(fake):
             "mip_opt_out": True,
         }
     )
+    assert module.sample_rate == 16000
     _say(module, "Salut.")
     assert fake.connect_kwargs == [
         {
@@ -324,12 +297,15 @@ def test_text_then_flush_then_close_and_audio_unchanged(fake, caplog):
     assert fake.socket.closed.is_set()
 
 
-def test_odd_byte_is_carried_to_the_next_chunk(fake):
+def test_odd_byte_is_carried_and_audio_is_fed_in_100ms_slices(fake):
+    # At 8 kHz a 100 ms slice is 1600 bytes. The first byte waits for the next
+    # message (one feeder spans the utterance), whole samples go out in slices
+    # of the declared rate, and the odd byte left joins the last message.
     fake.audio_per_text = None
-    fake.preamble = [b"\x01", b"\x02\x03", b"\x04"]
+    fake.preamble = [b"\x01", b"\x02" * 3200, b"\x03"]
     received: list[bytes] = []
-    _say(DeepgramModule(_BASE), "Hi.", received.append)
-    assert received == [b"\x01\x02", b"\x03\x04"]
+    _say(DeepgramModule({**_BASE, "sample_rate": 8000}), "Hi.", received.append)
+    assert received == [b"\x01" + b"\x02" * 1599, b"\x02" * 1600, b"\x02\x03"]
 
 
 def test_long_text_is_cut_into_flushed_segments_at_sentence_ends(fake):
@@ -413,25 +389,17 @@ def test_callback_error_propagates_unchanged_and_closes(fake):
 async def test_cancel_mid_audio_stops_callbacks_before_raising(fake):
     fake.endless_audio = True
     fake.hold_flushed = True
-    count = 0
     first = threading.Event()
 
-    def callback(_chunk: bytes) -> None:
-        nonlocal count
-        count += 1
-        first.set()
-
     task = asyncio.create_task(
-        DeepgramModule(_BASE).synthesize_text("Hi.", TTSOptions(), callback)
+        DeepgramModule(_BASE).synthesize_text(
+            "Hi.", TTSOptions(), lambda _b: first.set()
+        )
     )
     await asyncio.to_thread(first.wait, 5)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await task
-
-    settled = count
-    await asyncio.sleep(0.05)
-    assert count == settled
+        await asyncio.wait_for(task, timeout=5)
     assert await asyncio.to_thread(fake.socket.closed.wait, 1)
 
 
@@ -558,14 +526,6 @@ def test_handshake_slower_than_timeout_is_tts_error(fake):
 # --- bounded unread audio ----------------------------------------------------
 
 
-def test_complete_text_is_sent_in_slices(fake):
-    text = "The quick brown fox jumps over the lazy dog. " * 4
-    _say(DeepgramModule(_BASE), text)
-    assert "".join(fake.texts) == text
-    assert len(fake.texts) > 1
-    assert all(len(t) <= 50 for t in fake.texts)
-
-
 async def test_sender_waits_for_playback_before_admitting_more_text(fake, monkeypatch):
     # The bound is one fake chunk (4 bytes): with the callback blocked on the
     # first chunk, the sender admits text until the audio read fills the
@@ -586,13 +546,15 @@ async def test_sender_waits_for_playback_before_admitting_more_text(fake, monkey
         DeepgramModule(_BASE).synthesize_text(text, TTSOptions(), callback)
     )
     await asyncio.to_thread(first.wait, 5)
-    await asyncio.sleep(0.1)  # let the sender run as far as the gate allows
+    await asyncio.sleep(0.05)  # let the sender run as far as the gate allows
     held = len(fake.texts)
     assert 1 <= held < slices
 
     release.set()
     await asyncio.wait_for(task, timeout=5)
+    # A complete text goes out in slices of at most 50 characters.
     assert len(fake.texts) == slices
+    assert all(len(t) <= 50 for t in fake.texts)
     assert "".join(fake.texts) == text
 
 

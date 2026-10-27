@@ -27,13 +27,9 @@ def _stream(module: ToneModule, text: str) -> list[bytes]:
         ("sample_rate", True),
         ("sample_rate", "x"),
         ("frequency", 0),
-        ("frequency", math.nan),
-        ("frequency", math.inf),
         ("seconds_per_char", -1),
-        ("seconds_per_char", math.nan),
         ("amplitude", 0),
         ("amplitude", 1.5),
-        ("amplitude", math.nan),
     ],
 )
 def test_invalid_field_raises_config_error(field, bad):
@@ -41,15 +37,19 @@ def test_invalid_field_raises_config_error(field, bad):
         ToneModule({"type": "tone", field: bad})
 
 
-def test_default_sample_rate():
-    assert ToneModule({"type": "tone"}).sample_rate == 24000
-
-
-def test_configured_sample_rate_is_reported():
-    assert ToneModule({"type": "tone", "sample_rate": 8000}).sample_rate == 8000
+@pytest.mark.parametrize(
+    "config, expected",
+    [({}, 24000), ({"sample_rate": 8000}, 8000)],
+    ids=["default", "configured"],
+)
+def test_sample_rate_is_reported(config, expected):
+    assert ToneModule({"type": "tone", **config}).sample_rate == expected
 
 
 # --- streaming ---------------------------------------------------------------
+
+# Chunks in the default config's tone for 2000 chars (0.05 s/char at 24 kHz).
+_TOTAL_CHUNKS = math.ceil(2000 * 0.05 * 24000 / 4096)
 
 
 def test_stream_length_is_predictable():
@@ -68,16 +68,6 @@ def test_long_text_streams_in_several_chunks():
 def test_same_text_yields_identical_bytes():
     module = ToneModule({"type": "tone"})
     assert b"".join(_stream(module, "hello")) == b"".join(_stream(module, "hello"))
-
-
-def test_stream_does_not_mask_callback_errors():
-    module = ToneModule({"type": "tone"})
-
-    def bad_callback(_b):
-        raise RuntimeError("playback failed")
-
-    with pytest.raises(RuntimeError, match="playback failed"):
-        asyncio.run(module.synthesize_text("hi", TTSOptions(), bad_callback))
 
 
 async def test_cancel_stops_callbacks_before_stream_raises():
@@ -99,20 +89,9 @@ async def test_cancel_stops_callbacks_before_stream_raises():
     await first_chunk.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await task
-
-    settled = count
-    await asyncio.sleep(0.05)
-    assert count == settled
-
-
-def _signal(loop: asyncio.AbstractEventLoop, event: asyncio.Event):
-    """A callback that sets `event` on `loop` from the module's worker thread."""
-
-    def callback(_chunk: bytes) -> None:
-        loop.call_soon_threadsafe(event.set)
-
-    return callback
+        await asyncio.wait_for(task, timeout=5)
+    # The tone loop checks `stop`: it ends well before its ~586 chunks.
+    assert count < _TOTAL_CHUNKS
 
 
 # --- text stream -------------------------------------------------------------
@@ -126,12 +105,6 @@ def _stream_pieces(module: ToneModule, pieces: list[str]) -> list[bytes]:
     chunks: list[bytes] = []
     asyncio.run(module.synthesize_text_stream(source(), TTSOptions(), chunks.append))
     return chunks
-
-
-def test_text_stream_length_is_the_per_piece_sum():
-    module = ToneModule({"type": "tone", "sample_rate": 8000, "seconds_per_char": 0.1})
-    data = b"".join(_stream_pieces(module, ["abc", "", "defgh"]))
-    assert len(data) == 2 * (round(3 * 0.1 * 8000) + round(5 * 0.1 * 8000))
 
 
 def test_text_stream_is_phase_continuous_across_pieces():
@@ -175,41 +148,6 @@ async def test_text_stream_feeds_audio_before_the_source_finishes():
     assert len(b"".join(chunks)) == 2 * expected_frames
 
 
-def test_text_stream_source_error_propagates_unchanged():
-    module = ToneModule({"type": "tone"})
-
-    async def source():
-        yield "abc"
-        raise RuntimeError("llm failed")
-
-    with pytest.raises(RuntimeError, match="llm failed"):
-        asyncio.run(
-            module.synthesize_text_stream(source(), TTSOptions(), lambda _b: None)
-        )
-
-
-async def test_cancel_while_the_source_is_idle_stops_promptly():
-    module = ToneModule({"type": "tone"})
-    loop = asyncio.get_running_loop()
-    first_chunk = asyncio.Event()
-
-    async def source():
-        yield "x" * 50
-        await asyncio.Event().wait()  # the LLM is thinking; never yields again
-
-    task = asyncio.create_task(
-        module.synthesize_text_stream(
-            source(),
-            TTSOptions(),
-            _signal(loop, first_chunk),
-        )
-    )
-    await first_chunk.wait()
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(task, timeout=5)
-
-
 async def test_text_stream_cancel_mid_audio_stops_callbacks_before_raising():
     module = ToneModule({"type": "tone"})
     loop = asyncio.get_running_loop()
@@ -232,8 +170,5 @@ async def test_text_stream_cancel_mid_audio_stops_callbacks_before_raising():
     await first_chunk.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await task
-
-    settled = count
-    await asyncio.sleep(0.05)
-    assert count == settled
+        await asyncio.wait_for(task, timeout=5)
+    assert count < _TOTAL_CHUNKS

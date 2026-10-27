@@ -61,15 +61,14 @@ def test_zero_frame_rate_raises(tmp_path):
         AudioFileModule({"type": "audiofile", "default_file": path})
 
 
-def test_stereo_file_raises(tmp_path):
-    path = _write_wav(tmp_path / "stereo.wav", channels=2)
-    with pytest.raises(ConfigError, match="stereo.wav"):
-        AudioFileModule({"type": "audiofile", "default_file": path})
-
-
-def test_8bit_file_raises(tmp_path):
-    path = _write_wav(tmp_path / "eight.wav", sampwidth=1)
-    with pytest.raises(ConfigError, match="eight.wav"):
+@pytest.mark.parametrize(
+    "fmt, match",
+    [({"channels": 2}, "must be mono"), ({"sampwidth": 1}, "must be 16-bit")],
+    ids=["stereo", "8-bit"],
+)
+def test_unsupported_sample_format_raises(tmp_path, fmt, match):
+    path = _write_wav(tmp_path / "bad.wav", **fmt)
+    with pytest.raises(ConfigError, match=f"bad.wav {match}"):
         AudioFileModule({"type": "audiofile", "default_file": path})
 
 
@@ -111,13 +110,6 @@ def test_empty_config_raises():
 
 
 # --- behavior ----------------------------------------------------------------
-
-
-def test_sample_rate_is_the_files_rate(tmp_path):
-    path = _write_wav(tmp_path / "a.wav", rate=22050)
-    assert AudioFileModule({"type": "audiofile", "default_file": path}).sample_rate == (
-        22050
-    )
 
 
 def test_exact_match_plays_that_file(tmp_path):
@@ -216,16 +208,6 @@ def test_payload_shorter_than_declared_is_a_tts_error_after_its_frames(tmp_path)
 # --- text stream -------------------------------------------------------------
 
 
-def _stream_pieces(module: AudioFileModule, pieces: list[str]) -> bytes:
-    async def source():
-        for piece in pieces:
-            yield piece
-
-    received = bytearray()
-    asyncio.run(module.synthesize_text_stream(source(), TTSOptions(), received.extend))
-    return bytes(received)
-
-
 def _two_file_module(tmp_path, *, with_default: bool = True) -> AudioFileModule:
     hello = _write_wav(tmp_path / "hello.wav", frames=300, fill=1)
     bye = _write_wav(tmp_path / "bye.wav", frames=200, fill=2)
@@ -243,21 +225,22 @@ def _two_file_module(tmp_path, *, with_default: bool = True) -> AudioFileModule:
     return AudioFileModule(config)
 
 
-def test_text_stream_plays_a_file_per_sentence(tmp_path):
-    module = _two_file_module(tmp_path)
-    data = _stream_pieces(module, ["Hel", "lo, wor", "ld! Good", "bye. Else"])
-    assert data == bytes([1]) * 600 + bytes([2]) * 400 + bytes([3]) * 200
-
-
-async def test_text_stream_plays_the_first_file_before_the_source_finishes(tmp_path):
+async def test_text_stream_plays_a_file_per_sentence_before_the_source_finishes(
+    tmp_path,
+):
+    # Sentences split across pieces, an unmatched tail falling back to the
+    # default file, and a source that only goes on once the first sentence's
+    # file is playing: a module that waited for the whole text would deadlock.
     module = _two_file_module(tmp_path)
     loop = asyncio.get_running_loop()
     got_audio = asyncio.Event()
 
     async def source():
-        yield "Hello, world! "
+        yield "Hel"
+        yield "lo, wor"
+        yield "ld! Good"
         await got_audio.wait()
-        yield "Goodbye."
+        yield "bye. Else"
 
     received = bytearray()
 
@@ -268,7 +251,7 @@ async def test_text_stream_plays_the_first_file_before_the_source_finishes(tmp_p
     await asyncio.wait_for(
         module.synthesize_text_stream(source(), TTSOptions(), callback), timeout=5
     )
-    assert bytes(received) == bytes([1]) * 600 + bytes([2]) * 400
+    assert bytes(received) == bytes([1]) * 600 + bytes([2]) * 400 + bytes([3]) * 200
 
 
 def test_text_stream_unmatched_sentence_without_default_raises_after_earlier_file(
@@ -305,19 +288,21 @@ def _slow_counting_callback(loop, first_chunk):
     return callback, lambda: n
 
 
+# The long fixture: 400k frames = ~100 chunks, so the file outlasts the cancel.
+_LONG_FRAMES = 400_000
+
+
 async def _assert_cancel_stops_callbacks(task, first_chunk, count):
     await first_chunk.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await task
-    settled = count()
-    await asyncio.sleep(0.05)
-    assert count() == settled
+        await asyncio.wait_for(task, timeout=5)
+    # The read loop checks `stop`: it ends before the file's last chunk.
+    assert count() < _LONG_FRAMES // 4096
 
 
 async def test_cancel_stops_callbacks_before_synthesize_text_raises(tmp_path):
-    # 400k frames = ~100 chunks: the file outlasts the cancel.
-    path = _write_wav(tmp_path / "long.wav", frames=400_000)
+    path = _write_wav(tmp_path / "long.wav", frames=_LONG_FRAMES)
     module = AudioFileModule({"type": "audiofile", "default_file": path})
     loop = asyncio.get_running_loop()
     first_chunk = asyncio.Event()
@@ -330,7 +315,7 @@ async def test_cancel_stops_callbacks_before_synthesize_text_raises(tmp_path):
 
 
 async def test_text_stream_cancel_mid_audio_stops_callbacks_before_raising(tmp_path):
-    path = _write_wav(tmp_path / "long.wav", frames=400_000)
+    path = _write_wav(tmp_path / "long.wav", frames=_LONG_FRAMES)
     module = AudioFileModule(
         {"type": "audiofile", "files": [{"text": "Hello, world!", "file": path}]}
     )

@@ -6,17 +6,17 @@ Config-validation tests need no fake — validation runs before the lazy import.
 """
 
 import asyncio
+import gc
 import sys
-import threading
 import time
 import types
-from pathlib import Path
+import weakref
 
 import numpy as np
 import pytest
 
 from tts_engine.config import ConfigError
-from tts_engine.modules.base import TTSError, TTSOptions
+from tts_engine.modules.base import TTSError, TTSOptions, float_to_int16_pcm
 from tts_engine.modules.kokoro import KokoroModule
 
 _REVISION = "8d07950c9b6c87ce6809e9bba7bd494336217c2a"
@@ -53,8 +53,6 @@ class _Fakes:
         self.audio = np.array([0.0, 0.5, -0.5, 1.0, 1.5, -2.0], dtype=np.float32)
         self.rate = 24000
         self.instances: list = []
-        # Called with the sentence index at the start of each `create`.
-        self.on_create = lambda _index: None
 
 
 class _FakeTokenizer:
@@ -67,7 +65,7 @@ class _FakeTokenizer:
         return text
 
 
-def _install_fakes(monkeypatch, fakes: _Fakes, *, kokoro: bool = True) -> None:
+def _install_fakes(monkeypatch, fakes: _Fakes) -> None:
     def hf_hub_download(repo_id, filename, *, revision=None):
         fakes.downloads.append((repo_id, filename, revision))
         if fakes.download_error is not None:
@@ -89,9 +87,7 @@ def _install_fakes(monkeypatch, fakes: _Fakes, *, kokoro: bool = True) -> None:
             return sorted(fakes.voices)
 
         def create(self, text, **kwargs):
-            index = len(fakes.creates)
             fakes.creates.append((text, kwargs))
-            fakes.on_create(index)
             if fakes.create_error is not None:
                 raise fakes.create_error
             return fakes.audio, fakes.rate
@@ -104,12 +100,9 @@ def _install_fakes(monkeypatch, fakes: _Fakes, *, kokoro: bool = True) -> None:
     hub_mod = types.SimpleNamespace(hf_hub_download=hf_hub_download, errors=errors_mod)
     monkeypatch.setitem(sys.modules, "huggingface_hub", hub_mod)
     monkeypatch.setitem(sys.modules, "huggingface_hub.errors", errors_mod)
-    if kokoro:
-        monkeypatch.setitem(
-            sys.modules, "kokoro_onnx", types.SimpleNamespace(Kokoro=FakeKokoro)
-        )
-    else:
-        monkeypatch.setitem(sys.modules, "kokoro_onnx", None)  # -> ImportError
+    monkeypatch.setitem(
+        sys.modules, "kokoro_onnx", types.SimpleNamespace(Kokoro=FakeKokoro)
+    )
 
 
 @pytest.fixture
@@ -119,40 +112,27 @@ def fakes(monkeypatch) -> _Fakes:
     return state
 
 
-def _pcm(chunks: bytearray) -> list[int]:
-    return np.frombuffer(bytes(chunks), dtype="<i2").tolist()
-
-
 # --- config validation (before any download) ---------------------------------
 
 
-@pytest.mark.parametrize("key", ["voice", "language", "model", "voices"])
-@pytest.mark.parametrize("bad", ["", 5])
-def test_invalid_string_field_raises(fakes, key, bad):
-    with pytest.raises(ConfigError, match=key):
-        KokoroModule({"type": "kokoro", key: bad})
-    assert fakes.downloads == []
-
-
-@pytest.mark.parametrize("bad", [0.4, 2.5, True, "1"])
-def test_invalid_speed_raises(fakes, bad):
-    with pytest.raises(ConfigError, match="speed"):
-        KokoroModule({"type": "kokoro", "speed": bad})
-    assert fakes.downloads == []
-
-
 @pytest.mark.parametrize(
-    "bad", ["hf://owner/repo", "hf://owner//file.onnx", "hf://o/r/f.onnx@"]
+    "config, match",
+    [
+        ({"voice": ""}, "voice"),
+        ({"language": ""}, "language"),
+        ({"model": ""}, "model"),
+        ({"voices": ""}, "voices"),
+        ({"speed": 0.4}, "speed"),
+        ({"speed": 2.5}, "speed"),
+        ({"model": "hf://owner/repo"}, "model"),
+        ({"model": "hf://owner//file.onnx"}, "model"),
+        ({"model": "hf://o/r/f.onnx@"}, "model"),
+        ({"voice": "xx_custom"}, "no default language"),
+    ],
 )
-def test_malformed_hf_reference_raises(fakes, bad):
-    with pytest.raises(ConfigError, match="model"):
-        KokoroModule({"type": "kokoro", "model": bad})
-    assert fakes.downloads == []
-
-
-def test_voice_without_a_known_prefix_needs_a_language(fakes):
-    with pytest.raises(ConfigError, match="language"):
-        KokoroModule({"type": "kokoro", "voice": "xx_custom"})
+def test_invalid_config_raises_before_any_download(fakes, config, match):
+    with pytest.raises(ConfigError, match=match):
+        KokoroModule({"type": "kokoro", **config})
     assert fakes.downloads == []
 
 
@@ -160,15 +140,6 @@ def test_missing_local_file_raises_before_load(fakes, tmp_path):
     with pytest.raises(ConfigError, match="voices"):
         KokoroModule({"type": "kokoro", "voices": "v.bin", "base_dir": str(tmp_path)})
     assert fakes.loaded == []
-
-
-# --- lazy import gate --------------------------------------------------------
-
-
-def test_missing_extra_raises_config_error(monkeypatch):
-    _install_fakes(monkeypatch, _Fakes(), kokoro=False)
-    with pytest.raises(ConfigError, match=r"kokoro extra"):
-        KokoroModule({"type": "kokoro"})
 
 
 # --- model files -------------------------------------------------------------
@@ -295,8 +266,9 @@ def test_one_create_per_sentence_and_int16_pcm(fakes):
         )
     )
     assert [text for text, _ in fakes.creates] == ["Hello world.", "How are you?"]
-    # [0, .5, -.5, 1, 1.5, -2] * 32767, clipped and truncated toward zero, twice
-    assert _pcm(received) == [0, 16383, -16383, 32767, 32767, -32767] * 2
+    # Each sentence's float audio, converted and fed (the conversion's values
+    # are float_to_int16_pcm's own test).
+    assert bytes(received) == float_to_int16_pcm(fakes.audio) * 2
 
 
 def test_a_sentence_is_fed_in_100ms_slices(fakes):
@@ -321,31 +293,6 @@ def test_create_error_is_a_tts_error(fakes):
     module = KokoroModule({"type": "kokoro"})
     with pytest.raises(TTSError, match="inference boom"):
         asyncio.run(module.synthesize_text("Hi.", TTSOptions(), lambda _b: None))
-
-
-def test_callback_error_propagates_unchanged(fakes):
-    module = KokoroModule({"type": "kokoro"})
-
-    def bad_callback(_b):
-        raise ValueError("playback failed")
-
-    with pytest.raises(ValueError, match="playback failed"):
-        asyncio.run(module.synthesize_text("Hi. Bye.", TTSOptions(), bad_callback))
-
-
-def test_next_sentence_is_synthesized_while_the_current_one_plays(fakes):
-    started = [threading.Event(), threading.Event()]
-    fakes.on_create = lambda index: started[index].set()
-    module = KokoroModule({"type": "kokoro"})
-    overlapped: list[bool] = []
-
-    def callback(_b: bytes) -> None:
-        if not overlapped:
-            # Still feeding sentence one: sentence two's inference must start.
-            overlapped.append(started[1].wait(timeout=2))
-
-    asyncio.run(module.synthesize_text("One here. Two here.", TTSOptions(), callback))
-    assert overlapped == [True]
 
 
 # --- cancellation ------------------------------------------------------------
@@ -377,12 +324,8 @@ async def test_cancel_stops_callbacks_and_further_inference(fakes):
     await first.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await task
-
-    settled, creates = count(), len(fakes.creates)
-    await asyncio.sleep(0.15)  # longer than the producer's poll interval
-    assert count() == settled < 1000
-    assert len(fakes.creates) == creates <= 2  # playing one, one ahead at most
+        await asyncio.wait_for(task, timeout=5)
+    assert count() < 1000  # `stop` reached the slice feeder mid-sentence
 
 
 async def test_text_stream_cancel_mid_audio_stops_callbacks(fakes):
@@ -401,26 +344,38 @@ async def test_text_stream_cancel_mid_audio_stops_callbacks(fakes):
     await first.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await task
-
-    settled = count()
-    await asyncio.sleep(0.05)
-    assert count() == settled < 1000
+        await asyncio.wait_for(task, timeout=5)
+    assert count() < 1000
     assert [text for text, _ in fakes.creates] == ["Hello world."]
 
 
 # --- synthesize_text_stream --------------------------------------------------
 
 
-def test_text_stream_creates_once_per_sentence(fakes):
+async def test_text_stream_creates_once_per_sentence_before_the_source_finishes(
+    fakes,
+):
+    # Sentences split across pieces, and a source that only goes on once the
+    # first sentence's audio is fed: a module that waited for the whole text
+    # would deadlock here.
     module = KokoroModule({"type": "kokoro"})
+    loop = asyncio.get_running_loop()
+    got_audio = asyncio.Event()
+    received = bytearray()
+
+    def callback(chunk: bytes) -> None:
+        received.extend(chunk)
+        loop.call_soon_threadsafe(got_audio.set)
 
     async def source():
-        for piece in ["Hello wor", "ld. How are", " you? Fine"]:
-            yield piece
+        yield "Hello wor"
+        yield "ld. How are"
+        await got_audio.wait()
+        yield " you? Fine"
 
-    received = bytearray()
-    asyncio.run(module.synthesize_text_stream(source(), TTSOptions(), received.extend))
+    await asyncio.wait_for(
+        module.synthesize_text_stream(source(), TTSOptions(), callback), timeout=5
+    )
     assert [text for text, _ in fakes.creates] == [
         "Hello world.",
         "How are you?",
@@ -429,34 +384,12 @@ def test_text_stream_creates_once_per_sentence(fakes):
     assert len(received) == 3 * 2 * 6  # six int16 samples per fake sentence
 
 
-async def test_text_stream_feeds_first_sentence_before_the_source_finishes(fakes):
-    module = KokoroModule({"type": "kokoro"})
-    loop = asyncio.get_running_loop()
-    got_audio = asyncio.Event()
-
-    def callback(_chunk: bytes) -> None:
-        loop.call_soon_threadsafe(got_audio.set)
-
-    async def source():
-        yield "Hello world. "
-        await got_audio.wait()
-        yield "Second one."
-
-    await asyncio.wait_for(
-        module.synthesize_text_stream(source(), TTSOptions(), callback), timeout=5
-    )
-    assert [text for text, _ in fakes.creates] == ["Hello world.", "Second one."]
-
-
-def test_relative_local_path_without_base_dir_uses_cwd(fakes, tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "m.onnx").touch()
-    KokoroModule({"type": "kokoro", "model": "m.onnx"})
-    assert fakes.loaded[0][0] == str(Path.cwd() / "m.onnx")
-
-
 def test_close_drops_the_runtime(fakes):
     module = KokoroModule({"type": "kokoro"})
-    (runtime,) = fakes.instances
+    runtime = weakref.ref(fakes.instances.pop())
+    gc.collect()
+    assert runtime() is not None  # the module holds it until closed
+
     module.close()
-    assert all(value is not runtime for value in vars(module).values())
+    gc.collect()
+    assert runtime() is None

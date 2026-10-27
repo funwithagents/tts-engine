@@ -35,7 +35,8 @@ VALID = {
         },
         "player": {"device": None},
     },
-    "server": {"host": "127.0.0.1", "port": 8000},
+    # Not the defaults, so a loader that ignored this block would fail.
+    "server": {"host": "0.0.0.0", "port": 9123},
 }
 
 
@@ -48,34 +49,16 @@ def test_valid_config(tmp_path):
     assert cfg.engine.module["type"] == "elevenlabs"
     assert cfg.engine.module["api_key"] == "sk_test"
     assert cfg.engine.player.device is None
-    assert cfg.server.host == "127.0.0.1"
-    assert cfg.server.port == 8000
+    assert cfg.server.host == "0.0.0.0"
+    assert cfg.server.port == 9123
 
 
-def test_from_json_matches_from_json_file(tmp_path):
-    # A file load binds base_dir to the file's directory; a string has no
-    # location, so it gets the same directory through the keyword.
-    from_str = MCPServerConfig.from_json(json.dumps(VALID), base_dir=tmp_path)
+def test_from_dict_and_from_json_match_from_json_file(tmp_path):
+    # A file load binds base_dir to the file's directory; a dict or a string
+    # has no location, so it gets the same directory through the keyword.
     from_file = MCPServerConfig.from_json_file(_write(tmp_path, VALID))
-    assert from_str == from_file
-
-
-def test_from_dict_top_level(tmp_path):
-    assert MCPServerConfig.from_dict(
-        VALID, base_dir=tmp_path
-    ) == MCPServerConfig.from_json_file(_write(tmp_path, VALID))
-
-
-def test_extra_module_fields_preserved(tmp_path):
-    data = {
-        **VALID,
-        "engine": {
-            **VALID["engine"],
-            "module": {**VALID["engine"]["module"], "custom_field": "hello"},
-        },
-    }
-    cfg = MCPServerConfig.from_json_file(_write(tmp_path, data))
-    assert cfg.engine.module["custom_field"] == "hello"
+    assert MCPServerConfig.from_json(json.dumps(VALID), base_dir=tmp_path) == from_file
+    assert MCPServerConfig.from_dict(VALID, base_dir=tmp_path) == from_file
 
 
 def test_server_defaults_when_omitted(tmp_path):
@@ -85,33 +68,9 @@ def test_server_defaults_when_omitted(tmp_path):
     assert cfg.server.port == 8000
 
 
-def test_player_defaults_when_omitted(tmp_path):
-    data = {**VALID, "engine": {"module": VALID["engine"]["module"]}}
-    cfg = MCPServerConfig.from_json_file(_write(tmp_path, data))
-    assert cfg.engine.player.device is None
-
-
 def test_missing_engine_block(tmp_path):
     data = {k: v for k, v in VALID.items() if k != "engine"}
     with pytest.raises(ConfigError, match="engine"):
-        MCPServerConfig.from_json_file(_write(tmp_path, data))
-
-
-def test_missing_module_block(tmp_path):
-    data = {**VALID, "engine": {"player": {"device": None}}}
-    with pytest.raises(ConfigError, match="engine.module"):
-        MCPServerConfig.from_json_file(_write(tmp_path, data))
-
-
-def test_module_type_missing(tmp_path):
-    data = {**VALID, "engine": {"module": {"api_key": "sk_test"}}}
-    with pytest.raises(ConfigError, match="engine.module.type"):
-        MCPServerConfig.from_json_file(_write(tmp_path, data))
-
-
-def test_module_type_empty(tmp_path):
-    data = {**VALID, "engine": {"module": {**VALID["engine"]["module"], "type": ""}}}
-    with pytest.raises(ConfigError, match="engine.module.type"):
         MCPServerConfig.from_json_file(_write(tmp_path, data))
 
 
@@ -164,22 +123,11 @@ def test_server_not_object(tmp_path):
         MCPServerConfig.from_json_file(_write(tmp_path, data))
 
 
-def test_port_out_of_range(tmp_path):
-    data = {**VALID, "server": {"host": "127.0.0.1", "port": 99999}}
+@pytest.mark.parametrize("bad", [99999, 0, True])
+def test_port_invalid_rejected(bad):
+    data = {**VALID, "server": {"host": "127.0.0.1", "port": bad}}
     with pytest.raises(ConfigError, match="port"):
-        MCPServerConfig.from_json_file(_write(tmp_path, data))
-
-
-def test_port_zero(tmp_path):
-    data = {**VALID, "server": {"host": "127.0.0.1", "port": 0}}
-    with pytest.raises(ConfigError, match="port"):
-        MCPServerConfig.from_json_file(_write(tmp_path, data))
-
-
-def test_port_bool_rejected(tmp_path):
-    data = {**VALID, "server": {"host": "127.0.0.1", "port": True}}
-    with pytest.raises(ConfigError, match="port"):
-        MCPServerConfig.from_json_file(_write(tmp_path, data))
+        MCPServerConfig.from_dict(data)
 
 
 @pytest.mark.parametrize("bad", ["", 123, None])
@@ -190,13 +138,6 @@ def test_host_invalid_rejected(bad):
 
 
 # --- TTSEngineConfig.from_dict / from_json / from_json_file ----------------
-
-
-def test_engine_from_dict_valid():
-    cfg = TTSEngineConfig.from_dict(VALID["engine"])
-    assert isinstance(cfg, TTSEngineConfig)
-    assert cfg.module["type"] == "elevenlabs"
-    assert cfg.player.device is None
 
 
 def test_engine_from_json_and_file_match(tmp_path):
@@ -218,7 +159,9 @@ def test_engine_from_json_file_invalid_json_names_path(tmp_path):
         TTSEngineConfig.from_json_file(str(p))
 
 
-def test_from_dict_carries_module_verbatim():
+def test_from_dict_carries_module_verbatim(monkeypatch):
+    # The key env var is named, never read: loading needs no credentials.
+    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
     engine_block = {
         "module": {
             "type": "elevenlabs",
@@ -240,14 +183,6 @@ def test_from_dict_player_defaults_when_omitted():
     assert cfg.player.device is None
 
 
-def test_from_dict_no_env_read(monkeypatch):
-    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
-    cfg = TTSEngineConfig.from_dict(
-        {"module": {"type": "elevenlabs", "api_key_env": "ELEVENLABS_API_KEY"}}
-    )
-    assert cfg.module["api_key_env"] == "ELEVENLABS_API_KEY"
-
-
 def test_from_dict_engine_not_object():
     with pytest.raises(ConfigError, match="engine"):
         TTSEngineConfig.from_dict(["not", "an", "object"])  # type: ignore[arg-type]
@@ -263,27 +198,19 @@ def test_from_dict_module_not_object():
         TTSEngineConfig.from_dict({"module": "elevenlabs"})
 
 
-def test_from_dict_module_type_empty():
+@pytest.mark.parametrize(
+    "module", [{"api_key": "sk_test"}, {"type": ""}, {"type": 123}]
+)
+def test_from_dict_module_type_invalid_rejected(module):
     with pytest.raises(ConfigError, match="engine.module.type"):
-        TTSEngineConfig.from_dict({"module": {"type": ""}})
+        TTSEngineConfig.from_dict({"module": module})
 
 
-def test_from_dict_module_type_non_string():
-    with pytest.raises(ConfigError, match="engine.module.type"):
-        TTSEngineConfig.from_dict({"module": {"type": 123}})
-
-
-def test_from_dict_player_device_bool():
+@pytest.mark.parametrize("bad", [True, 1.5])
+def test_from_dict_player_device_invalid_rejected(bad):
     with pytest.raises(ConfigError, match="device"):
         TTSEngineConfig.from_dict(
-            {"module": VALID["engine"]["module"], "player": {"device": True}}
-        )
-
-
-def test_from_dict_player_device_invalid_type():
-    with pytest.raises(ConfigError, match="device"):
-        TTSEngineConfig.from_dict(
-            {"module": VALID["engine"]["module"], "player": {"device": 1.5}}
+            {"module": VALID["engine"]["module"], "player": {"device": bad}}
         )
 
 

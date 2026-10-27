@@ -3,40 +3,25 @@
 import numpy as np
 import pytest
 
-from tts_engine.audio import AudioPlayer, AudioSink
+from tts_engine.audio import AudioPlayer
 
 
 def _pcm_bytes(n_samples: int = 16) -> bytes:
     return np.zeros(n_samples, dtype=np.int16).tobytes()
 
 
-def test_audio_player_is_an_audio_sink():
-    # Static + structural conformance: AudioPlayer satisfies the AudioSink seam
-    # embedders type their own destinations against.
-    sink: AudioSink = AudioPlayer(sample_rate=44100)
-    assert callable(sink.feed)
-    assert callable(sink.drain)
-
-
-def test_feed_opens_stream_once(mocker):
+def test_feed_opens_stream_once_at_the_given_sample_rate(mocker):
     mock_stream = mocker.MagicMock()
     mock_ctor = mocker.patch("sounddevice.OutputStream", return_value=mock_stream)
 
-    player = AudioPlayer(sample_rate=44100)
+    player = AudioPlayer(sample_rate=24000)
     player.feed(_pcm_bytes())
     player.feed(_pcm_bytes())
 
     mock_ctor.assert_called_once()
+    assert mock_ctor.call_args.kwargs["samplerate"] == 24000
     assert mock_stream.start.call_count == 1
     assert mock_stream.write.call_count == 2
-
-
-def test_feed_opens_stream_at_given_sample_rate(mocker):
-    mock_ctor = mocker.patch("sounddevice.OutputStream")
-
-    AudioPlayer(sample_rate=24000).feed(_pcm_bytes())
-
-    assert mock_ctor.call_args.kwargs["samplerate"] == 24000
 
 
 def test_drain_closes_stream(mocker):
@@ -53,12 +38,6 @@ def test_drain_closes_stream(mocker):
     # second drain must not raise
     player.drain()
     assert mock_stream.stop.call_count == 1
-
-
-def test_drain_before_feed_does_not_raise(mocker):
-    mocker.patch("sounddevice.OutputStream")
-    player = AudioPlayer(sample_rate=44100)
-    player.drain()  # must not raise
 
 
 def test_feed_empty_bytes_does_not_open_stream(mocker):

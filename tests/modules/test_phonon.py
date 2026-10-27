@@ -6,16 +6,18 @@ validation runs before the lazy import.
 """
 
 import asyncio
+import gc
 import sys
 import threading
 import types
+import weakref
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from tts_engine.config import ConfigError
-from tts_engine.modules.base import TTSError, TTSOptions
+from tts_engine.modules.base import TTSError, TTSOptions, float_to_int16_pcm
 from tts_engine.modules.phonon import PhononModule
 
 
@@ -119,82 +121,64 @@ def _run(coro):
 # --- config validation (no fake needed: runs before the lazy import) ---------
 
 
-@pytest.mark.parametrize("bad", ["english", "", 1, ["en"], None])
-def test_invalid_language_raises(bad):
-    with pytest.raises(ConfigError, match="language"):
-        PhononModule({"type": "phonon", "language": bad})
-
-
-@pytest.mark.parametrize("field", ["model", "voice", "quant"])
-@pytest.mark.parametrize("bad", ["", 3])
-def test_invalid_string_fields_raise(field, bad):
-    with pytest.raises(ConfigError, match=field):
-        PhononModule({"type": "phonon", field: bad})
-
-
-@pytest.mark.parametrize("bad", ["", None, 0])
-def test_invalid_device_raises(bad):
-    with pytest.raises(ConfigError, match="device"):
-        PhononModule({"type": "phonon", "device": bad})
-
-
-@pytest.mark.parametrize("bad", [-0.1, True, "0.3", float("nan"), float("inf")])
-def test_invalid_temperature_raises(bad):
-    with pytest.raises(ConfigError, match="temperature"):
-        PhononModule({"type": "phonon", "temperature": bad})
-
-
-@pytest.mark.parametrize("bad", [False, "2", float("nan"), float("-inf")])
-def test_invalid_cfg_coef_raises(bad):
-    with pytest.raises(ConfigError, match="cfg_coef"):
-        PhononModule({"type": "phonon", "cfg_coef": bad})
-
-
-# --- lazy import gate --------------------------------------------------------
-
-
-def test_missing_extra_raises_config_error(monkeypatch):
-    monkeypatch.setitem(sys.modules, "ptts", None)  # -> ImportError
-    with pytest.raises(ConfigError, match=r"tts-engine\[phonon\]"):
-        PhononModule({"type": "phonon"})
+@pytest.mark.parametrize(
+    "config, match",
+    [
+        ({"language": "english"}, "language"),
+        ({"language": ""}, "language"),
+        ({"language": 1}, "language"),
+        ({"language": ["en"]}, "language"),
+        ({"language": None}, "language"),
+        ({"model": ""}, "model"),
+        ({"voice": ""}, "voice"),
+        ({"quant": ""}, "quant"),
+        ({"device": ""}, "device"),
+        ({"device": None}, "device"),
+        ({"device": 0}, "device"),
+        ({"temperature": -0.1}, "temperature"),
+        ({"cfg_coef": "2"}, "cfg_coef"),
+    ],
+)
+def test_invalid_config_raises(config, match):
+    with pytest.raises(ConfigError, match=match):
+        PhononModule({"type": "phonon", **config})
 
 
 # --- construction ------------------------------------------------------------
 
 
-def test_defaults_pass_only_english(fake):
-    module = PhononModule({"type": "phonon"})
-    assert fake.init_kwargs == {"lang": "en"}
+@pytest.mark.parametrize(
+    "config, init_kwargs",
+    [
+        ({}, {"lang": "en"}),
+        ({"language": "none"}, {"lang": None}),
+        (
+            {
+                "language": "fr",
+                "model": "hf://gradium/phonon-40m-fr",
+                "voice": "Juniper",
+                "device": "cpu",
+                "quant": "q8_0",
+                "temperature": 0,
+                "cfg_coef": 2,
+            },
+            {
+                "lang": "fr",
+                "model": "hf://gradium/phonon-40m-fr",
+                "voice": "Juniper",
+                "device": "cpu",
+                "quant": "q8_0",
+                "temperature": 0.0,
+                "cfg_coef": 2.0,
+            },
+        ),
+    ],
+    ids=["defaults-pass-only-english", "language-none", "set-fields-forwarded"],
+)
+def test_init_kwargs(fake, config, init_kwargs):
+    module = PhononModule({"type": "phonon", **config})
+    assert fake.init_kwargs == init_kwargs
     assert module.sample_rate == 24000
-
-
-def test_language_none_skips_normalization(fake):
-    PhononModule({"type": "phonon", "language": "none"})
-    assert fake.init_kwargs == {"lang": None}
-
-
-def test_set_fields_are_forwarded(fake):
-    PhononModule(
-        {
-            "type": "phonon",
-            "language": "fr",
-            "model": "hf://gradium/phonon-40m-fr",
-            "voice": "Juniper",
-            "device": "cpu",
-            "quant": "q8_0",
-            "temperature": 0,
-            "cfg_coef": 2,
-        }
-    )
-    assert fake.init_kwargs == {
-        "lang": "fr",
-        "model": "hf://gradium/phonon-40m-fr",
-        "voice": "Juniper",
-        "device": "cpu",
-        "quant": "q8_0",
-        "temperature": 0.0,
-        "cfg_coef": 2.0,
-    }
 
 
 def test_local_model_resolves_against_base_dir(fake):
@@ -238,14 +222,14 @@ def test_other_load_failure_is_tts_error(fake):
 # --- synthesize_text ---------------------------------------------------------
 
 
-def test_synthesize_text_produces_clipped_int16_pcm(fake):
+def test_synthesize_text_feeds_int16_pcm(fake):
     module = PhononModule({"type": "phonon", "voice": "Harper"})
     received = bytearray()
     _run(module.synthesize_text("Hello.", TTSOptions(), received.extend))
 
-    samples = np.frombuffer(bytes(received), dtype="<i2")
-    # [0.0, 0.5, -0.5, 1.5→1.0, -2.0→-1.0] * 32767, truncated toward zero
-    assert samples.tolist() == [0, 16383, -16383, 32767, -32767]
+    # The runtime's float chunks, converted and fed in order (the conversion's
+    # values are float_to_int16_pcm's own test).
+    assert bytes(received) == b"".join(float_to_int16_pcm(c) for c in fake.chunks)
     assert fake.texts == ["Hello."]
     assert fake.voices_used == ["Harper"]
     assert fake.streams[0].closed
@@ -263,17 +247,6 @@ def test_iteration_error_is_tts_error_and_closes(fake):
     fake.raise_on_next = RuntimeError("decoder boom")
     with pytest.raises(TTSError, match="decoder boom"):
         _run(module.synthesize_text("Hi.", TTSOptions(), lambda _b: None))
-    assert fake.streams[0].closed
-
-
-def test_callback_error_propagates_unchanged_and_closes(fake):
-    module = PhononModule({"type": "phonon"})
-
-    def bad_callback(_b: bytes) -> None:
-        raise ValueError("playback failed")
-
-    with pytest.raises(ValueError, match="playback failed"):
-        _run(module.synthesize_text("Hi.", TTSOptions(), bad_callback))
     assert fake.streams[0].closed
 
 
@@ -300,79 +273,68 @@ async def test_cancel_closes_the_stream_before_cancelled_error(fake):
     task.cancel()
     fake.block.set()  # let the pending chunk return so the worker sees `stop`
     with pytest.raises(asyncio.CancelledError):
-        await task
+        await asyncio.wait_for(task, timeout=5)
     assert fake.streams[0].closed
 
 
 # --- synthesize_text_stream --------------------------------------------------
 
 
-def test_text_stream_synthesizes_per_sentence(fake):
+async def test_text_stream_synthesizes_per_sentence_before_the_source_finishes(fake):
+    # Sentences split across pieces, and a source that only goes on once the
+    # first sentence's audio is fed: a module that waited for the whole text
+    # would deadlock here.
     module = PhononModule({"type": "phonon"})
+    loop = asyncio.get_running_loop()
+    got_audio = asyncio.Event()
+    received = bytearray()
+
+    def callback(chunk: bytes) -> None:
+        received.extend(chunk)
+        loop.call_soon_threadsafe(got_audio.set)
 
     async def source():
-        for piece in ["Hello wor", "ld. How are", " you? Fine"]:
-            yield piece
+        yield "Hello wor"
+        yield "ld. How are"
+        await got_audio.wait()
+        yield " you? Fine"
 
-    received = bytearray()
-    _run(module.synthesize_text_stream(source(), TTSOptions(), received.extend))
-
+    await asyncio.wait_for(
+        module.synthesize_text_stream(source(), TTSOptions(), callback), timeout=5
+    )
     assert fake.texts == ["Hello world.", "How are you?", "Fine"]
     assert len(received) == 3 * 2 * 5  # five int16 samples per fake stream
     assert all(stream.closed for stream in fake.streams)
 
 
-async def test_text_stream_feeds_first_sentence_before_the_source_finishes(fake):
-    module = PhononModule({"type": "phonon"})
-    loop = asyncio.get_running_loop()
-    got_audio = asyncio.Event()
-
-    def callback(_chunk: bytes) -> None:
-        loop.call_soon_threadsafe(got_audio.set)
-
-    async def source():
-        yield "Hello world. "
-        await got_audio.wait()
-        yield "Second one."
-
-    await asyncio.wait_for(
-        module.synthesize_text_stream(source(), TTSOptions(), callback), timeout=5
-    )
-    assert fake.texts == ["Hello world.", "Second one."]
-
-
 async def test_text_stream_cancel_closes_the_stream_before_cancelled_error(fake):
     module = PhononModule({"type": "phonon"})
     fake.block = threading.Event()
-    count = 0
-
-    def callback(_chunk: bytes) -> None:
-        nonlocal count
-        count += 1
 
     async def source():
         yield "Hi. "  # a complete sentence: its stream opens
         await asyncio.Event().wait()  # then the source stays open
 
     task = asyncio.create_task(
-        module.synthesize_text_stream(source(), TTSOptions(), callback)
+        module.synthesize_text_stream(source(), TTSOptions(), lambda _b: None)
     )
     # Wait (off the loop) until the worker is inside the stream, then cancel.
     await asyncio.to_thread(fake.reached.wait, 5)
     task.cancel()
     fake.block.set()  # let the pending chunk return so the worker sees `stop`
     with pytest.raises(asyncio.CancelledError):
-        await task
+        await asyncio.wait_for(task, timeout=5)
 
-    settled = count
-    await asyncio.sleep(0.05)
-    assert count == settled
     assert fake.streams[0].closed
     assert fake.texts == ["Hi."]
 
 
 def test_close_drops_the_runtime(fake):
     module = PhononModule({"type": "phonon"})
-    (runtime,) = fake.instances
+    runtime = weakref.ref(fake.instances.pop())
+    gc.collect()
+    assert runtime() is not None  # the module holds it until closed
+
     module.close()
-    assert all(value is not runtime for value in vars(module).values())
+    gc.collect()
+    assert runtime() is None

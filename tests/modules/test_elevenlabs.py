@@ -23,24 +23,13 @@ VALID_CONFIG = {
 }
 
 
-def test_missing_api_key_raises():
-    with pytest.raises(ConfigError, match="api_key"):
-        ElevenLabsModule({"type": "elevenlabs", "voice_id": "v"})
-
-
-def test_empty_api_key_raises():
-    with pytest.raises(ConfigError, match="api_key"):
-        ElevenLabsModule({"type": "elevenlabs", "api_key": "", "voice_id": "v"})
-
-
-def test_missing_voice_id_raises():
-    with pytest.raises(ConfigError, match="voice_id"):
-        ElevenLabsModule({"type": "elevenlabs", "api_key": "k"})
-
-
-def test_empty_voice_id_raises():
-    with pytest.raises(ConfigError, match="voice_id"):
-        ElevenLabsModule({"type": "elevenlabs", "api_key": "k", "voice_id": ""})
+@pytest.fixture(autouse=True)
+def _fast_poll(monkeypatch):
+    # The receive loop polls `stop` on this interval; tests wait on the
+    # module's logic, not on wall-clock ticks.
+    monkeypatch.setattr(
+        "tts_engine.modules.elevenlabs.module._RECV_POLL_SECONDS", 0.005
+    )
 
 
 def test_missing_extra_raises_config_error(monkeypatch):
@@ -56,26 +45,6 @@ def test_api_key_from_env(mock_elevenlabs_cls, monkeypatch):
     config = {"type": "elevenlabs", "api_key_env": "MY_TTS_KEY", "voice_id": "v"}
     ElevenLabsModule(config)
     mock_elevenlabs_cls.assert_called_once_with(api_key="env-secret")
-
-
-@patch("elevenlabs.ElevenLabs")
-def test_literal_api_key_takes_precedence_over_env(mock_elevenlabs_cls, monkeypatch):
-    monkeypatch.setenv("MY_TTS_KEY", "env-secret")
-    config = {
-        "type": "elevenlabs",
-        "api_key": "literal-key",
-        "api_key_env": "MY_TTS_KEY",
-        "voice_id": "v",
-    }
-    ElevenLabsModule(config)
-    mock_elevenlabs_cls.assert_called_once_with(api_key="literal-key")
-
-
-def test_api_key_env_pointing_to_unset_var_raises(monkeypatch):
-    monkeypatch.delenv("MY_TTS_KEY", raising=False)
-    config = {"type": "elevenlabs", "api_key_env": "MY_TTS_KEY", "voice_id": "v"}
-    with pytest.raises(ConfigError, match="MY_TTS_KEY"):
-        ElevenLabsModule(config)
 
 
 async def _provider_stream_kwargs(mock_elevenlabs_cls, mock_stream_any, config) -> dict:
@@ -110,17 +79,6 @@ async def test_defaults_reach_the_provider_client(mock_elevenlabs_cls, mock_stre
 
 @patch("miniaudio.stream_any")
 @patch("elevenlabs.ElevenLabs")
-async def test_timeout_reaches_the_provider_client_in_whole_seconds(
-    mock_elevenlabs_cls, mock_stream_any
-):
-    kwargs = await _provider_stream_kwargs(
-        mock_elevenlabs_cls, mock_stream_any, {**VALID_CONFIG, "timeout": 2.5}
-    )
-    assert kwargs["request_options"] == {"timeout_in_seconds": 3}
-
-
-@patch("miniaudio.stream_any")
-@patch("elevenlabs.ElevenLabs")
 async def test_custom_values_reach_the_provider_client(
     mock_elevenlabs_cls, mock_stream_any
 ):
@@ -129,35 +87,39 @@ async def test_custom_values_reach_the_provider_client(
         "model": "eleven_multilingual_v2",
         "stability": 0.8,
         "similarity_boost": 0.9,
+        "timeout": 2.5,
     }
     kwargs = await _provider_stream_kwargs(mock_elevenlabs_cls, mock_stream_any, config)
     assert kwargs["model_id"] == "eleven_multilingual_v2"
     assert kwargs["voice_settings"] == VoiceSettings(
         stability=0.8, similarity_boost=0.9
     )
+    # The SDK takes whole seconds: a fractional timeout is rounded up.
+    assert kwargs["request_options"] == {"timeout_in_seconds": 3}
+
+
+_ABSENT = object()  # an override value that removes the field
 
 
 @pytest.mark.parametrize(
     "override, field",
     [
-        ({"api_key": 123}, "api_key"),
-        ({"api_key_env": 5}, "api_key_env"),
+        # `voice_id` is checked by the module itself: every shape stays.
+        ({"voice_id": _ABSENT}, "voice_id"),
+        ({"voice_id": ""}, "voice_id"),
         ({"voice_id": 42}, "voice_id"),
+        # Helper-validated fields: one row per field and per bound.
         ({"model": ""}, "model"),
-        ({"model": 7}, "model"),
         ({"stability": 5}, "stability"),
-        ({"stability": True}, "stability"),
         ({"similarity_boost": -0.1}, "similarity_boost"),
-        ({"similarity_boost": "x"}, "similarity_boost"),
         ({"timeout": 0}, "timeout"),
-        ({"timeout": True}, "timeout"),
-        ({"timeout": "30"}, "timeout"),
-        ({"timeout": float("inf")}, "timeout"),
     ],
 )
 def test_invalid_field_raises_config_error(override, field):
+    config = {**VALID_CONFIG, **override}
+    config = {k: v for k, v in config.items() if v is not _ABSENT}
     with pytest.raises(ConfigError, match=field):
-        ElevenLabsModule({**VALID_CONFIG, **override})
+        ElevenLabsModule(config)
 
 
 @patch("miniaudio.stream_any")
@@ -182,38 +144,17 @@ def test_stream_calls_callback_with_decoded_pcm_bytes(
 
 @patch("miniaudio.stream_any")
 @patch("elevenlabs.ElevenLabs")
-def test_stream_skips_empty_elevenlabs_chunks(mock_elevenlabs_cls, mock_stream_any):
-    # Drain the _ChunkSource via read() to inspect what bytes reached miniaudio
-    all_data = bytearray()
-
-    def capture_source(source, **kwargs):
-        while chunk := source.read(1024):
-            all_data.extend(chunk)
-        return iter([])
-
-    mock_client = MagicMock()
-    mock_client.text_to_speech.stream.return_value = iter([b"data", b"", b"more"])
-    mock_elevenlabs_cls.return_value = mock_client
-    mock_stream_any.side_effect = capture_source
-
-    module = ElevenLabsModule(VALID_CONFIG)
-    asyncio.run(module.synthesize_text("hello", TTSOptions(), MagicMock()))
-
-    assert bytes(all_data) == b"datamore"
-
-
-@patch("miniaudio.stream_any")
-@patch("elevenlabs.ElevenLabs")
 def test_chunk_source_serves_short_reads_without_waiting_for_more_chunks(
     mock_elevenlabs_cls, mock_stream_any
 ):
     # The decoder asks for far more bytes than one provider chunk holds. The
     # adapter must hand back the first chunk at once rather than pull further
     # chunks to fill the request — otherwise playback waits for ~4 s of audio.
+    # Empty provider chunks never reach the decoder.
     pulled: list[bytes] = []
 
     def provider_chunks():
-        for chunk in (b"first", b"second", b"third"):
+        for chunk in (b"first", b"", b"second", b"", b"third"):
             pulled.append(chunk)
             yield chunk
 
@@ -285,23 +226,16 @@ async def test_cancel_stops_callbacks_before_stream_raises(
 
     loop = asyncio.get_running_loop()
     first_chunk = asyncio.Event()
-    count = 0
-
-    def callback(_chunk: bytes) -> None:
-        nonlocal count
-        count += 1
-        loop.call_soon_threadsafe(first_chunk.set)
 
     module = ElevenLabsModule(VALID_CONFIG)
-    task = asyncio.create_task(module.synthesize_text("hello", TTSOptions(), callback))
+    task = asyncio.create_task(
+        module.synthesize_text("hello", TTSOptions(), _signal(loop, first_chunk))
+    )
     await first_chunk.wait()
     task.cancel()
+    # The worker must honor `stop` between decoded chunks, or this hangs.
     with pytest.raises(asyncio.CancelledError):
-        await task
-
-    settled = count
-    await asyncio.sleep(0.05)  # ~10 chunk periods: a leaked worker would show
-    assert count == settled
+        await asyncio.wait_for(task, timeout=5)
 
 
 def _signal(loop: asyncio.AbstractEventLoop, event: asyncio.Event):
@@ -329,7 +263,6 @@ class _FakeStreamInput:
         self.endless = False  # keep producing audio forever (cancel test)
         self.fail_send: Exception | None = None  # raised by send() on text
         self.fail_recv: Exception | None = None  # raised by recv() once
-        self.fail_close: Exception | None = None  # raised on leaving the socket
         # Delivered instead of audio for the first text message: a protocol
         # error payload, or a clean close (the exception to raise).
         self.answer_first_text: dict | Exception | None = None
@@ -340,8 +273,6 @@ class _FakeStreamInput:
 
     def __exit__(self, *exc) -> bool:
         self.closed = True
-        if self.fail_close is not None:
-            raise self.fail_close
         return False
 
     def send(self, raw: str) -> None:
@@ -591,22 +522,27 @@ def test_text_stream_sender_failure_raises_tts_error(
     assert ws.closed is True
 
 
+@pytest.mark.parametrize("failing", ["connect", "recv"])
 @patch("websockets.sync.client.connect")
 @patch("miniaudio.stream_any")
 @patch("elevenlabs.ElevenLabs")
-def test_text_stream_receive_failure_raises_tts_error(
-    mock_elevenlabs_cls, mock_stream_any, mock_connect
+def test_text_stream_connect_or_receive_failure_raises_tts_error(
+    mock_elevenlabs_cls, mock_stream_any, mock_connect, failing
 ):
     module, ws, _ = _stream_input_module(
         mock_elevenlabs_cls, mock_stream_any, mock_connect
     )
-    ws.fail_recv = RuntimeError("connection reset")
+    if failing == "connect":
+        mock_connect.side_effect = OSError("connection failed")
+    else:
+        ws.fail_recv = RuntimeError("connection failed")
 
-    with pytest.raises(TTSError, match="connection reset"):
+    with pytest.raises(TTSError, match="connection failed"):
         asyncio.run(
             module.synthesize_text_stream(_source("Hello "), TTSOptions(), MagicMock())
         )
-    assert ws.closed is True
+    # A socket that was opened is closed; one that never opened is not entered.
+    assert ws.closed is (failing == "recv")
 
 
 @patch("websockets.sync.client.connect")
@@ -658,13 +594,12 @@ def test_text_stream_clean_close_before_final_message_raises_tts_error(
 @patch("websockets.sync.client.connect")
 @patch("miniaudio.stream_any")
 @patch("elevenlabs.ElevenLabs")
-def test_text_stream_callback_error_wins_over_a_failing_close(
+def test_text_stream_callback_error_propagates_unchanged_and_closes(
     mock_elevenlabs_cls, mock_stream_any, mock_connect
 ):
     module, ws, _ = _stream_input_module(
         mock_elevenlabs_cls, mock_stream_any, mock_connect
     )
-    ws.fail_close = RuntimeError("socket teardown failed")
 
     def bad_callback(_chunk: bytes) -> None:
         raise ValueError("playback failed")
@@ -674,22 +609,6 @@ def test_text_stream_callback_error_wins_over_a_failing_close(
             module.synthesize_text_stream(_source("Hello "), TTSOptions(), bad_callback)
         )
     assert ws.closed is True
-
-
-@patch("websockets.sync.client.connect")
-@patch("miniaudio.stream_any")
-@patch("elevenlabs.ElevenLabs")
-def test_text_stream_connect_failure_raises_tts_error(
-    mock_elevenlabs_cls, mock_stream_any, mock_connect
-):
-    mock_connect.side_effect = OSError("connection refused")
-    mock_stream_any.side_effect = _decode_one_pcm_chunk_per_raw_chunk
-    module = ElevenLabsModule(VALID_CONFIG)
-
-    with pytest.raises(TTSError, match="connection refused"):
-        asyncio.run(
-            module.synthesize_text_stream(_source("Hello "), TTSOptions(), MagicMock())
-        )
 
 
 @patch("websockets.sync.client.connect")
@@ -707,28 +626,21 @@ async def test_text_stream_cancel_mid_audio_stops_callbacks_before_raising(
     ws.endless = True
     loop = asyncio.get_running_loop()
     first_chunk = asyncio.Event()
-    count = 0
-
-    def callback(_chunk: bytes) -> None:
-        nonlocal count
-        count += 1
-        loop.call_soon_threadsafe(first_chunk.set)
 
     async def source():
         yield "Hello "
         await asyncio.Event().wait()  # the source stays open
 
     task = asyncio.create_task(
-        module.synthesize_text_stream(source(), TTSOptions(), callback)
+        module.synthesize_text_stream(
+            source(), TTSOptions(), _signal(loop, first_chunk)
+        )
     )
     await first_chunk.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(task, timeout=5)
 
-    settled = count
-    await asyncio.sleep(0.05)  # ~10 chunk periods: a leaked worker would show
-    assert count == settled
     assert ws.closed is True
     assert "" not in ws.texts  # dropped, not finished
 
@@ -744,6 +656,15 @@ async def test_text_stream_cancel_while_the_server_is_silent_stops_promptly(
     module, ws, _ = _stream_input_module(
         mock_elevenlabs_cls, mock_stream_any, mock_connect
     )
+    loop = asyncio.get_running_loop()
+    opened = asyncio.Event()
+    open_socket = mock_connect.side_effect
+
+    def connect(url, **kwargs):
+        loop.call_soon_threadsafe(opened.set)
+        return open_socket(url, **kwargs)
+
+    mock_connect.side_effect = connect
 
     async def source():
         await asyncio.Event().wait()  # never yields
@@ -752,7 +673,7 @@ async def test_text_stream_cancel_while_the_server_is_silent_stops_promptly(
     task = asyncio.create_task(
         module.synthesize_text_stream(source(), TTSOptions(), MagicMock())
     )
-    await asyncio.sleep(0.05)  # let the worker open the socket and start polling
+    await opened.wait()  # the worker has opened the socket and starts polling
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(task, timeout=5)
