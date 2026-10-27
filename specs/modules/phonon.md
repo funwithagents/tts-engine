@@ -48,7 +48,7 @@ Fields left unset are **omitted** from the `ptts.TTS(...)` call, so the library'
 | `gradium/phonon-40m-{en,fr,de,es,pt}` | one each | CC BY-NC 4.0 (commercial use through Gradium) | gated, needs `HF_TOKEN` |
 | `gradium/phonon-40m-multilingual` | en, fr, de, es, pt | CC BY-NC 4.0 | gated, needs `HF_TOKEN` |
 
-Speaking a language other than English therefore needs a non-commercial checkpoint; the spec does not hide that behind a default. The catalog holds 102 voices across the five languages (37 English) as of `ptts` 0.4.2; the 31M checkpoint does not support voice cloning (`supports_voice_cloning` is false).
+Speaking a language other than English therefore needs a non-commercial checkpoint; the spec does not hide that behind a default. The catalog holds 102 voices across the five languages (37 English) at the revision `ptts` pins (unchanged from 0.4.2 to 0.5.0); the 31M checkpoint does not support voice cloning (`supports_voice_cloning` is false).
 
 ### Validation
 
@@ -64,9 +64,9 @@ Validated at construction, raising `ConfigError` before the model is loaded:
 
 ### Dependencies and lazy import
 
-Requires the `phonon` extra: `pip install tts-engine[phonon]` / `uv sync --extra phonon`, declared as `phonon = ["ptts>=0.4.2,<0.5"]` and added to `all`. The upper bound is deliberate: `ptts` is pre-1.0 and has shipped eight releases since July 2026, and the module's calls are validated against 0.4.2 only. No torch, no `espeak-ng`, no system package.
+Requires the `phonon` extra: `pip install tts-engine[phonon]` / `uv sync --extra phonon`, declared as `phonon = ["ptts>=0.4.2,<0.6"]` and added to `all`. The upper bound is deliberate: `ptts` is pre-1.0 and has shipped nine releases since July 2026, and the module's calls are validated against 0.4.2 and 0.5.0 only (see "Validated against `ptts`"); each new minor is checked before the bound moves. No torch, no `espeak-ng`, no system package.
 
-**Platforms.** `ptts` 0.4.2 publishes `cp39-abi3` wheels for manylinux and musllinux x86_64/aarch64, macOS arm64 and x86_64, and Windows x86_64/arm64; the x86 builds require AVX2. So the extra installs on Intel macOS, unlike `pocket` ([project.md](../project.md), "Platforms").
+**Platforms.** `ptts` 0.4.2 and 0.5.0 publish `cp39-abi3` wheels for manylinux and musllinux x86_64/aarch64, macOS arm64 and x86_64, and Windows x86_64/arm64; the x86 builds require AVX2. So the extra installs on Intel macOS, unlike `pocket` ([project.md](../project.md), "Platforms").
 
 `phonon/module.py` must not `import ptts` at file top (the registry imports every module class). The import happens inside `__init__`:
 
@@ -96,7 +96,7 @@ The engine reads `sample_rate` once at construction, so the model is loaded in `
 
 ### Streaming and format conversion
 
-`self._tts.stream(text, voice=self._voice)` returns a `ptts.AudioStream`: a context manager and iterator of **1-D `numpy.float32`** chunks, produced by the runtime's own decoder threads. Measured on 0.4.2: fixed **1920-sample (80 ms)** chunks, peak amplitude well inside ±1, time to first chunk ~10 ms warm on an Apple M5 CPU, ~30× real time. Unread, the stream pauses once its bounded buffers fill; **leaving the `with` block (or `close()`) stops generation and joins the decoder threads** (~2 ms measured), after which `next` raises `StopIteration`.
+`self._tts.stream(text, voice=self._voice)` returns a `ptts.AudioStream`: a context manager and iterator of **1-D `numpy.float32`** chunks, produced by the runtime's own decoder threads. Measured on 0.4.2 and again on 0.5.0: fixed **1920-sample (80 ms)** chunks, peak amplitude well inside ±1, time to first chunk ~10 ms warm on an Apple M5 CPU, ~30× real time. Unread, the stream pauses once its bounded buffers fill; **leaving the `with` block (or `close()`) stops generation and joins the decoder threads** (~2 ms measured), after which `next` raises `StopIteration`.
 
 The generate-and-feed loop for one text, shared by both input shapes:
 
@@ -121,7 +121,7 @@ def _generate(self, text, callback, stop):
 
 `float_to_int16_pcm` (shared in `base.py`, [tts-module-interface.md](../tts-module-interface.md), "Shared PCM helpers") reshapes to 1-D, clips to `[-1.0, 1.0]`, scales by `32767`, casts to little-endian `int16` and returns `.tobytes()` — the same conversion as pocket, minus the torch-to-numpy step pocket does itself. No gain is applied: the model's level is what plays.
 
-`synthesize_text` runs `_generate(text, callback, stop)` through `run_cancellable_worker`. The `ptts.TTS` object is built on the constructing thread and used from the worker thread; this was verified on 0.4.2 (the extension is not thread-bound and releases the GIL while decoding, so the engine's event loop keeps running).
+`synthesize_text` runs `_generate(text, callback, stop)` through `run_cancellable_worker`. The `ptts.TTS` object is built on the constructing thread and used from the worker thread; this was verified on 0.4.2 and 0.5.0 (the extension is not thread-bound and releases the GIL while decoding, so the engine's event loop keeps running).
 
 ### Text stream: sentence grouping
 
@@ -188,17 +188,19 @@ Registered in `REGISTRY` as `"phonon"` ([modules/__init__.py](../../src/tts_engi
 - **Lazy imports (`tests/modules/test_lazy_imports.py`)** — `ptts` joins the poisoned libraries, `phonon` joins the expected registry keys, and constructing `{"type": "phonon"}` must raise the `tts-engine[phonon]` hint.
 - **Live (`tests-e2e/test_modules.py`)** — one `MODULES` row, `pytest.param("phonon", {}, id="phonon")`, plus `_REQUIRED_IMPORT["phonon"] = "ptts"`, so the three conformance scenarios run against the real runtime and default checkpoint. No key is needed, so the row **runs in CI** (the extra comes with the `dev` group); its weights land in the Hugging Face cache the live job already caches. Robust properties only (PCM produced, drained once), never audio content.
 
-## Validated against `ptts==0.4.2`
+## Validated against `ptts`
 
-Confirmed on macOS arm64 (Apple M5 Pro), from the wheel's type stub and by running it:
+Confirmed on macOS arm64 (Apple M5 Pro) for 0.4.2, then re-checked point by point for **0.5.0** (2026-10-27), from the wheel's type stub and by running it:
 
 - `ptts.TTS(model=None, device=None, quant=None, voice=None, temperature=0.3, seed=..., cfg_coef=None, eos_threshold=None, *, lang, rewrites=None, conditions=None, voice_catalog=None, config=None, revision=None)`; `lang` is keyword-only and required.
 - `DEFAULT_MODEL = hf://gradium/phonon-31m-en@8c64b55…`, `DEFAULT_VOICE_CATALOG = hf://gradium/phonon-voices@da6c9ec…`. The checkpoint registers only `default`; catalog voices join `tts.voices` once used.
 - `available_devices()` → `["metal", "cpu"]` on that wheel; `available_quants()` → `f32, q8_0, q8_1, q8k, q6k, q5_0, q5_1, q5k, q4_0, q4_1, q4k`. The default load is `f32`.
 - `sample_rate == 24000`; `stream()` yields 1-D `float32` chunks of 1920 samples; `synth()` returns one 1-D `float32` array.
 - Errors: unknown language → `ValueError`; `device="cuda"` → `NotImplementedError`; `quant` with `device="metal"` → `NotImplementedError`; unknown voice → `LookupError`; missing voice file → `FileNotFoundError`; unknown Hub repo → `OSError`; empty text → `ValueError`.
-- `AudioStream.close()` returned in ~2 ms mid-generation; an exception raised inside `with tts.stream(...)` propagates unchanged.
+- `AudioStream.close()` returned in ~2 ms mid-generation (~5 ms on 0.5.0); an exception raised inside `with tts.stream(...)` propagates unchanged.
 - A `TTS` built on one thread streams correctly from another, and the GIL stays available to other threads while it decodes.
+
+What 0.5.0 changed, per its release notes, and why none of it reaches the module: small-model (Pocket) architectures the module does not select by default (a `model` value can name one); a Mimi decoder context change that makes output "slightly" differ (the tests assert PCM, never content); catalogs now keep the checkpoint's own voices when a catalog is added, and a local catalog's voice files must sit inside its folder (the module adds no catalog, only a single `.safetensors` file through `add_voice`); Rust-only breaking changes. `DEFAULT_MODEL` and `DEFAULT_VOICE_CATALOG` kept their 0.4.2 revisions, so the default checkpoint and voices are byte-identical.
 
 Not verified on Linux or Windows: the device list of those wheels (assumed `["cpu"]`) and the timings.
 

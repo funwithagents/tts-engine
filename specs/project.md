@@ -62,10 +62,10 @@ Extras (`[project.optional-dependencies]`):
 
 | Extra | Kind | Packages | Spec |
 |---|---|---|---|
-| `elevenlabs` | Provider | `elevenlabs` (official SDK), `miniaudio` (streaming MP3→PCM decode) | [elevenlabs-module.md](modules/elevenlabs.md) |
+| `elevenlabs` | Provider | `elevenlabs>=2.39,<3` (official SDK), `miniaudio` (streaming MP3→PCM decode) | [elevenlabs-module.md](modules/elevenlabs.md) |
 | `pocket` | Provider | `pocket-tts` (pulls in `torch`) | [pocket-module.md](modules/pocket.md) |
 | `gradium` | Provider | `gradium` (official async SDK; pulls in `aiohttp`) | [gradium-module.md](modules/gradium.md) |
-| `phonon` | Provider | `ptts` (Rust runtime, numpy only, no torch) | [phonon-module.md](modules/phonon.md) |
+| `phonon` | Provider | `ptts>=0.4.2,<0.6` (Rust runtime, numpy only, no torch) | [phonon-module.md](modules/phonon.md) |
 | `qwen3` | Provider | `qwentts-cpp-python>=0.5,<0.6` (ctypes bindings over the qwentts.cpp GGML engine, numpy + `huggingface-hub` only, no torch), **Apple-silicon macOS only** by environment marker | [qwen3-module.md](modules/qwen3.md) |
 | `kokoro` | Provider | `kokoro-onnx>=0.6.1,<0.7` (Kokoro-82M on onnxruntime with a bundled espeak-ng; pulls in `onnxruntime`, `phonemizer` (GPLv3+), `espeakng-loader`; no torch), `huggingface-hub` (fetches the model files) | [kokoro-module.md](modules/kokoro.md) |
 | `piper` | Provider | `piper-tts>=1.8,<2` (GPL-3.0-or-later; Piper voices on onnxruntime with espeak-ng compiled in; pulls in `onnxruntime`, `pathvalidate`; no torch), `huggingface-hub` (fetches the voices) | [piper-module.md](modules/piper.md) |
@@ -102,6 +102,11 @@ Modules pull in third-party libraries of wildly different weight — the ElevenL
 
   The registry stays static and `load_module` keeps importing fine; construction fails — with an actionable message — only when you actually select a backend whose extra isn't installed.
 - **The library imports cleanly without any extra.** A subprocess guard test (`tests/modules/test_lazy_imports.py`) poisons `elevenlabs`, `miniaudio`, `pocket_tts`, `torch`, `gradium`, `aiohttp`, `ptts`, `mistralai`, `deepgram`, `google.genai`, `cartesia`, `openai`, `qwentts_cpp`, `kokoro_onnx`, and `piper` in `sys.modules`, then proves `import tts_engine` and the registry still load and that constructing each provider raises the `ConfigError` hint. Real-provider coverage lives in the opt-in `tests-e2e/` tier and skips cleanly when the extra or the key is absent (see [testing.md](testing.md)); the fixture modules give that tier something that always runs.
+
+- **Every provider extra carries an upper bound, with a one-line reason.** The bound is the SDK major (or, for a pre-1.0 runtime, the minor) whose surface the module was validated against, and the comment next to it in `pyproject.toml` names that surface and the version checked. Moving a bound is a deliberate step: re-check the calls the module makes against the new release, run its live row, and record the version in the backend's spec. An unbounded extra would let a consumer resolve an SDK the tests never ran.
+- **A module follows the provider's current API.** It keeps an older API only while the provider still supports it and only when the older API serves a distinct use case (another server population, a cheaper model line). It drops the older API when the provider sunsets it. Two worked cases:
+  - *OpenAI.* `/v1/audio/speech` loses every OpenAI model on 2027-01-06, and its successor (`gpt-realtime-2.1-mini`) is served only by the Realtime API. The endpoint itself lives on as a de-facto standard implemented by many local servers (vLLM-Omni, Kokoro-FastAPI, `mlx_audio.server`, …) — a distinct population — so the module that drives it stays, renamed `openai-compatible`, and the vendor key `openai` goes to a new Realtime module.
+  - *Deepgram.* Flux TTS (`speak.v2`) is GA alongside Aura-2 (`speak.v1`), which Deepgram still supports with no sunset announced and which serves its own voice line. The one `deepgram` module therefore drives both, chosen by the model, and drops v1 when Deepgram sunsets it.
 
 ## Dependency strategy for transports
 

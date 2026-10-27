@@ -103,7 +103,7 @@ Error and cancellation rules are unchanged: connection, socket and decoder failu
 
 ### Dependencies and lazy import
 
-Requires the `elevenlabs` extra: `pip install tts-engine[elevenlabs]` / `uv sync --extra elevenlabs`, declared in `[project.optional-dependencies]` as `elevenlabs = ["elevenlabs", "miniaudio"]` — the official SDK plus `miniaudio` for the MP3 → PCM streaming decode. Neither is a base dependency (see [project.md](../project.md), "Dependency strategy for TTS backends").
+Requires the `elevenlabs` extra: `pip install tts-engine[elevenlabs]` / `uv sync --extra elevenlabs`, declared in `[project.optional-dependencies]` as `elevenlabs = ["elevenlabs>=2.39,<3", "miniaudio"]` — the official SDK plus `miniaudio` for the MP3 → PCM streaming decode. The `<3` bound is the 2.x `text_to_speech.stream` surface the module calls (validated on 2.74.1, which still takes every parameter the module passes); the stream-input WebSocket is driven by hand, so it does not depend on the SDK version. Neither is a base dependency (see [project.md](../project.md), "Dependency strategy for TTS backends").
 
 `modules/__init__.py` imports every module *class* eagerly to build `REGISTRY`, so `elevenlabs/module.py` must **not** import `elevenlabs` or `miniaudio` at file top. Both imports happen inside `__init__`, turning a missing extra into an actionable `ConfigError` before any config field is read:
 

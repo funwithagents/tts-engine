@@ -511,7 +511,7 @@ wheels = [
 
 [[package]]
 name = "elevenlabs"
-version = "2.39.0"
+version = "2.74.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -521,9 +521,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/87/98/06e115eb658628fc5fe19e8374a6b4b54824177f77670bf174f5be822a5c/elevenlabs-2.39.0.tar.gz", hash = "sha256:fde43cae47e499ac20888906849fbb880344aa889c605be2a5ba6ad5f878e1b1", size = 524346, upload-time = "2026-03-12T18:39:52.43Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2e/03/b53b9d46dc6e682aa5595059d8035193405715613ad38eed69a1e609e047/elevenlabs-2.74.1.tar.gz", hash = "sha256:7f7159e8c079b753363b387b4e6a8c0d3b413df2adb435eec3befd4ea8f48e1f", size = 884448, upload-time = "2026-10-20T13:25:28.714Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5c/13/cf71880bcb3ee8ed0f354ef74525959a7401769dea2d280d03904f3e5f8c/elevenlabs-2.39.0-py3-none-any.whl", hash = "sha256:e7d6a291dbf31f1d5d22dfed346bd49ba0fc5e8886b31f38cd8668b4827ed508", size = 1418502, upload-time = "2026-03-12T18:39:50.434Z" },
+    { url = "https://files.pythonhosted.org/packages/b6/3b/100069b49ee9ae7eea63c57e97beb84143dcb607645e0357688ffe1674e2/elevenlabs-2.74.1-py3-none-any.whl", hash = "sha256:e94380ea301cb2324ec6daf05f0cf567ac9831454ca3f1fa7cfdb62d48705d27", size = 2320472, upload-time = "2026-10-20T13:25:26.301Z" },
 ]
 
 [[package]]
@@ -1823,21 +1823,21 @@ wheels = [
 
 [[package]]
 name = "ptts"
-version = "0.4.2"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/95/d9/95e638cb5dbdf06154466ec99f5a7c07ef4034af0443706fdce0feeb0db8/ptts-0.4.2.tar.gz", hash = "sha256:3e8094a733db45917a70ec781c08e818b660cd19c554e3ee6597cd31df87787d", size = 291252, upload-time = "2026-10-25T19:28:32.132Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e0/b6/d904102f788ffba8daaa49b88d73cb6195ad1eb00db1ab9b0ce840ef20f4/ptts-0.5.0.tar.gz", hash = "sha256:bb3c79bcfb6a10cf83899a3c806fec30919c646b47b5860aecf4b1c512e65f4c", size = 294857, upload-time = "2026-10-27T09:32:27.766Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9f/33/97319a6c4bbef83a6fff8bc1437f90269d0db939531a6b0290224b4925d8/ptts-0.4.2-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:c1147dfc547a7357ea557ff5ee269bd7a9227ee449cd61efa8429af9ada66eea", size = 6889513, upload-time = "2026-10-25T19:28:19.739Z" },
-    { url = "https://files.pythonhosted.org/packages/99/02/ea27b55f962f773a52700b699a3e423bc593425227b815634d9369e03ccd/ptts-0.4.2-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:7a7ecdf1d86b39b0694e6d1acb60065aa3bbfde3dc8361a7b00d3543c305b1bd", size = 6819209, upload-time = "2026-10-25T19:28:21.526Z" },
-    { url = "https://files.pythonhosted.org/packages/b6/53/8ea2d07be040cf4779f7d3e9d1a4526690eabef8e01fff7fe76d440fb1f6/ptts-0.4.2-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:fb223e3e8c514b77c62cb5cc1ce43e1d062c1d0d3dcd88001efde37e4231f185", size = 6791374, upload-time = "2026-10-25T19:28:22.852Z" },
-    { url = "https://files.pythonhosted.org/packages/3f/b8/cd23a8535e0802951548ff2992672c835914d01829b18f34c88b3e6b0ec0/ptts-0.4.2-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:bd991d58d19dbd864119df72023e279b7ec2676b852f53006a63578b3f208870", size = 7457318, upload-time = "2026-10-25T19:28:24.531Z" },
-    { url = "https://files.pythonhosted.org/packages/a0/eb/a9ab1966fb4a7a00d66e38dfb851592c0ffbcf46b763155e3579cfc1faa8/ptts-0.4.2-cp39-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:f042b8a7c2aac12767c55087cd744d1c39e60eb4d46bac286fd54c49286e3b83", size = 6973914, upload-time = "2026-10-25T19:28:26.062Z" },
-    { url = "https://files.pythonhosted.org/packages/05/2d/a905fb29bb170c536c758ad872c0ac313e11d541f429919f08e3fb404121/ptts-0.4.2-cp39-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:4859b9bfdbf9e936fd02c590b24ee6eb141d325c9e972741b7daddd644393524", size = 7489688, upload-time = "2026-10-25T19:28:27.601Z" },
-    { url = "https://files.pythonhosted.org/packages/3e/7d/3f9aab9f385d991b147e6de7ee16661c77c2542dc64af1d194bb10bc2d3a/ptts-0.4.2-cp39-abi3-win_amd64.whl", hash = "sha256:441b16ab9c2907973dc97d05965d984b74bf66cea9c412b9fdab0972727db6fb", size = 6825005, upload-time = "2026-10-25T19:28:29.376Z" },
-    { url = "https://files.pythonhosted.org/packages/29/42/893086d77e917436f50b1aa2a092695b7119f23d6cc832c40dd609bcede9/ptts-0.4.2-cp39-abi3-win_arm64.whl", hash = "sha256:120d87acdfe082cb5571a89df34c2a852a30305e3887b30eefc12a5d4b9628b4", size = 6559395, upload-time = "2026-10-25T19:28:30.891Z" },
+    { url = "https://files.pythonhosted.org/packages/5b/d6/ce52bf51c403e44d28987f9e31cc949249e42bca1f1737a6c4372f8331b3/ptts-0.5.0-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:8d4ae2045a1526dfa8c38c3488138778b8185f0d2f3a75d1dc39ac008b33b67b", size = 6894671, upload-time = "2026-10-27T09:32:14.384Z" },
+    { url = "https://files.pythonhosted.org/packages/c6/9d/b3c570384dd2d91c5d4033fee002c17dd8c30940d34966daf94ec16323bb/ptts-0.5.0-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:9abddb2178ab7fbff10c6909b8a0e4db7165a91212c34a986b00cf13066a0ce3", size = 6832616, upload-time = "2026-10-27T09:32:16.136Z" },
+    { url = "https://files.pythonhosted.org/packages/90/6e/e2df7e1e090582a68373ae524a1b3cb47bb91981c53d5d5576751a37f78a/ptts-0.5.0-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:cbfaf26d00d6054bb118efe125f3b9907f982f4519e2a95d0b0005d4c5d00ec6", size = 6792140, upload-time = "2026-10-27T09:32:17.922Z" },
+    { url = "https://files.pythonhosted.org/packages/64/83/493867acbb08b9737e434a1b616b318f6b70a36b461a64b01a0a4e0c0f49/ptts-0.5.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:953739873e0200d40db7f515677a43f13805d1f0df0ff750db15a3b73cbbca45", size = 7462719, upload-time = "2026-10-27T09:32:19.711Z" },
+    { url = "https://files.pythonhosted.org/packages/f1/d4/2fc1267365509faf825f03b484eaae71f56f628833a8b9125ac35f0ddf4a/ptts-0.5.0-cp39-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:1f1bc89cf9c8e8da369724aa013b140966c1cae4e43167261bd6c6730dac2a19", size = 6971389, upload-time = "2026-10-27T09:32:21.301Z" },
+    { url = "https://files.pythonhosted.org/packages/47/32/7ece69fcaad76e348fcc39ef8598db94458038df7fe65568e91e4cd6e7cd/ptts-0.5.0-cp39-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:a8422bdfaa8d6dba53bb21554307fe68f7e32b6064c03f272932da05a5847386", size = 7493927, upload-time = "2026-10-27T09:32:23.335Z" },
+    { url = "https://files.pythonhosted.org/packages/37/82/4677ab2abf66fb785a5a39ba65393a4b9c09dc8801ecafe32aa425f27699/ptts-0.5.0-cp39-abi3-win_amd64.whl", hash = "sha256:92a4ef33f5a1faad16a2b6c883c1bb00accdf884d58ef2d7c57d8717b1ea4fcd", size = 6837629, upload-time = "2026-10-27T09:32:24.962Z" },
+    { url = "https://files.pythonhosted.org/packages/ac/6e/1f070eac385072d373706245dab0faa30bf14f1c241ef4609fa03250b6da/ptts-0.5.0-cp39-abi3-win_arm64.whl", hash = "sha256:ea3f14fd0b067e443b7e1821cf3f910a4e6e9ea78cd431960167d19aaac72e43", size = 6556598, upload-time = "2026-10-27T09:32:26.479Z" },
 ]
 
 [[package]]
@@ -2904,7 +2904,7 @@ dev = [
 requires-dist = [
     { name = "cartesia", extras = ["websockets"], marker = "extra == 'cartesia'", specifier = ">=4.2,<5" },
     { name = "deepgram-sdk", marker = "extra == 'deepgram'", specifier = ">=7.15,<8" },
-    { name = "elevenlabs", marker = "extra == 'elevenlabs'" },
+    { name = "elevenlabs", marker = "extra == 'elevenlabs'", specifier = ">=2.39,<3" },
     { name = "google-genai", marker = "extra == 'gemini'", specifier = ">=2.33,<3" },
     { name = "gradium", marker = "extra == 'gradium'", specifier = ">=0.6" },
     { name = "huggingface-hub", marker = "extra == 'kokoro'" },
@@ -2917,7 +2917,7 @@ requires-dist = [
     { name = "openai", marker = "extra == 'openai'", specifier = ">=3.37,<4" },
     { name = "piper-tts", marker = "extra == 'piper'", specifier = ">=1.8,<2" },
     { name = "pocket-tts", marker = "extra == 'pocket'", specifier = ">=4.0.1,<5" },
-    { name = "ptts", marker = "extra == 'phonon'", specifier = ">=0.4.2,<0.5" },
+    { name = "ptts", marker = "extra == 'phonon'", specifier = ">=0.4.2,<0.6" },
     { name = "qwentts-cpp-python", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'qwen3'", specifier = ">=0.5,<0.6" },
     { name = "sounddevice" },
     { name = "tts-engine", extras = ["elevenlabs", "pocket", "gradium", "phonon", "mistral", "deepgram", "gemini", "cartesia", "openai", "qwen3", "kokoro", "piper", "mcp"], marker = "extra == 'all'" },
