@@ -119,6 +119,13 @@ _ELEVENLABS_CONFIG = {
     "model": "eleven_flash_v2_5",
 }
 
+# Second `elevenlabs` row: a v4 model, which the module streams over the
+# text-to-dialogue socket instead of the text-to-speech one. Same key.
+_ELEVENLABS_V4_CONFIG = {
+    **_ELEVENLABS_CONFIG,
+    "model": "eleven_v4_turbo",
+}
+
 
 # Config for the `gradium` row of `MODULES` — same shape as the ElevenLabs row:
 # `api_key_env` names the variable, never the key. "Alex" from the flagship catalog.
@@ -208,6 +215,7 @@ def default_module() -> tuple[str, dict]:
 # and any extra-gated library (via `_REQUIRED_IMPORT`) decide when a row skips.
 MODULES = [
     pytest.param("elevenlabs", _ELEVENLABS_CONFIG, id="elevenlabs"),
+    pytest.param("elevenlabs", _ELEVENLABS_V4_CONFIG, id="elevenlabs-v4"),
     # Local-model backend: no api_key_env; gated on the `pocket` extra
     # (_REQUIRED_IMPORT) so it skips cleanly when torch/pocket-tts aren't installed.
     pytest.param("pocket", {"voice": "alba"}, id="pocket"),
