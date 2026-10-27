@@ -407,7 +407,11 @@ async def test_text_stream_worker_bounds_how_far_the_source_runs_ahead():
 
     await run_text_stream_worker(source(), worker, max_pending_chars=500)
     assert taken == 200  # everything still arrives
-    assert produced_when_first_taken[0] <= 6  # five queued, one waiting for room
+    # At most: five queued (the bound), the one the worker just took (which
+    # frees room for a sixth) and a seventh the pump holds while it waits for
+    # room again, since the source counts a piece before yielding it. Never
+    # the 200 an unbounded pump would have read.
+    assert produced_when_first_taken[0] <= 7
 
 
 async def test_text_stream_worker_accepts_one_piece_larger_than_the_bound():
