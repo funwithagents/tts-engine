@@ -44,11 +44,11 @@ class CaptureSink:
         self.drains += 1
 
 
-# module type → the importable library whose packaging extra gates that provider.
-# One row per provider extra, so `require_module` can skip when the extra is
-# absent; fixture modules (tone, audiofile) live in the base install and declare
-# nothing. See specs/project.md, "Dependency strategy for TTS backends".
-_REQUIRED_IMPORT: dict[str, str] = {
+# module type → the importable library (or libraries) whose packaging extra gates
+# that provider. One row per provider extra, so `require_module` can skip when the
+# extra is absent; fixture modules (tone, audiofile) live in the base install and
+# declare nothing. See specs/project.md, "Dependency strategy for TTS backends".
+_REQUIRED_IMPORT: dict[str, str | tuple[str, ...]] = {
     "elevenlabs": "elevenlabs",
     "pocket": "pocket_tts",
     "gradium": "gradium",
@@ -57,6 +57,8 @@ _REQUIRED_IMPORT: dict[str, str] = {
     "deepgram": "deepgram",
     "gemini": "google.genai",
     "cartesia": "cartesia",
+    # The SDK alone is the openai-compatible extra; Realtime also needs websockets.
+    "openai": ("openai", "websockets"),
     "openai-compatible": "openai",
     "qwen3": "qwentts_cpp",
     "kokoro": "kokoro_onnx",
@@ -91,12 +93,13 @@ def require_module(module_type: str, config: dict) -> None:
     if env_name and not os.environ.get(env_name):
         pytest.skip(f"{env_name} not set; skipping live test for {module_type!r}")
 
-    lib = _REQUIRED_IMPORT.get(module_type)
-    if lib and not _importable(lib):
-        pytest.skip(
-            f"{lib!r} not importable; install the {module_type!r} extra to run "
-            f"its live test (pip install tts-engine[{module_type}])"
-        )
+    libs = _REQUIRED_IMPORT.get(module_type, ())
+    for lib in (libs,) if isinstance(libs, str) else libs:
+        if not _importable(lib):
+            pytest.skip(
+                f"{lib!r} not importable; install the {module_type!r} extra to run "
+                f"its live test (pip install tts-engine[{module_type}])"
+            )
 
 
 def spoken_text(module_type: str) -> str:
@@ -164,6 +167,10 @@ _CARTESIA_CONFIG = {
 }
 
 
+# The `openai` (Realtime) row: the module's default model and voice.
+_OPENAI_REALTIME_CONFIG = {"api_key_env": "OPENAI_API_KEY"}
+
+
 # Config for the `openai-compatible` row of `MODULES` — same shape as the other API rows:
 # `api_key_env` names the variable, never the key. The row pins `tts-1` rather
 # than the module's default `gpt-4o-mini-tts`: that model's latency is erratic
@@ -226,6 +233,7 @@ MODULES = [
     pytest.param("deepgram", _DEEPGRAM_FLUX_CONFIG, id="deepgram-flux"),
     pytest.param("gemini", _GEMINI_CONFIG, id="gemini"),
     pytest.param("cartesia", _CARTESIA_CONFIG, id="cartesia"),
+    pytest.param("openai", _OPENAI_REALTIME_CONFIG, id="openai"),
     pytest.param("openai-compatible", _OPENAI_CONFIG, id="openai-compatible"),
     # Fixture modules: no key, no extra — these rows never skip.
     pytest.param("tone", {}, id="tone"),

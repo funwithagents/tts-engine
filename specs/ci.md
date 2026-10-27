@@ -65,7 +65,7 @@ The job used to run a PulseAudio null sink behind ALSA's `pulse` plugin. That ne
 | every `test_modules.py` scenario's `[deepgram]` and `[deepgram-flux]` rows | only when the `DEEPGRAM_API_KEY` secret is absent (or on a fork's pull request) |
 | every `test_modules.py` scenario's `[gemini]` row | when the `GEMINI_API_KEY` secret is absent (or on a fork's pull request); and, per test, when the key's quota is exhausted (`429 RESOURCE_EXHAUSTED`, [testing.md](testing.md), "Live tier: skip without credentials") |
 | every `test_modules.py` scenario's `[cartesia]` row | only when the `CARTESIA_API_KEY` secret is absent (or on a fork's pull request) |
-| every `test_modules.py` scenario's `[openai-compatible]` row | only when the `OPENAI_API_KEY` secret is absent (or on a fork's pull request) |
+| every `test_modules.py` scenario's `[openai]` and `[openai-compatible]` rows | only when the `OPENAI_API_KEY` secret is absent (or on a fork's pull request) |
 | every `test_modules.py` scenario's `[qwen3]` row | always: the `qwen3` extra installs only on Apple-silicon macOS, so `qwentts_cpp` is absent on the Linux runner ([modules/qwen3.md](modules/qwen3.md)) |
 
 `pocket`, `phonon`, `kokoro`, `piper`, `tone`, `audiofile` and the MCP test never skip in CI: their extras come with the `dev` group and they need no key.

@@ -22,7 +22,7 @@ With `base_url` (and `sample_rate`) it reaches any **OpenAI-compatible** `/v1/au
 
 Its shape is the Mistral one: a synchronous SDK iterator driven from the cancellable worker. For a text stream it **groups the pieces into sentences** (one request per sentence): the endpoint takes one complete `input` per request (see "Text stream").
 
-**Why the name.** OpenAI shuts down every model this endpoint serves on 2027-01-06 (`tts-1`, `tts-1-hd`, `gpt-4o-mini-tts` and its snapshots); its successor, `gpt-realtime-2.1-mini`, is served only by the Realtime API, which is a different protocol (a long-lived WebSocket and a conversation model that speaks a response). The endpoint outlives OpenAI's models on it through the compatible servers above, so the module is named for the endpoint, and the vendor key `openai` is reserved for a Realtime module of its own — following the rule in [project.md](../project.md) ("Dependency strategy for TTS backends"): a module follows the provider's current API and keeps an older one only while it serves a distinct use case. Until that module exists, `"type": "openai"` is simply unregistered (`ConfigError: Unknown TTS module type: 'openai'`). The module was registered as `openai` until 2026-10-27, before anyone depended on the key.
+**Why the name.** OpenAI shuts down every model this endpoint serves on 2027-01-06 (`tts-1`, `tts-1-hd`, `gpt-4o-mini-tts` and its snapshots); its successor, `gpt-realtime-2.1-mini`, is served only by the Realtime API, which is a different protocol (a long-lived WebSocket and a conversation model that speaks a response). The endpoint outlives OpenAI's models on it through the compatible servers above, so the module is named for the endpoint, and the vendor key `openai` belongs to the Realtime module, [openai.md](openai.md) — following the rule in [project.md](../project.md) ("Dependency strategy for TTS backends"): a module follows the provider's current API and keeps an older one only while it serves a distinct use case. The module was registered as `openai` until 2026-10-27, before anyone depended on the key.
 
 ## Config fields
 
@@ -106,11 +106,11 @@ Cooperative via `run_cancellable_worker` ([tts-module-interface.md](../tts-modul
 
 `synthesize_text_stream` runs one worker through `run_text_stream_worker`, groups the pieces with `segment_sentences`, and makes one request per sentence inside that worker, feeding each sentence's audio before requesting the next — the pocket/mistral structure ([tts-module-interface.md](../tts-module-interface.md), "Local-model modules", last bullet). Audio for sentence one plays while the stream is still delivering sentence two.
 
-Why not native: `/v1/audio/speech` takes one `input` per request. (OpenAI's Realtime API, the future `openai` module, also answers one `response.create` per complete text with no incremental text append, so it will group too.)
+Why not native: `/v1/audio/speech` takes one `input` per request. (OpenAI's Realtime API, the [`openai`](openai.md) module, also answers one `response.create` per complete text with no incremental text append, so it groups too.)
 
 ### Dependencies and lazy import
 
-Requires the `openai-compatible` extra: `pip install tts-engine[openai-compatible]` / `uv sync --extra openai-compatible`, declared in `[project.optional-dependencies]` as `openai-compatible = ["openai>=3.37,<4"]` and added to the `all` aggregate. The future `openai` (Realtime) extra will pull the same SDK. `<4`: a Stainless/Castiron-generated SDK whose majors move client surfaces; the module relies on 3.x's `with_streaming_response`. The SDK is pure Python (`httpx2`, `pydantic`, `jiter`, `anyio`): a light extra.
+Requires the `openai-compatible` extra: `pip install tts-engine[openai-compatible]` / `uv sync --extra openai-compatible`, declared in `[project.optional-dependencies]` as `openai-compatible = ["openai>=3.37,<4"]` and added to the `all` aggregate. The `openai` (Realtime) extra pulls the same SDK, with its `realtime` extra. `<4`: a Stainless/Castiron-generated SDK whose majors move client surfaces; the module relies on 3.x's `with_streaming_response`. The SDK is pure Python (`httpx2`, `pydantic`, `jiter`, `anyio`): a light extra.
 
 `modules/__init__.py` imports every module *class* eagerly to build `REGISTRY`, so `openai_compatible/module.py` must **not** import `openai` at file top. The import happens inside `__init__`, before any config field is read:
 

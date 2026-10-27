@@ -66,6 +66,13 @@ cartesia = [
 openai-compatible = [
     "openai>=3.37,<4",
 ]
+# The same SDK on OpenAI's Realtime API (gpt-realtime-2.1-mini), the successor
+# of its /v1/audio/speech models; the realtime extra adds websockets for the
+# sync socket. Base64 s16le PCM deltas, so no codec. <4: the 3.x realtime.connect
+# surface and GA event types the module reads — see specs/modules/openai.md.
+openai = [
+    "openai[realtime]>=3.37,<4",
+]
 # Gradium's Phonon on-device models through the ptts Rust runtime: numpy only,
 # no torch. <0.6: pre-1.0 and fast-moving, validated on 0.5.0 — see specs/modules/phonon.md.
 phonon = [
@@ -102,7 +109,7 @@ mcp = [
     "uvicorn",
 ]
 all = [
-    "tts-engine[elevenlabs,pocket,gradium,phonon,mistral,deepgram,gemini,cartesia,openai-compatible,qwen3,kokoro,piper,mcp]",
+    "tts-engine[elevenlabs,pocket,gradium,phonon,mistral,deepgram,gemini,cartesia,openai,openai-compatible,qwen3,kokoro,piper,mcp]",
 ]
 
 [dependency-groups]
