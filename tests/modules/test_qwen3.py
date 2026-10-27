@@ -40,6 +40,7 @@ class _FakeBackend:
         ]
         self.calls: list[dict] = []
         self.closed_streams: list[int] = []
+        self.instances: list = []
         self.tts_closed = False
         self.block: threading.Event | None = None
         self.reached = threading.Event()
@@ -56,7 +57,9 @@ def _fake_qwentts_cpp(backend: _FakeBackend) -> types.SimpleNamespace:
             backend.load_kwargs = kwargs
             if backend.raise_on_load is not None:
                 raise backend.raise_on_load
-            return cls()
+            tts = cls()
+            backend.instances.append(tts)
+            return tts
 
         def speaker_names(self) -> list[str]:
             return list(backend.speakers)
@@ -387,3 +390,11 @@ async def test_text_stream_cancel_closes_the_stream_before_cancelled_error(fake)
     assert count == settled
     assert fake.closed_streams == [0]
     assert [call["text"] for call in fake.calls] == ["Hi."]
+
+
+def test_close_frees_the_native_context_and_drops_the_runtime(fake):
+    module = Qwen3Module({"type": "qwen3"})
+    (runtime,) = fake.instances
+    module.close()
+    assert fake.tts_closed
+    assert all(value is not runtime for value in vars(module).values())

@@ -68,6 +68,7 @@ class _Fakes:
         self.sample_rate = 22050
         self.num_speakers = 1
         self.speaker_id_map: dict[str, int] = {}
+        self.instances: list = []
         self.length_scale = 1.2
         self.phoneme_type = PhonemeType.ESPEAK
         self.phonemize_error: Exception | None = None
@@ -98,6 +99,7 @@ def _install_fakes(monkeypatch, fakes: _Fakes, *, piper: bool = True) -> None:
     class FakeVoice:
         def __init__(self) -> None:
             self.config = fakes.config()
+            fakes.instances.append(self)
 
         @staticmethod
         def load(model_path, config_path=None):
@@ -489,3 +491,10 @@ def test_next_sentence_is_synthesized_while_the_current_one_plays(fakes):
 
     _say(PiperModule({"type": "piper"}), "One here. Two here.", callback)
     assert overlapped == [True]
+
+
+def test_close_drops_the_voice(fakes):
+    module = PiperModule({"type": "piper"})
+    (voice,) = fakes.instances
+    module.close()
+    assert all(value is not voice for value in vars(module).values())

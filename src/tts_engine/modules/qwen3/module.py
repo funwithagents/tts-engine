@@ -153,6 +153,13 @@ class Qwen3Module(TTSModule):
             tts.model_type(),
         )
 
+    def close(self) -> None:
+        # Free the native context (and GPU memory) now, then drop the runtime;
+        # the module is done.
+        tts = vars(self).pop("_tts", None)
+        if tts is not None:
+            tts.close()
+
     @property
     def sample_rate(self) -> int:
         return _SAMPLE_RATE

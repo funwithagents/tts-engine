@@ -6,11 +6,12 @@ import logging
 import queue
 import re
 import threading
+import time
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar, cast
 
 log = logging.getLogger(__name__)
 
@@ -84,6 +85,16 @@ class TTSModule(ABC):
         `text_stream` itself aborts the utterance and propagates unchanged.
         Returns or raises only after it has stopped invoking `callback`, including
         when the coroutine is cancelled.
+        """
+
+    def close(self) -> None:
+        """Release what the module holds for its lifetime: a provider closes
+        its SDK client, a local model drops its weights. Called once, by
+        `TTSEngine.close()`, with no utterance in flight; the module must not
+        be used afterwards. Threads that outlive an utterance (a socket's
+        closing tail, a lookahead producer, an abandoned connection setup)
+        hold nothing of the module's and are not waited for. The default
+        releases nothing: a fixture module has nothing to release.
         """
 
 
@@ -390,6 +401,100 @@ def feed_with_lookahead(
                 callback(item[start : start + slice_bytes])
     finally:
         done.set()
+
+
+_T = TypeVar("_T")
+
+
+def open_cancellable(
+    enter: Callable[[], _T],
+    leave: Callable[[_T], object],
+    *,
+    stop: threading.Event,
+    timeout: float,
+    what: str,
+) -> _T | None:
+    """Run a blocking setup step (``enter``: a socket's handshake) on a helper
+    thread and wait for it while polling ``stop``.
+
+    Returns what ``enter`` returned, or ``None`` once ``stop`` is set while it
+    was still running (the utterance is being abandoned). Raises
+    ``TimeoutError`` once ``timeout`` seconds have passed, and ``enter``'s own
+    exception unchanged when it fails. A result that arrives after the wait
+    gave up is handed to ``leave`` on the helper thread, so an abandoned
+    connection is closed rather than leaked; a failure of that late ``leave``
+    is logged. The helper thread is a daemon and is not joined.
+    """
+    outcome: list[object] = []
+    ready = threading.Event()
+    lock = threading.Lock()
+    gave_up = False
+
+    def run() -> None:
+        try:
+            value = enter()
+        except BaseException as exc:  # noqa: BLE001  (re-raised by the waiter)
+            with lock:
+                outcome.append(exc)
+                ready.set()
+            return
+        with lock:
+            if not gave_up:
+                outcome.append(value)
+                ready.set()
+                return
+        try:
+            leave(value)
+        except Exception:
+            log.debug("%s: closing an abandoned connection failed", what, exc_info=True)
+
+    threading.Thread(target=run, name=f"{what}-open", daemon=True).start()
+    deadline = time.monotonic() + timeout
+    while not ready.wait(_POLL_SECONDS):
+        if stop.is_set() or time.monotonic() >= deadline:
+            with lock:
+                if not ready.is_set():
+                    gave_up = True
+                    if stop.is_set():
+                        return None
+                    raise TimeoutError(f"{what}: not open within {timeout:g} s")
+    (value,) = outcome
+    if isinstance(value, BaseException):
+        raise value
+    return cast(_T, value)
+
+
+# A sentence end for `cut_at_boundary`: terminal punctuation, optional closing
+# quotes/brackets, then whitespace (kept with the cut piece) or a newline.
+_BOUNDARY_SENTENCE_END = re.compile(r"(?:[.!?…][\"'”’)\]»]*\s|\n)")
+
+
+def cut_at_boundary(text: str, room: int) -> int:
+    """Where to cut ``text`` so the first part fits in ``room`` characters:
+    after the last sentence end within it, else after the last whitespace,
+    else at ``room`` (a single word longer than the room). The cut keeps the
+    text verbatim: the two parts concatenate back to ``text``."""
+    head = text[:room]
+    ends = [m.end() for m in _BOUNDARY_SENTENCE_END.finditer(head)]
+    if ends:
+        return ends[-1]
+    space = max(head.rfind(" "), head.rfind("\t"))
+    return space + 1 if space > 0 else room
+
+
+def slice_text(text: str, max_chars: int) -> Iterator[str]:
+    """Yield ``text`` verbatim in slices of at most ``max_chars`` characters,
+    each cut with ``cut_at_boundary`` (a word longer than that is the one
+    slice allowed past the bound). For a backend that takes text
+    incrementally: a complete text sent in slices gives an admission gate
+    its grain, the way an LLM's pieces do for a stream."""
+    while text:
+        if len(text) <= max_chars:
+            yield text
+            return
+        cut = cut_at_boundary(text, max_chars)
+        yield text[:cut]
+        text = text[cut:]
 
 
 @contextlib.contextmanager

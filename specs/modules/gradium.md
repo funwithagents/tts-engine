@@ -145,6 +145,10 @@ except ImportError as exc:
 - A failure of the connection close never replaces a synthesis, callback or source error, or a cancellation: it is logged (see "Cancellation" and [tts-module-interface.md](../tts-module-interface.md), "`cleanup`"). A connection left half-open by a failed setup is closed before the error surfaces.
 - Cancellation requests cooperative worker shutdown and waits until callback activity has stopped before propagating — during setup as well as while audio flows.
 
+### Lifetime
+
+Built in `__init__`, released by `TTSModule.close()` when the engine closes ([tts-module-interface.md](../tts-module-interface.md), "Lifetime and ownership"): `close()` releases nothing of its own: `GradiumClient` exposes no close and opens its sessions per call; every connection is per utterance.
+
 ## Module ID
 
 Registered in `REGISTRY` as `"gradium"` ([modules/__init__.py](../../src/tts_engine/modules/__init__.py)).

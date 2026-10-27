@@ -62,6 +62,7 @@ class _FakeBackend:
 
     def __init__(self) -> None:
         self.client_kwargs: dict | None = None
+        self.client_closed = False
         self.requests: list[dict] = []
         self.responses: list[_FakeResponse] = []
         self.chunks: list = [_pcm([1, 2]), _pcm([3, -4, 5])]
@@ -91,6 +92,9 @@ def fake(monkeypatch) -> _FakeBackend:
             backend.client_kwargs = kwargs
             speech = types.SimpleNamespace(with_streaming_response=StreamingSpeech())
             self.audio = types.SimpleNamespace(speech=speech)
+
+        def close(self) -> None:
+            backend.client_closed = True
 
     package = types.ModuleType("openai")
     package.OpenAI = OpenAI  # type: ignore[attr-defined]
@@ -402,3 +406,8 @@ async def test_text_stream_cancel_closes_the_response_before_cancelled_error(fak
     assert count == settled
     assert fake.responses[0].closed
     assert fake.texts == ["Hi."]
+
+
+def test_close_closes_the_sdk_client(fake):
+    OpenAIModule(_BASE).close()
+    assert fake.client_closed

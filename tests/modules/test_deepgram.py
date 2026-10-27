@@ -12,13 +12,15 @@ import logging
 import queue
 import sys
 import threading
+import time
 import types
 
 import pytest
 
 from tts_engine.config import ConfigError
-from tts_engine.modules.base import TTSError, TTSOptions
+from tts_engine.modules.base import TTSError, TTSOptions, slice_text
 from tts_engine.modules.deepgram import DeepgramModule
+from tts_engine.modules.deepgram import module as deepgram_module
 
 _BASE = {"type": "deepgram", "api_key": "k"}
 _AUDIO = b"\x01\x00\x02\x00"
@@ -118,6 +120,9 @@ class _FakeConnection:
     def __enter__(self) -> _FakeSocket:
         if self._backend.raise_on_connect is not None:
             raise self._backend.raise_on_connect
+        if self._backend.connect_gate is not None:
+            self._backend.connecting.set()
+            self._backend.connect_gate.wait(5)  # a slow handshake
         socket = _FakeSocket(self._backend)
         self._backend.sockets.append(socket)
         return socket
@@ -144,6 +149,8 @@ class _FakeBackend:
         self.held = 0
         self.raise_on_connect: Exception | None = None
         self.raise_on_send: Exception | None = None
+        self.connect_gate: threading.Event | None = None  # holds the handshake
+        self.connecting = threading.Event()
 
     @property
     def socket(self) -> _FakeSocket:
@@ -252,6 +259,10 @@ def test_api_key_env_pointing_to_unset_var_raises(fake, monkeypatch):
         ({"speed": "1"}, "speed"),
         ({"mip_opt_out": "yes"}, "mip_opt_out"),
         ({"mip_opt_out": 1}, "mip_opt_out"),
+        ({"timeout": 0}, "timeout"),
+        ({"timeout": True}, "timeout"),
+        ({"timeout": float("inf")}, "timeout"),
+        ({"timeout": "30"}, "timeout"),
     ],
 )
 def test_invalid_field_raises_config_error(fake, override, field):
@@ -354,8 +365,7 @@ async def test_sender_waits_for_flushed_before_the_next_segment(fake):
 
     sent = list(fake.socket.sent)
     assert sent.count("FLUSH") == 1
-    after_first_flush = sent[sent.index("FLUSH") + 1 :]
-    assert sum(len(t) for t in after_first_flush) <= 900
+    assert sent[-1] == "FLUSH"  # nothing of the next segment until Flushed
 
     while not task.done():  # answer each held Flush as the sender reaches it
         fake.socket.release_flushed()
@@ -507,3 +517,79 @@ async def test_text_stream_cancel_while_the_server_is_silent_stops_promptly(fake
         await asyncio.wait_for(task, timeout=1)
     assert await asyncio.to_thread(fake.socket.closed.wait, 1)
     assert "CLOSE" not in fake.socket.sent
+
+
+# --- connection setup --------------------------------------------------------
+
+
+async def test_cancel_during_the_handshake_surfaces_promptly_and_closes_late(fake):
+    fake.connect_gate = threading.Event()
+    task = asyncio.create_task(
+        DeepgramModule(_BASE).synthesize_text("Hi.", TTSOptions(), lambda _b: None)
+    )
+    await asyncio.to_thread(fake.connecting.wait, 5)
+
+    started = time.perf_counter()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert time.perf_counter() - started < 1  # not the handshake's wait
+
+    fake.connect_gate.set()  # the handshake completes after the caller left
+    assert await asyncio.to_thread(lambda: fake.sockets and fake.socket.closed.wait(1))
+    assert fake.socket.sent == []
+
+
+def test_handshake_slower_than_timeout_is_tts_error(fake):
+    fake.connect_gate = threading.Event()
+    with pytest.raises(TTSError, match="not open within"):
+        _say(DeepgramModule({**_BASE, "timeout": 0.05}), "Hi.")
+    fake.connect_gate.set()
+
+
+# --- bounded unread audio ----------------------------------------------------
+
+
+def test_complete_text_is_sent_in_slices(fake):
+    text = "The quick brown fox jumps over the lazy dog. " * 4
+    _say(DeepgramModule(_BASE), text)
+    assert "".join(fake.texts) == text
+    assert len(fake.texts) > 1
+    assert all(len(t) <= 50 for t in fake.texts)
+
+
+async def test_sender_waits_for_playback_before_admitting_more_text(fake, monkeypatch):
+    # The bound is one fake chunk (4 bytes): with the callback blocked on the
+    # first chunk, the sender admits text until the audio read fills the
+    # bound (plus whatever it sent before the reader caught up), then stops;
+    # once playback resumes, the rest goes through. The flush gate is kept
+    # out of the way (every Flush answered at once).
+    monkeypatch.setattr(deepgram_module, "_MAX_UNREAD_SECONDS", 4 / (2 * 24000))
+    release = threading.Event()
+    first = threading.Event()
+
+    def callback(_chunk: bytes) -> None:
+        first.set()
+        release.wait(5)
+
+    text = "Word " * 600
+    slices = len(list(slice_text(text, 50)))
+    task = asyncio.create_task(
+        DeepgramModule(_BASE).synthesize_text(text, TTSOptions(), callback)
+    )
+    await asyncio.to_thread(first.wait, 5)
+    await asyncio.sleep(0.1)  # let the sender run as far as the gate allows
+    held = len(fake.texts)
+    assert 1 <= held < slices
+
+    release.set()
+    await asyncio.wait_for(task, timeout=5)
+    assert len(fake.texts) == slices
+    assert "".join(fake.texts) == text
+
+
+def test_unanswered_flush_with_a_silent_server_is_tts_error(fake):
+    fake.hold_flushed = True  # the server never answers the Flush
+    sentence = "The quick brown fox jumps over the lazy dog near the bank. "
+    with pytest.raises(TTSError, match="no answer within"):
+        _say(DeepgramModule({**_BASE, "timeout": 0.05}), sentence * 12)

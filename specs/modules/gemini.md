@@ -85,7 +85,7 @@ Every audio part is `inline_data` with `mime_type` `audio/l16; rate=24000; chann
 
 The module checks each audio part's mime type and raises `TTSError` if it is not `audio/l16`, names a `rate=` other than 24000, or names a `channels=` other than 1 (a stereo response fed to a mono sink would play interleaved at half speed), so a future format change fails loudly instead of playing noise; a parameter the API omits is taken at its documented value (24 kHz, mono). A part whose byte length is odd (a sample split across two chunks — not observed, chunks are multiples of 1920 bytes) carries the odd byte over to the next part; a lone byte left at the end is dropped. Parts without `inline_data` (a text part) are skipped.
 
-Chunks are small — observed 1920–7680 bytes (40–160 ms) — so each is handed to `callback` as is, without slicing: a cancel is honored within one chunk's playback.
+Chunks are small — observed 1920–7680 bytes (40–160 ms) — so each is handed to `callback` as is, without slicing: a cancel is honored within one chunk's playback. **That is an assumption about the provider, not a guarantee**: the API documents no part size, and a model that returned seconds of audio per part would hold a cancel for that long (the default sink's `feed` blocks for the whole chunk). The 100 ms slicing openai and mistral do would remove the dependence; Gemini adopts it when the slicing helper those modules share lands (repository review, point 2), and until then the measured sizes are what the cancellation latency below rests on.
 
 ### End of stream and refusals
 
@@ -132,6 +132,10 @@ The `import google.genai as genai` form is deliberate. `from google import genai
 - Any exception raised by the SDK or the transport — a `google.genai.errors.APIError` (`ClientError`: bad key, unknown voice, model or language; `ServerError`: 5xx), an `httpx` connection or read failure mid-stream — is caught and re-raised as `TTSError(f"Gemini request failed: {exc}")`, chained via `raise ... from exc`. A wrong mime type, a non-`STOP` finish reason or a block reason raises `TTSError` too (see above).
 - Exceptions raised by `callback` are downstream playback failures. They propagate unchanged and are not mislabeled as Gemini request failures: the generator is advanced inside the provider `try`, `callback` is invoked outside it.
 - A missing extra surfaces as `ConfigError` at construction, not `TTSError`.
+
+### Lifetime
+
+Built in `__init__`, released by `TTSModule.close()` when the engine closes ([tts-module-interface.md](../tts-module-interface.md), "Lifetime and ownership"): `close()` calls `genai.Client.close()`, releasing the SDK's HTTP pool; every response generator is per utterance.
 
 ## Module ID
 

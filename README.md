@@ -100,6 +100,13 @@ text stream → TTSEngine.say_stream() ↗                 └─ AudioPlayer by
 
 The module declares its output sample rate, and the engine configures the default player to match it. Calls to `say()` and `say_stream()` on the same engine are serialized, and each call returns after the sink has been drained.
 
+An engine holds its module's client or loaded model for its lifetime. Release it with `await engine.close()`, or use the engine as an async context manager; after that, `say()` and `say_stream()` raise `RuntimeError`. The sink is not touched: an injected sink is yours to close.
+
+```python
+async with TTSEngine(config) as engine:
+    await engine.say("Hello from the TTS engine")
+```
+
 ## Configuring an engine
 
 `TTSEngine` consumes a `TTSEngineConfig`. Whether it comes from a dictionary, JSON text, or a file, its data has the same **engine-block** shape. `module.type` selects the module and every other `module` field is specific to it (this example uses `pocket`; see [TTS modules](#tts-modules)):
@@ -387,6 +394,7 @@ Prefer referencing an environment variable so secrets do not appear in configura
 | `model` | no | `eleven_flash_v2_5` | Model ID. `eleven_flash_v2_5` favors latency; `eleven_multilingual_v2` favors quality. |
 | `stability` | no | `0.5` | Voice stability from 0.0 to 1.0. |
 | `similarity_boost` | no | `0.75` | Similarity boost from 0.0 to 1.0. |
+| `timeout` | no | `30` | Seconds to wait for the provider before a stalled request fails; also how long a cancel issued during such a stall can take. |
 
 The module emits mono PCM at 44,100 Hz.
 
@@ -427,6 +435,7 @@ Prefer referencing an environment variable so secrets do not appear in configura
 | `rewrite_rules` | no | the voice's language | Text-rewriting rules applied before synthesis; `none` disables them. |
 | `pronunciation_id` | no | — | Pronunciation dictionary ID. |
 | `base_url` | no | SDK default | API base URL, for a regional or self-hosted endpoint. |
+| `timeout` | no | `30` | Seconds to wait for the provider before a stalled request fails; also how long a cancel issued during such a stall can take. |
 
 The module emits mono PCM at the configured `sample_rate`. Voice-setting fields are sent only when set, so the API's own defaults apply otherwise.
 
@@ -457,6 +466,7 @@ pip install "tts-engine[mistral]"
 | `voice_id` | yes | — | A preset voice's ID or slug (`client.audio.voices.list()` lists them), or a custom voice's ID. The API has no default voice. |
 | `model` | no | `voxtral-mini-tts-3-0` | Mistral TTS model ID. |
 | `expressiveness` | no | API default | Speaker guidance scale, a finite number of at least 1.0. |
+| `timeout` | no | `30` | Seconds to wait for the provider before a stalled request fails; also how long a cancel issued during such a stall can take. |
 | `server_url` | no | SDK default | API base URL, for a regional or self-hosted endpoint. |
 
 The module emits mono PCM at 24,000 Hz. Text is sent verbatim, so the model's inline emotion and pace tags pass through. A text stream is synthesized one request per sentence.
@@ -489,8 +499,9 @@ pip install "tts-engine[deepgram]"
 | `sample_rate` | no | `24000` | Output rate: `8000`, `16000`, `24000`, `32000` or `48000`. |
 | `speed` | no | API default (1.0) | Speaking-rate multiplier, 0.7 to 1.5. |
 | `mip_opt_out` | no | API default | `true` opts out of Deepgram's Model Improvement Program. |
+| `timeout` | no | `30` | Seconds to wait for the provider before a stalled request fails; also how long a cancel issued during such a stall can take. |
 
-The module emits mono PCM at the configured `sample_rate`. A text stream goes to the socket as it arrives. Long texts are sent in flushed segments, so the server never holds more unspoken text than it accepts.
+The module emits mono PCM at the configured `sample_rate`. A text stream goes to the socket as it arrives, and a complete text in small slices. Text is handed to the server in flushed segments, one at a time, and only while the audio already received runs less than about ten seconds ahead of playback, so the server never holds more unspoken text than it accepts and a long reply does not pile up audio in memory.
 
 ### `gemini`
 
@@ -519,6 +530,7 @@ pip install "tts-engine[gemini]"
 | `voice` | no | API default | A prebuilt voice name, e.g. `Kore`, `Puck`, `Charon` or `Zephyr`. |
 | `model` | no | `gemini-3.8-flash-tts` | Gemini TTS model ID, e.g. `gemini-3.8-flash-lite-tts`. |
 | `language_code` | no | detected from the text | BCP-47 language code, e.g. `en-US` or `fr-FR`. |
+| `timeout` | no | `30` | Seconds to wait for the provider before a stalled request fails; also how long a cancel issued during such a stall can take. |
 
 The module emits mono PCM at 24,000 Hz. Text is sent verbatim as the prompt, so natural-language direction ("Say cheerfully: …") and inline tags pass through. A text stream is synthesized one request per sentence, which has two limitations:
 
@@ -557,8 +569,9 @@ pip install "tts-engine[cartesia]"
 | `volume` | no | API default | Volume multiplier, `0.5`–`2.0`. |
 | `emotion` | no | neutral | An emotion name such as `happy`, `calm` or `sympathetic`. |
 | `max_buffer_delay_ms` | no | API default (3000) | How long the server may wait for more text before speaking a fragment with no sentence end, `0`–`5000`. |
+| `timeout` | no | `30` | Seconds to wait for the provider before a stalled request fails; also how long a cancel issued during such a stall can take. |
 
-The module emits mono PCM at the configured `sample_rate`. A text stream goes to the socket as it arrives. If the text source pauses for several seconds, the module continues on a fresh Cartesia context, so the rest of the text is still spoken.
+The module emits mono PCM at the configured `sample_rate`. A text stream goes to the socket as it arrives, and a complete text in small slices. Text is handed to the server one segment per Cartesia context, the next context opened once the server has acknowledged the previous one and only while the audio already received runs less than about ten seconds ahead of playback. If the text source pauses for several seconds, the module ends the idle context and continues on a fresh one, so the rest of the text is still spoken.
 
 ### `openai`
 
@@ -590,6 +603,7 @@ pip install "tts-engine[openai]"
 | `speed` | no | API default (1.0) | Speaking-rate multiplier, `0.25`–`4.0`. |
 | `base_url` | no | OpenAI | Base URL of an OpenAI-compatible server, including `/v1`, e.g. `http://localhost:8000/v1`. |
 | `sample_rate` | no | `24000` | The rate of the server's `pcm` output. OpenAI's is always 24,000 Hz; set it only with `base_url`, to match the server. |
+| `timeout` | no | `30` | Seconds to wait for the provider before a stalled request fails; also how long a cancel issued during such a stall can take. |
 
 The module emits mono PCM at `sample_rate`. A text stream is synthesized one request per sentence. OpenAI's time to first audio varies: `tts-1` takes about 1.2 s, while `gpt-4o-mini-tts` took from under 1 s to about 19 s in testing. OpenAI has announced the shutdown of these speech models for 2027-01-06.
 
@@ -747,7 +761,7 @@ uv run tts-engine-mcp --config config.json
 uv run tts-engine-mcp --config examples/config.tone.json
 ```
 
-The `server` block defaults to `127.0.0.1:8000` when omitted. Connect an MCP client to `http://127.0.0.1:8000/mcp`. Server log verbosity is controlled by the `--log-level` command-line flag rather than the JSON configuration:
+The `server` block defaults to `127.0.0.1:8000` when omitted. Connect an MCP client to `http://127.0.0.1:8000/mcp`. On shutdown (Ctrl-C), the server closes the engine, releasing the provider's client or the local model. Server log verbosity is controlled by the `--log-level` command-line flag rather than the JSON configuration:
 
 ```bash
 uv run tts-engine-mcp --config config.json --log-level DEBUG

@@ -73,6 +73,7 @@ class _FakeBackend:
 
     def __init__(self) -> None:
         self.client_kwargs: dict | None = None
+        self.client_closed = False
         self.requests: list[dict] = []
         self.streams: list[_FakeEvents] = []
         self.events: list = [
@@ -110,6 +111,10 @@ def fake(monkeypatch) -> _FakeBackend:
         def __init__(self, **kwargs) -> None:
             backend.client_kwargs = kwargs
             self.audio = types.SimpleNamespace(speech=Speech())
+
+        def __exit__(self, *_exc) -> None:
+            # The speakeasy SDK closes its HTTP client here; there is no close().
+            backend.client_closed = True
 
     package = types.ModuleType("mistralai")
     client = types.ModuleType("mistralai.client")
@@ -392,3 +397,8 @@ async def test_text_stream_cancel_closes_the_stream_before_cancelled_error(fake)
     assert count == settled
     assert fake.streams[0].closed
     assert fake.texts == ["Hi."]
+
+
+def test_close_closes_the_sdk_client(fake):
+    MistralModule(_BASE).close()
+    assert fake.client_closed

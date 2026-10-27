@@ -133,6 +133,10 @@ The backend package is named `tts_engine.modules.openai`; with absolute imports 
 - Exceptions raised by `callback` are downstream playback failures. They propagate unchanged and are not mislabeled as OpenAI request failures: the chunk iterator is advanced inside the provider `try`, `callback` is invoked outside it.
 - A missing extra surfaces as `ConfigError` at construction, not `TTSError`.
 
+### Lifetime
+
+Built in `__init__`, released by `TTSModule.close()` when the engine closes ([tts-module-interface.md](../tts-module-interface.md), "Lifetime and ownership"): `close()` calls `OpenAI.close()`, releasing the SDK's HTTP pool; every streaming response is per utterance.
+
 ## Module ID
 
 Registered in `REGISTRY` as `"openai"` ([modules/__init__.py](../../src/tts_engine/modules/__init__.py)).

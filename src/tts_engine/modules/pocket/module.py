@@ -147,6 +147,12 @@ class PocketModule(TTSModule):
         self._max_tokens: int | None = max_tokens
         self._sample_rate = int(model.sample_rate)
 
+    def close(self) -> None:
+        # Drop the model and the voice state so their tensors can be
+        # collected; the module is done.
+        vars(self).pop("_model", None)
+        vars(self).pop("_voice_state", None)
+
     @property
     def sample_rate(self) -> int:
         return self._sample_rate

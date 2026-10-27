@@ -151,6 +151,10 @@ At synthesis:
 
 A segment that phonemizes to nothing (`"..."`) yields no chunk: no audio, no error.
 
+### Lifetime
+
+Built in `__init__`, released by `TTSModule.close()` when the engine closes ([tts-module-interface.md](../tts-module-interface.md), "Lifetime and ownership"): `close()` drops the `PiperVoice` so its ONNX session can be collected; the module is not usable afterwards.
+
 ## Module ID
 
 Registered in `REGISTRY` as `"piper"` ([modules/__init__.py](../../src/tts_engine/modules/__init__.py)); class `PiperModule` in `modules/piper/module.py`, re-exported from `modules/piper/__init__.py`.

@@ -118,6 +118,11 @@ class MistralModule(TTSModule):
             client_kwargs["server_url"] = server_url
         self._client = Mistral(**client_kwargs)
 
+    def close(self) -> None:
+        # The speakeasy SDK closes its HTTP client on context exit; there is
+        # no separate close method. The module is done.
+        self._client.__exit__(None, None, None)
+
     @property
     def sample_rate(self) -> int:
         # The `pcm` response format is fixed at 24 kHz; the API has no rate option.

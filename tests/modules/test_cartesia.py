@@ -11,12 +11,13 @@ import asyncio
 import queue
 import sys
 import threading
+import time
 import types
 
 import pytest
 
 from tts_engine.config import ConfigError
-from tts_engine.modules.base import TTSError, TTSOptions
+from tts_engine.modules.base import TTSError, TTSOptions, slice_text
 from tts_engine.modules.cartesia import CartesiaModule
 from tts_engine.modules.cartesia import module as cartesia_module
 
@@ -87,6 +88,8 @@ class _FakeWS:
         self._outbox.put(item)
 
     def recv_bytes(self, timeout: float | None = None):
+        if self.closed.is_set():
+            raise ConnectionError("socket closed")
         if self.backend.endless_audio and self.contexts:
             if self.closed.wait(0.001):
                 raise ConnectionError("socket closed")
@@ -94,6 +97,8 @@ class _FakeWS:
         try:
             item = self._outbox.get(timeout=timeout)
         except queue.Empty:
+            if self.closed.is_set():
+                raise ConnectionError("socket closed") from None
             raise TimeoutError from None
         if isinstance(item, Exception):
             raise item
@@ -112,6 +117,9 @@ class _FakeManager:
     def __enter__(self) -> _FakeWS:
         if self._backend.raise_on_connect is not None:
             raise self._backend.raise_on_connect
+        if self._backend.connect_gate is not None:
+            self._backend.connecting.set()
+            self._backend.connect_gate.wait(5)  # a slow handshake
         ws = _FakeWS(self._backend)
         self._backend.sockets.append(ws)
         return ws
@@ -125,6 +133,7 @@ class _FakeBackend:
 
     def __init__(self) -> None:
         self.client_kwargs: dict | None = None
+        self.client_closed = False
         self.connect_kwargs: list[dict] = []
         self.sockets: list[_FakeWS] = []
         self.audio_per_push: list[bytes] | None = [_AUDIO]
@@ -133,6 +142,8 @@ class _FakeBackend:
         self.endless_audio = False
         self.raise_on_connect: Exception | None = None
         self.raise_on_send: Exception | None = None
+        self.connect_gate: threading.Event | None = None  # holds the handshake
+        self.connecting = threading.Event()
 
     @property
     def ws(self) -> _FakeWS:
@@ -147,6 +158,9 @@ def fake(monkeypatch) -> _FakeBackend:
         def __init__(self, **kwargs) -> None:
             backend.client_kwargs = kwargs
             self.tts = types.SimpleNamespace(websocket_connect=self._connect)
+
+        def close(self) -> None:
+            backend.client_closed = True
 
         @staticmethod
         def _connect(**kwargs) -> _FakeManager:
@@ -246,6 +260,10 @@ def test_api_key_env_pointing_to_unset_var_raises(fake, monkeypatch):
         ({"max_buffer_delay_ms": 6000}, "max_buffer_delay_ms"),
         ({"max_buffer_delay_ms": 1.5}, "max_buffer_delay_ms"),
         ({"max_buffer_delay_ms": True}, "max_buffer_delay_ms"),
+        ({"timeout": 0}, "timeout"),
+        ({"timeout": True}, "timeout"),
+        ({"timeout": float("inf")}, "timeout"),
+        ({"timeout": "30"}, "timeout"),
     ],
 )
 def test_invalid_field_raises_config_error(fake, override, field):
@@ -260,9 +278,9 @@ def test_sample_rate_reflects_config(fake):
 
 def test_defaults_reach_the_context(fake):
     _say(CartesiaModule(_BASE), "Hi.")
-    # No receive flow control, so a close is never stuck behind unread audio.
+    # The handshake is bounded by `timeout` on the socket side too.
     assert fake.connect_kwargs == [
-        {"websocket_connection_options": {"max_queue": None}}
+        {"websocket_connection_options": {"open_timeout": 30.0}}
     ]
     assert fake.ws.contexts[0].kwargs == {
         "model_id": "sonic-3.6",
@@ -532,7 +550,7 @@ async def test_idle_pause_moves_the_rest_to_a_fresh_context(fake, quick_rotation
 
     first, second = fake.ws.contexts
     assert first.pushed == ["Hello there. "]
-    assert not first.ended  # idle: it had spoken everything
+    assert first.ended  # idle: ended by the worker, acknowledged with `done`
     assert second.pushed == ["After the ", "pause."]
     assert second.ended
     assert second.kwargs == first.kwargs
@@ -574,7 +592,7 @@ async def test_early_done_forces_rotation_and_late_events_are_ignored(fake):
     assert len(received) == 3
 
 
-async def test_stream_ending_on_an_idle_context_returns_without_ending_it(
+async def test_stream_ending_on_an_idle_context_waits_for_its_done(
     fake, quick_rotation
 ):
     module = CartesiaModule(quick_rotation)
@@ -593,5 +611,156 @@ async def test_stream_ending_on_an_idle_context_returns_without_ending_it(
         module.synthesize_text_stream(source(), TTSOptions(), callback), timeout=5
     )
     (ctx,) = fake.ws.contexts
-    assert not ctx.ended
+    assert ctx.ended  # by the worker, during the pause
     assert ctx.cancelled
+
+
+async def test_next_context_waits_for_the_idle_ones_done_so_audio_keeps_order(
+    fake, quick_rotation
+):
+    # The idle context's first audio is late: its `done` (and that audio) only
+    # come 0.1 s after it is ended. The text that resumes must not be pushed
+    # to a new context before then, or the two would interleave.
+    late = b"\x09\x00"
+    acknowledged = threading.Event()
+
+    def on_end(ctx):
+        if len(fake.ws.contexts) > 1:
+            fake.ws.server_send(_event("done", ctx.context_id))
+            return
+
+        def answer():
+            time.sleep(0.1)
+            fake.ws.server_send(_event("chunk", ctx.context_id, audio=late))
+            fake.ws.server_send(_event("done", ctx.context_id))
+            acknowledged.set()
+
+        threading.Thread(target=answer, daemon=True).start()
+
+    pushed_after_ack: list[bool] = []
+
+    def on_push(ctx, _text):
+        if len(fake.ws.contexts) > 1:
+            pushed_after_ack.append(acknowledged.is_set())
+        fake.ws.server_send(_event("chunk", ctx.context_id, audio=_AUDIO))
+
+    fake.on_end = on_end
+    fake.on_push = on_push
+    received = await _stream_with_pause(CartesiaModule(quick_rotation), pause=0.2)
+
+    first, second = fake.ws.contexts
+    assert first.ended and second.ended
+    assert pushed_after_ack and all(pushed_after_ack)
+    assert received == [_AUDIO, late, _AUDIO, _AUDIO]
+
+
+# --- contexts as the unit of flow control ------------------------------------
+
+
+def test_a_context_takes_one_segment_and_the_next_waits_for_its_done(fake, monkeypatch):
+    monkeypatch.setattr(cartesia_module, "_SEGMENT_SOFT", 20)
+    monkeypatch.setattr(cartesia_module, "_SEGMENT_HARD", 30)
+    acknowledged: list[str] = []
+    opened_after: list[bool] = []
+
+    def on_end(ctx):
+        acknowledged.append(ctx.context_id)
+        fake.ws.server_send(_event("done", ctx.context_id))
+
+    def on_push(ctx, _text):
+        if not ctx.pushed[:-1]:  # the context's first push
+            previous = fake.ws.contexts[-2:-1]
+            opened_after.append(not previous or previous[0].context_id in acknowledged)
+        fake.ws.server_send(_event("chunk", ctx.context_id, audio=_AUDIO))
+
+    fake.on_end = on_end
+    fake.on_push = on_push
+    text = "One two three. Four five six. Seven eight nine ten eleven twelve. "
+    received: list[bytes] = []
+    _say(CartesiaModule(_BASE), text, received.append)
+
+    contexts = fake.ws.contexts
+    assert len(contexts) >= 3
+    assert all(ctx.ended for ctx in contexts)
+    assert all(len("".join(ctx.pushed)) <= 30 for ctx in contexts)
+    assert "".join(t for ctx in contexts for t in ctx.pushed) == text
+    assert all(opened_after)
+    assert len(received) == sum(len(ctx.pushed) for ctx in contexts)
+
+
+def test_complete_text_is_sent_in_slices(fake):
+    text = "The quick brown fox jumps over the lazy dog. " * 4
+    _say(CartesiaModule(_BASE), text)
+    (ctx,) = fake.ws.contexts
+    assert "".join(ctx.pushed) == text
+    assert len(ctx.pushed) > 1
+    assert all(len(t) <= 50 for t in ctx.pushed)
+
+
+async def test_sender_waits_for_playback_before_pushing_more_text(fake, monkeypatch):
+    # The bound is one fake chunk (4 bytes): with the callback blocked on the
+    # first chunk, the sender pushes text until the audio read fills the bound
+    # (plus whatever it sent before the reader caught up), then stops; once
+    # playback resumes, the rest goes through.
+    monkeypatch.setattr(cartesia_module, "_MAX_UNREAD_SECONDS", 4 / (2 * 24000))
+    release = threading.Event()
+    first = threading.Event()
+
+    def callback(_chunk: bytes) -> None:
+        first.set()
+        release.wait(5)
+
+    text = "Word " * 600
+    slices = len(list(slice_text(text, 50)))
+    task = asyncio.create_task(
+        CartesiaModule(_BASE).synthesize_text(text, TTSOptions(), callback)
+    )
+    await asyncio.to_thread(first.wait, 5)
+    await asyncio.sleep(0.1)  # let the sender run as far as the gate allows
+    held = sum(len(ctx.pushed) for ctx in fake.ws.contexts)
+    assert 1 <= held < slices
+
+    release.set()
+    await asyncio.wait_for(task, timeout=5)
+    pushed = [t for ctx in fake.ws.contexts for t in ctx.pushed]
+    assert len(pushed) == slices
+    assert "".join(pushed) == text
+
+
+def test_ended_context_with_a_silent_server_is_tts_error(fake):
+    fake.on_end = lambda _ctx: None  # the server never answers `done`
+    with pytest.raises(TTSError, match="no answer within"):
+        _say(CartesiaModule({**_BASE, "timeout": 0.05}), "Hi.")
+
+
+# --- connection setup --------------------------------------------------------
+
+
+async def test_cancel_during_the_handshake_surfaces_promptly_and_closes_late(fake):
+    fake.connect_gate = threading.Event()
+    task = asyncio.create_task(
+        CartesiaModule(_BASE).synthesize_text("Hi.", TTSOptions(), lambda _b: None)
+    )
+    await asyncio.to_thread(fake.connecting.wait, 5)
+
+    started = time.perf_counter()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert time.perf_counter() - started < 1  # not the handshake's wait
+
+    fake.connect_gate.set()  # the handshake completes after the caller left
+    assert await asyncio.to_thread(lambda: fake.sockets and fake.ws.closed.wait(1))
+    assert fake.ws.contexts == []
+
+
+def test_handshake_slower_than_timeout_is_tts_error(fake):
+    fake.connect_gate = threading.Event()
+    with pytest.raises(TTSError, match="not open within"):
+        _say(CartesiaModule({**_BASE, "timeout": 0.05}), "Hi.")
+    fake.connect_gate.set()
+
+
+def test_close_closes_the_sdk_client(fake):
+    CartesiaModule(_BASE).close()
+    assert fake.client_closed

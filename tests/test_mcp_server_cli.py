@@ -9,6 +9,7 @@ between the layers.
 
 import json
 import sys
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -35,6 +36,7 @@ def config_path(tmp_path):
 def test_main_wires_config_into_server(config_path, mocker):
     basic_config = mocker.patch("tts_engine.mcp_server_cli.logging.basicConfig")
     engine_cls = mocker.patch("tts_engine.mcp_server_cli.TTSEngine")
+    engine_cls.return_value.close = AsyncMock()
     create_server = mocker.patch("tts_engine.mcp.create_server")
     uvicorn_run = mocker.patch("uvicorn.run")
     mocker.patch(
@@ -60,9 +62,29 @@ def test_main_wires_config_into_server(config_path, mocker):
     )
 
 
+@pytest.mark.parametrize("run_outcome", [None, RuntimeError("bind failed")])
+def test_main_closes_the_engine_once_uvicorn_returns(config_path, mocker, run_outcome):
+    mocker.patch("tts_engine.mcp_server_cli.logging.basicConfig")
+    engine_cls = mocker.patch("tts_engine.mcp_server_cli.TTSEngine")
+    engine_cls.return_value.close = AsyncMock()
+    mocker.patch("tts_engine.mcp.create_server")
+    uvicorn_run = mocker.patch("uvicorn.run", side_effect=run_outcome)
+    mocker.patch("sys.argv", ["tts-engine-mcp", "--config", str(config_path)])
+
+    if run_outcome is None:
+        main()
+    else:
+        with pytest.raises(RuntimeError, match="bind failed"):
+            main()
+
+    uvicorn_run.assert_called_once()
+    engine_cls.return_value.close.assert_awaited_once_with()
+
+
 def test_log_level_defaults_to_info(config_path, mocker):
     basic_config = mocker.patch("tts_engine.mcp_server_cli.logging.basicConfig")
-    mocker.patch("tts_engine.mcp_server_cli.TTSEngine")
+    engine_cls = mocker.patch("tts_engine.mcp_server_cli.TTSEngine")
+    engine_cls.return_value.close = AsyncMock()
     mocker.patch("tts_engine.mcp.create_server")
     mocker.patch("uvicorn.run")
     mocker.patch("sys.argv", ["tts-engine-mcp", "--config", str(config_path)])

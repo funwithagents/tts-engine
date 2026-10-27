@@ -1,6 +1,7 @@
 """MCP entry point: parses args, checks the mcp extra, and wires everything together."""
 
 import argparse
+import asyncio
 import logging
 
 from tts_engine.config import MCPServerConfig
@@ -57,8 +58,13 @@ def main() -> None:
     engine = TTSEngine(cfg.engine)
     mcp_app = create_server(engine, host=cfg.server.host, port=cfg.server.port)
 
-    uvicorn.run(
-        mcp_app.streamable_http_app(),
-        host=cfg.server.host,
-        port=cfg.server.port,
-    )
+    try:
+        uvicorn.run(
+            mcp_app.streamable_http_app(),
+            host=cfg.server.host,
+            port=cfg.server.port,
+        )
+    finally:
+        # uvicorn has returned (SIGINT/SIGTERM handled, or a startup failure):
+        # the engine's client or model is released before the process exits.
+        asyncio.run(engine.close())
