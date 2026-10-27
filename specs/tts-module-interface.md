@@ -198,7 +198,7 @@ Three milestones are distinct, and only the first is the interface's promise:
 2. **Backend work stopped** — inference halted, the request dropped. Each module's spec says what it does here: a library with a stop signal is handed `stop` (pocket, phonon, qwen3), a socket is closed (gradium, elevenlabs, deepgram, cartesia), an HTTP response is closed (mistral, gemini, openai). Where the backend cannot be interrupted (kokoro-onnx, piper-tts), one sentence's inference finishes in the background and is discarded. A module whose runtime is **not thread-safe** must reach a point where that runtime is idle before returning, since the engine may start the next utterance on the same model immediately (pocket drains its generator so the library joins its decoder thread; see [pocket.md](modules/pocket.md)).
 3. **Transport closed** — the socket's close handshake done. Deepgram and Cartesia finish it off the worker thread after an abort, since the server can hold it for seconds; nothing waits for it.
 
-**Latency.** The worker sees `stop` only between the operations it polls around. Between chunks that is one chunk's playback (modules feeding big chunks slice them to 100 ms). While the worker is **blocked inside a network call** — opening a connection, waiting for the next byte of a stalled response — it cannot see `stop` until that call returns, so every API-backed module bounds such calls with a `timeout` config field (default 30 s) or its own poll: a stalled request becomes a `TTSError` after at most that long, and a cancel issued during a stall is honored by then. Modules whose receive loop polls (gradium, elevenlabs stream-input, deepgram, cartesia) honor a cancel within 100 ms while the server is silent, and their connection *setup* polls `stop` too, bounded by `timeout` (gradium on its private loop; deepgram and cartesia through `open_cancellable`, below), so a cancel during a handshake surfaces within 100 ms and the late connection is closed behind it. None of this is a contractual bound on cancellation latency; each module's spec states what it measured. Modules that feed a provider's chunks unsliced rely on the chunk sizes they observed (gemini: 40 to 160 ms); their spec says so.
+**Latency.** The worker sees `stop` only between the operations it polls around. Between chunks that is one chunk's playback (modules feeding big chunks slice them to 100 ms). While the worker is **blocked inside a network call** — opening a connection, waiting for the next byte of a stalled response — it cannot see `stop` until that call returns, so every API-backed module bounds such calls with a `timeout` config field (default 30 s) or its own poll: a stalled request becomes a `TTSError` after at most that long, and a cancel issued during a stall is honored by then. Modules whose receive loop polls (gradium, elevenlabs stream-input, deepgram, cartesia) honor a cancel within 100 ms while the server is silent, and their connection *setup* polls `stop` too, bounded by `timeout` (gradium on its private loop; deepgram and cartesia through `open_cancellable`, below), so a cancel during a handshake surfaces within 100 ms and the late connection is closed behind it. None of this is a contractual bound on cancellation latency; each module's spec states what it measured. Every provider that receives a byte stream (openai, mistral, gemini, deepgram, cartesia) feeds it through `PCMFeeder` ("Shared PCM helpers", below) in 100 ms slices, so none depends on the chunk sizes its provider happens to send.
 
 ## Text-stream helpers
 
@@ -325,6 +325,44 @@ The text bridge bounds how far a **source** runs ahead of the worker. The native
 
 This is a bound, not a latency device: the lead is what protects playback from a network stall. The values are module constants (no config field until there is a reason), and each module's spec states what it measured against the live service.
 
+## Shared config helpers
+
+Every module validates its own `engine.module` block in its constructor ("Error handling" below), but most of the fields are of three kinds every backend shares, and the first review of the modules found the same check copied ten times with small drifts (one copy accepting `NaN`, another a bool). `modules/base.py` therefore holds one validator per kind, and a module never re-implements them. Each takes a `label` (`"ElevenLabs module"`) that prefixes its messages, so an error still names the backend:
+
+```python
+def resolve_api_key(config: dict, *, label: str) -> str: ...
+def optional_str(config: dict, field: str, *, label: str, default: str | None = None) -> str | None: ...
+def finite_number(
+    config: dict, field: str, *, label: str, default: float | None = None,
+    minimum: float | None = None, maximum: float | None = None, exclusive_minimum: float | None = None,
+) -> float | None: ...
+```
+
+- **`resolve_api_key`** is the credential rule every API-backed module follows ([elevenlabs-module.md](modules/elevenlabs.md), "API key resolution", is its reference description): a non-empty literal `api_key` wins; otherwise the environment variable named by `api_key_env` is read, and its being unset or empty is a `ConfigError` naming the variable; a non-string value for either field, or neither yielding a key, is a `ConfigError`. The key is always passed to the SDK explicitly, so no SDK's own environment fallback is in force.
+- **`optional_str`** reads a field that may be absent: absent gives `default` (`None` without one); present must be a non-empty string (`"<label> '<field>' must be a non-empty string"`). The **absent-versus-`null` policy** the modules chose is kept: with no `default`, an explicit `null` counts as absent; with a `default`, an explicit `null` is rejected like any other non-string, since a value the config names is validated and only a missing one is defaulted. A module that wants `null` to mean "the default" with a default of its own writes `optional_str(...) or DEFAULT` (qwen3, kokoro); a module whose field must not be `null` even without a default keeps its own `"field" in config` check (pocket's `voice`, audiofile's `default_file`).
+- **`finite_number`** reads a numeric field with the same absent/`null`/`default` policy, as a `float`: a present value must be an `int` or `float` (a bool is rejected rather than treated as an integer), **finite** (`NaN` and the infinities, which JSON's parser accepts, would otherwise reach a sampler or a timeout) and within the bounds given (`minimum`/`maximum` inclusive, `exclusive_minimum` exclusive); the message names the field and the bounds (`"... must be a finite number > 0"`, `"... between 0 and 1"`). The `timeout` field of every API-backed module is `finite_number(config, "timeout", label=..., default=30.0, exclusive_minimum=0)`.
+
+Integer fields (`sample_rate`, `max_tokens`, `max_buffer_delay_ms`) and enumerations (`device`, `language`) stay with the module: each has its own rule and there is one of each.
+
+## Shared PCM helpers
+
+Three more helpers in `modules/base.py` cover the audio side of the contract once, for the same reason:
+
+```python
+def float_to_int16_pcm(samples) -> bytes: ...
+def slice_bytes_for(sample_rate: int) -> int: ...
+
+class PCMFeeder:
+    def __init__(self, callback, stop, *, slice_bytes: int, sample_bytes: int = 2, convert=None) -> None: ...
+    def feed(self, data: bytes) -> bool: ...
+```
+
+- **`float_to_int16_pcm`** is the one float → int16 conversion ("Audio format contract"): any array-like of float samples, flattened to mono, clipped to ±1.0, scaled by 32767, as little-endian `int16` bytes; the input is not modified. The local models that yield float waveforms (pocket, phonon, qwen3, kokoro) and mistral's float32 byte stream all go through it; pocket keeps its own tensor-to-CPU step in front of it, since that is torch-specific.
+- **`slice_bytes_for(sample_rate)`** is 100 ms of int16 mono at that rate (`SLICE_SECONDS`): the most a slicing module hands `callback` in one call. `AudioPlayer.feed` blocks for the whole chunk it is given, and `stop` is polled between slices, so a cancel is honored within one slice's playback whatever the backend's own chunking. `feed_with_lookahead` users (kokoro, piper) pass it as `slice_bytes`.
+- **`PCMFeeder`** is the one alignment-and-slicing loop for the providers that deliver a **byte stream** whose chunk boundaries are arbitrary (openai, mistral, gemini, deepgram, cartesia). One per utterance, on the worker thread: `feed(data)` prepends what the previous call left over (a sample split across two chunks), keeps the trailing partial sample (`sample_bytes`, 2 for int16, 4 for mistral's float32) for the next call, converts the whole samples through `convert` when given (mistral: `float_to_int16_pcm` over the float32 bytes), and hands the result to `callback` in slices of at most `slice_bytes`, checking `stop` before each. It returns `False` as soon as `stop` is seen, so the module's loop returns without reading further; a partial sample left at the end of the stream is never fed. Before it, the carry and the slice loop were five private copies, and gemini fed its parts unsliced on the strength of the part sizes it had observed; the feeder removes that assumption.
+
+The fixture modules and the providers whose SDK already yields whole int16 samples at a known size (elevenlabs through its decoder, gradium's 80 ms frames, piper's per-sentence `int16` bytes through `feed_with_lookahead`) do not need the feeder.
+
 ## Local-model modules
 
 The API-backed pattern (ElevenLabs) is one shape; a second shape is a **local-model module** that runs inference in-process (e.g. Kokoro, ChatTTS, Piper). The [`huggingface/speech-to-speech`](https://github.com/huggingface/speech-to-speech/tree/main/src/speech_to_speech/TTS) TTS handlers are a useful catalogue of which engines work well and how to invoke them, but they are **not** reusable as-is: each extends that project's `BaseHandler[TTSIn, TTSOut]` pipeline (a `setup()`/queue/`CancelScope` framework), yields `numpy` arrays at 16 kHz, and pulls in the whole app package. A local-model module here wraps the **underlying model library directly** (e.g. the `kokoro` package), not the handler, and honors this interface:
@@ -332,7 +370,7 @@ The API-backed pattern (ElevenLabs) is one shape; a second shape is a **local-mo
 - **Config-driven construction.** `__init__` validates the `engine.module` block and loads the model (or defers the load to first use). Model download / device selection are config fields, mirroring `api_key_env`/`voice_id` on ElevenLabs.
 - **`sample_rate` reports the module's native rate** (commonly 24000 for these models), so no resampling is needed unless the backend itself varies.
 - **Inference runs off the event loop.** Local inference is blocking and CPU/GPU-bound; run it inside `asyncio.to_thread` (as ElevenLabs does for its blocking SDK iterator), driving `callback` from that single worker thread so calls never overlap.
-- **Float → int16 conversion** happens in the module before the callback (clip to ±1.0, scale to the int16 range), since these libraries yield float waveforms.
+- **Float → int16 conversion** happens in the module before the callback, through the shared `float_to_int16_pcm` (clip to ±1.0, scale to the int16 range; "Shared PCM helpers" above), since these libraries yield float waveforms.
 - **Cancellation and errors** follow the same rules as any module: stop calling `callback` before returning/raising, and wrap backend/inference failures in `TTSError`. When the library accepts a stop signal of its own (pocket-tts's `stop` event, Phonon's stream `close()`, closing the qwentts.cpp generator), the worker hands it the cancellation so inference stops too, not just the callbacks. A library with no stop signal and whole-sentence output (kokoro-onnx, piper-tts) stops between sentences and between 100 ms feed slices instead, through `feed_with_lookahead`.
 - **Text stream = sentence grouping.** A local model conditions on its whole prompt before emitting a frame, so there is no token-in/audio-out mode to call. `synthesize_text_stream` runs one worker through `run_text_stream_worker`, groups the pieces with `segment_sentences`, and runs inference per sentence inside that single worker — audio for one sentence plays while the stream is still delivering the next. The reference is [pocket-module.md](modules/pocket.md).
 

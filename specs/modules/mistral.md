@@ -84,11 +84,11 @@ with events:  # EventStream: __exit__ closes the HTTP response
 
 `response_format="pcm"` is headerless **float32 little-endian, mono, 24000 Hz** — confirmed live against `voxtral-mini-tts-3-0` (the `wav` format of the same model reports 24000 Hz mono in its header; the `pcm` bytes read as float32 give a smooth waveform in `[-1, 1]`, read as int16 they are noise). The API has no rate parameter, so `sample_rate` is the constant `24000`.
 
-The module converts to the contract's signed 16-bit ([tts-module-interface.md](../tts-module-interface.md), "Audio format contract"): clip to ±1.0, scale by 32767, `astype("<i2")` — the pocket/phonon conversion. A delta whose byte length is not a multiple of 4 (a sample split across two events — not observed, the API sends whole samples) carries the partial sample over to the next delta; an incomplete sample left at the end of the stream is dropped.
+The module converts to the contract's signed 16-bit ([tts-module-interface.md](../tts-module-interface.md), "Audio format contract") through the shared `float_to_int16_pcm` over the delta's float32 bytes: clip to ±1.0, scale by 32767, little-endian `int16` — the same conversion as the local models. The deltas go through the shared `PCMFeeder` with `sample_bytes=4` and that conversion as its `convert` step ("Shared PCM helpers"): a delta whose byte length is not a multiple of 4 (a sample split across two events — not observed, the API sends whole samples) has the partial sample carried over to the next delta; an incomplete sample left at the end of the stream is dropped.
 
 ### Feeding in slices
 
-The API runs well ahead of real time and sends large deltas (observed: 0.4 s of audio each for the first five, then 2 s each). `AudioPlayer.feed` blocks until the whole chunk is written, so one 2 s delta handed to `callback` in one call would hold off a cancel for up to 2 s. The module therefore feeds each converted delta in **slices of at most 100 ms (2400 samples)** and polls `stop` between slices, so a cancel is honored within one slice's playback, the same order as Gradium's 80 ms frames.
+The API runs well ahead of real time and sends large deltas (observed: 0.4 s of audio each for the first five, then 2 s each). `AudioPlayer.feed` blocks until the whole chunk is written, so one 2 s delta handed to `callback` in one call would hold off a cancel for up to 2 s. The feeder therefore hands each converted delta to `callback` in **slices of at most 100 ms (2400 samples)** and polls `stop` between slices, so a cancel is honored within one slice's playback, the same order as Gradium's 80 ms frames.
 
 ### Threading and cancellation
 

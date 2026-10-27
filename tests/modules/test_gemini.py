@@ -242,6 +242,13 @@ def test_audio_parts_reach_the_callback_unchanged(fake):
     assert fake.closed == [True]
 
 
+def test_large_part_is_fed_in_100ms_slices(fake):
+    fake.chunks = [_chunk(_part(_pcm([7] * 48000)))]  # 2 s of audio in one part
+    chunks: list[bytes] = []
+    _say(GeminiModule(_BASE), chunks.append)
+    assert [len(c) for c in chunks] == [4800] * 20  # 2400 int16 samples each
+
+
 def test_sample_split_across_parts_is_carried_over(fake):
     raw = _pcm([1000, -1000, 7])
     fake.chunks = [_chunk(_part(raw[:3])), _chunk(_part(raw[3:]))]

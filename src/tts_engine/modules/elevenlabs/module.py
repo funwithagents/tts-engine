@@ -16,7 +16,6 @@ import base64
 import itertools
 import json
 import math
-import os
 import threading
 import urllib.parse
 from collections.abc import AsyncIterator, Callable, Iterable, Iterator
@@ -27,6 +26,9 @@ from tts_engine.modules.base import (
     TTSModule,
     TTSOptions,
     cleanup,
+    finite_number,
+    optional_str,
+    resolve_api_key,
     run_cancellable_worker,
     run_text_stream_worker,
     split_at_last_space,
@@ -34,6 +36,7 @@ from tts_engine.modules.base import (
 
 _OUTPUT_FORMAT = "mp3_44100_128"
 _DEFAULT_TIMEOUT = 30.0
+_LABEL = "ElevenLabs module"
 _STREAM_INPUT_URL = "wss://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream-input"
 # The API's minimum buffered-text size before it starts generating.
 _CHUNK_LENGTH_SCHEDULE = [50]
@@ -72,20 +75,6 @@ def _make_chunk_source_class(miniaudio_mod):
     return _ChunkSource
 
 
-def _unit_interval(config: dict, field: str, default: float) -> float:
-    """Read an optional numeric field that must lie in [0, 1]; bools rejected."""
-    value = config.get(field, default)
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not (0.0 <= value <= 1.0)
-    ):
-        raise ConfigError(
-            f"ElevenLabs module '{field}' must be a number between 0 and 1"
-        )
-    return float(value)
-
-
 class ElevenLabsModule(TTSModule):
     def __init__(self, config: dict) -> None:
         try:
@@ -100,31 +89,37 @@ class ElevenLabsModule(TTSModule):
                 "pip install tts-engine[elevenlabs]"
             ) from exc
 
-        api_key = self._resolve_api_key(config)
+        api_key = resolve_api_key(config, label=_LABEL)
 
         voice_id = config.get("voice_id")
         if not isinstance(voice_id, str) or not voice_id:
             raise ConfigError("ElevenLabs module requires a non-empty 'voice_id'")
 
-        model = config.get("model", "eleven_flash_v2_5")
-        if not isinstance(model, str) or not model:
-            raise ConfigError("ElevenLabs module 'model' must be a non-empty string")
+        model = optional_str(config, "model", label=_LABEL, default="eleven_flash_v2_5")
 
-        timeout = config.get("timeout", _DEFAULT_TIMEOUT)
-        if (
-            isinstance(timeout, bool)
-            or not isinstance(timeout, (int, float))
-            or not math.isfinite(timeout)
-            or timeout <= 0
-        ):
-            raise ConfigError("ElevenLabs module 'timeout' must be a finite number > 0")
+        timeout = finite_number(
+            config,
+            "timeout",
+            label=_LABEL,
+            default=_DEFAULT_TIMEOUT,
+            exclusive_minimum=0,
+        )
 
         self._api_key: str = api_key
         self._voice_id: str = voice_id
         self._model: str = model
         self._timeout: float = float(timeout)
-        self._stability: float = _unit_interval(config, "stability", 0.5)
-        self._similarity_boost: float = _unit_interval(config, "similarity_boost", 0.75)
+        self._stability: float = finite_number(
+            config, "stability", label=_LABEL, default=0.5, minimum=0.0, maximum=1.0
+        )
+        self._similarity_boost: float = finite_number(
+            config,
+            "similarity_boost",
+            label=_LABEL,
+            default=0.75,
+            minimum=0.0,
+            maximum=1.0,
+        )
         self._miniaudio = miniaudio
         self._voice_settings_cls = VoiceSettings
         self._chunk_source_cls = _make_chunk_source_class(miniaudio)
@@ -137,34 +132,6 @@ class ElevenLabsModule(TTSModule):
         # Matches the requested output_format="mp3_44100_128" and the rate
         # miniaudio decodes to below.
         return 44100
-
-    @staticmethod
-    def _resolve_api_key(config: dict) -> str:
-        """Resolve the API key from a literal ``api_key`` or, failing that, the
-        environment variable named by ``api_key_env`` — so a config file can be
-        committed with only the env-var name and no secret."""
-        api_key = config.get("api_key")
-        env_name = config.get("api_key_env")
-        if api_key is not None and not isinstance(api_key, str):
-            raise ConfigError("ElevenLabs module 'api_key' must be a string")
-        if env_name is not None and not isinstance(env_name, str):
-            raise ConfigError("ElevenLabs module 'api_key_env' must be a string")
-
-        if api_key:
-            return api_key
-
-        if env_name:
-            api_key = os.environ.get(env_name)
-            if not api_key:
-                raise ConfigError(
-                    f"ElevenLabs module: environment variable {env_name!r} "
-                    "(named by 'api_key_env') is unset or empty"
-                )
-            return api_key
-
-        raise ConfigError(
-            "ElevenLabs module requires a non-empty 'api_key' or 'api_key_env'"
-        )
 
     def _decode_and_feed(
         self,

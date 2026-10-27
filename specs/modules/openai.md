@@ -83,11 +83,11 @@ with client.audio.speech.with_streaming_response.create(
 
 `response_format="pcm"` is headerless **signed 16-bit little-endian, mono, 24000 Hz** (`content-type: audio/pcm`, chunked transfer) — confirmed live against `gpt-4o-mini-tts` and `tts-1`: read little-endian the samples form a smooth waveform, byte-swapped they are noise. It is the contract's encoding as is, so the module does no conversion. `sample_rate` is the configured value (24000 by default).
 
-Chunk boundaries are arbitrary byte counts — `gpt-4o-mini-tts` sends odd sizes such as 165 and 1369 bytes — so a sample is routinely split across two chunks. The module **carries the odd trailing byte** over to the next chunk; an incomplete sample left at the end of the body is dropped.
+Chunk boundaries are arbitrary byte counts — `gpt-4o-mini-tts` sends odd sizes such as 165 and 1369 bytes — so a sample is routinely split across two chunks. The shared `PCMFeeder` ([tts-module-interface.md](../tts-module-interface.md), "Shared PCM helpers") **carries the odd trailing byte** over to the next chunk; an incomplete sample left at the end of the body is dropped.
 
 ### Feeding in slices
 
-Chunk sizes depend on the server: OpenAI's are small (~30 ms for `gpt-4o-mini-tts`, up to ~0.35 s for `tts-1`), but a compatible server may send a whole utterance in one chunk. `AudioPlayer.feed` blocks until the whole chunk is written, so the module feeds each chunk in **slices of at most 100 ms** (`sample_rate // 10` samples) and polls `stop` between slices — the Mistral rule, so a cancel is honored within one slice's playback whatever the server's chunking.
+Chunk sizes depend on the server: OpenAI's are small (~30 ms for `gpt-4o-mini-tts`, up to ~0.35 s for `tts-1`), but a compatible server may send a whole utterance in one chunk. `AudioPlayer.feed` blocks until the whole chunk is written, so the feeder hands each chunk to `callback` in **slices of at most 100 ms** (`slice_bytes_for(sample_rate)`) and polls `stop` between slices — the rule every byte-stream provider shares, so a cancel is honored within one slice's playback whatever the server's chunking.
 
 ### OpenAI-compatible servers
 

@@ -122,6 +122,32 @@ def test_invalid_json_file_names_path(tmp_path):
         MCPServerConfig.from_json_file(str(p))
 
 
+def test_from_json_file_reads_utf8_whatever_the_locale(tmp_path):
+    data = json.loads(json.dumps(VALID))
+    data["engine"]["module"]["voice_id"] = "Élise ñ 日本"
+    p = tmp_path / "config.json"
+    p.write_bytes(json.dumps(data, ensure_ascii=False).encode("utf-8"))
+    assert MCPServerConfig.from_json_file(str(p)).engine.module["voice_id"] == (
+        "Élise ñ 日本"
+    )
+    e = tmp_path / "engine.json"
+    e.write_bytes(json.dumps(data["engine"], ensure_ascii=False).encode("utf-8"))
+    assert TTSEngineConfig.from_json_file(str(e)).module["voice_id"] == "Élise ñ 日本"
+
+
+def test_from_json_file_rejects_a_file_that_is_not_utf8(tmp_path):
+    data = json.loads(json.dumps(VALID))
+    data["engine"]["module"]["voice_id"] = "Élise"
+    p = tmp_path / "config.json"
+    p.write_bytes(json.dumps(data, ensure_ascii=False).encode("latin-1"))
+    with pytest.raises(ConfigError, match=re.escape(str(p)) + ".*UTF-8"):
+        MCPServerConfig.from_json_file(str(p))
+    e = tmp_path / "engine.json"
+    e.write_bytes(json.dumps(data["engine"], ensure_ascii=False).encode("latin-1"))
+    with pytest.raises(ConfigError, match=re.escape(str(e)) + ".*UTF-8"):
+        TTSEngineConfig.from_json_file(str(e))
+
+
 def test_invalid_json_string():
     with pytest.raises(ConfigError, match="Invalid JSON"):
         MCPServerConfig.from_json("{not valid json")

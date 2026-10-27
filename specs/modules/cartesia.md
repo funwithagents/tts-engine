@@ -94,7 +94,7 @@ The module reads the socket with `recv_bytes(timeout=...)` + `parse_event` on a 
 
 ### Output format and sample rate
 
-`{"container": "raw", "encoding": "pcm_s16le", "sample_rate": rate}` gives headerless signed 16-bit little-endian mono PCM at exactly `sample_rate` (confirmed live: 7392–9600-byte chunks at 24 kHz). That matches the audio format contract ([tts-module-interface.md](../tts-module-interface.md)) with no conversion in the module. As a cheap guard, the module carries an odd trailing byte over to the next chunk, so `callback` only ever gets whole samples. `sample_rate` returns the configured value and is fixed for the module's lifetime.
+`{"container": "raw", "encoding": "pcm_s16le", "sample_rate": rate}` gives headerless signed 16-bit little-endian mono PCM at exactly `sample_rate` (confirmed live: 7392–9600-byte chunks at 24 kHz). That matches the audio format contract ([tts-module-interface.md](../tts-module-interface.md)) with no conversion in the module. The worker feeds the chunks through the shared `PCMFeeder` ([tts-module-interface.md](../tts-module-interface.md), "Shared PCM helpers"): an odd trailing byte is carried over to the next chunk, so `callback` only ever gets whole samples, and a chunk is handed over in slices of at most 100 ms, `stop` polled between them. `sample_rate` returns the configured value and is fixed for the module's lifetime.
 
 ### Threads: sender, reader, worker
 

@@ -132,10 +132,10 @@ def _generate(self, text, callback, stop):
                 raise TTSError(f"qwen3 synthesis failed: {exc}") from exc
             if rate != 24000:
                 raise TTSError(...)
-            callback(_to_int16_pcm(chunk))
+            callback(float_to_int16_pcm(chunk))
 ```
 
-`_voice_kwargs` holds only what applies: `speaker` (CustomVoice), `instruct` (when set), `temperature` (when set). `_to_int16_pcm` is the phonon conversion: flatten, clip to `[-1, 1]`, scale by 32767, little-endian `int16`. Peak amplitude measured ~0.59, so clipping is a guard, not a gain stage.
+`_voice_kwargs` holds only what applies: `speaker` (CustomVoice), `instruct` (when set), `temperature` (when set). The conversion is the shared `float_to_int16_pcm` ([tts-module-interface.md](../tts-module-interface.md), "Shared PCM helpers"): flatten, clip to `[-1, 1]`, scale by 32767, little-endian `int16`. Peak amplitude measured ~0.59, so clipping is a guard, not a gain stage.
 
 The `QwenTTS` object is built on the constructing thread and used from the worker; verified on 0.5.0 (`QwenTTS` serializes synthesis with its own lock, and the producer thread is the library's).
 

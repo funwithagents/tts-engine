@@ -8,12 +8,9 @@ extra — a missing extra becomes a clear `ConfigError`.
 """
 
 import logging
-import math
 import threading
 from collections.abc import AsyncIterator, Callable, Generator, Iterable, Iterator
 from typing import cast
-
-import numpy as np
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
@@ -21,6 +18,9 @@ from tts_engine.modules.base import (
     TTSModule,
     TTSOptions,
     cleanup,
+    finite_number,
+    float_to_int16_pcm,
+    optional_str,
     run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
@@ -34,21 +34,7 @@ _DEFAULT_VOICE = "aiden"
 _DEFAULT_LANGUAGE = "auto"
 # The 12 Hz codec decodes 1920-sample frames at 24 kHz on every model.
 _SAMPLE_RATE = 24000
-
-
-def _to_int16_pcm(chunk) -> bytes:
-    """Convert one float32 chunk (values ~[-1, 1]) to signed-16-bit
-    little-endian PCM bytes — the audio-format contract's encoding half."""
-    arr = np.asarray(chunk, dtype=np.float32).reshape(-1).copy()
-    np.clip(arr, -1.0, 1.0, out=arr)
-    return (arr * 32767.0).astype("<i2").tobytes()
-
-
-def _optional_str(config: dict, key: str) -> str | None:
-    value = config.get(key)
-    if value is not None and (not isinstance(value, str) or not value):
-        raise ConfigError(f"Qwen3 module '{key}' must be a non-empty string")
-    return value
+_LABEL = "Qwen3 module"
 
 
 def _match(value: str, choices: Iterable[str], field: str) -> str:
@@ -66,20 +52,14 @@ def _match(value: str, choices: Iterable[str], field: str) -> str:
 
 class Qwen3Module(TTSModule):
     def __init__(self, config: dict) -> None:
-        model = _optional_str(config, "model") or _DEFAULT_MODEL
-        quant = _optional_str(config, "quant") or _DEFAULT_QUANT
-        voice = _optional_str(config, "voice")
-        instruct = _optional_str(config, "instruct")
-        language = _optional_str(config, "language") or _DEFAULT_LANGUAGE
-
-        temperature = config.get("temperature")
-        if temperature is not None and (
-            isinstance(temperature, bool)
-            or not isinstance(temperature, int | float)
-            or not math.isfinite(temperature)
-            or temperature <= 0
-        ):
-            raise ConfigError("Qwen3 module 'temperature' must be a finite number > 0")
+        model = optional_str(config, "model", label=_LABEL) or _DEFAULT_MODEL
+        quant = optional_str(config, "quant", label=_LABEL) or _DEFAULT_QUANT
+        voice = optional_str(config, "voice", label=_LABEL)
+        instruct = optional_str(config, "instruct", label=_LABEL)
+        language = optional_str(config, "language", label=_LABEL) or _DEFAULT_LANGUAGE
+        temperature = finite_number(
+            config, "temperature", label=_LABEL, exclusive_minimum=0
+        )
 
         # The model kind decides which voice fields apply; read it from the id
         # so a bad combination fails before a multi-gigabyte download.
@@ -141,7 +121,7 @@ class Qwen3Module(TTSModule):
         if instruct is not None:
             voice_kwargs["instruct"] = instruct
         if temperature is not None:
-            voice_kwargs["temperature"] = float(temperature)
+            voice_kwargs["temperature"] = temperature
 
         self._tts = tts
         self._language = language
@@ -190,7 +170,7 @@ class Qwen3Module(TTSModule):
                     raise TTSError(
                         f"qwen3 produced {rate} Hz audio, expected {_SAMPLE_RATE} Hz"
                     )
-                callback(_to_int16_pcm(chunk))
+                callback(float_to_int16_pcm(chunk))
 
     def _generate_sentences(
         self,

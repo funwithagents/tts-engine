@@ -7,12 +7,9 @@ extra — a missing extra becomes a clear `ConfigError`.
 """
 
 import logging
-import math
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator
 from pathlib import Path
-
-import numpy as np
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
@@ -20,6 +17,9 @@ from tts_engine.modules.base import (
     TTSModule,
     TTSOptions,
     cleanup,
+    finite_number,
+    float_to_int16_pcm,
+    optional_str,
     resolve_path,
     run_cancellable_worker,
     run_text_stream_worker,
@@ -30,38 +30,7 @@ log = logging.getLogger(__name__)
 
 _LANGUAGES = {"en", "fr", "de", "es", "pt", "none"}
 _DEFAULT_LANGUAGE = "en"
-
-
-def _to_int16_pcm(chunk) -> bytes:
-    """Convert one float32 chunk (values ~[-1, 1]) to signed-16-bit
-    little-endian PCM bytes — the audio-format contract's encoding half."""
-    arr = np.asarray(chunk, dtype=np.float32).reshape(-1).copy()
-    np.clip(arr, -1.0, 1.0, out=arr)
-    return (arr * 32767.0).astype("<i2").tobytes()
-
-
-def _optional_str(config: dict, key: str) -> str | None:
-    value = config.get(key)
-    if value is not None and (not isinstance(value, str) or not value):
-        raise ConfigError(f"Phonon module '{key}' must be a non-empty string")
-    return value
-
-
-def _optional_number(
-    config: dict, key: str, *, minimum: float | None = None
-) -> float | None:
-    value = config.get(key)
-    if value is None:
-        return None
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, int | float)
-        or not math.isfinite(value)
-    ):
-        raise ConfigError(f"Phonon module '{key}' must be a finite number")
-    if minimum is not None and value < minimum:
-        raise ConfigError(f"Phonon module '{key}' must be >= {minimum}")
-    return float(value)
+_LABEL = "Phonon module"
 
 
 class PhononModule(TTSModule):
@@ -72,12 +41,12 @@ class PhononModule(TTSModule):
                 f"Phonon module 'language' must be one of {sorted(_LANGUAGES)}"
             )
 
-        model = _optional_str(config, "model")
+        model = optional_str(config, "model", label=_LABEL)
         if model is not None and not model.startswith("hf://"):
             # A local model directory or config.json: relative to base_dir.
             model = str(resolve_path(config, model))
 
-        voice = _optional_str(config, "voice")
+        voice = optional_str(config, "voice", label=_LABEL)
         # A local embedding file is registered under its stem after loading;
         # anything else is a voice name ptts resolves itself.
         voice_file: Path | None = None
@@ -89,9 +58,9 @@ class PhononModule(TTSModule):
         if not isinstance(device, str) or not device:
             raise ConfigError("Phonon module 'device' must be a non-empty string")
 
-        quant = _optional_str(config, "quant")
-        temperature = _optional_number(config, "temperature", minimum=0.0)
-        cfg_coef = _optional_number(config, "cfg_coef")
+        quant = optional_str(config, "quant", label=_LABEL)
+        temperature = finite_number(config, "temperature", label=_LABEL, minimum=0.0)
+        cfg_coef = finite_number(config, "cfg_coef", label=_LABEL)
 
         try:
             import ptts
@@ -168,7 +137,7 @@ class PhononModule(TTSModule):
                     break
                 except Exception as exc:
                     raise TTSError(f"phonon synthesis failed: {exc}") from exc
-                callback(_to_int16_pcm(chunk))
+                callback(float_to_int16_pcm(chunk))
 
     async def synthesize_text(
         self,

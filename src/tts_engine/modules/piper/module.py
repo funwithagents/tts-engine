@@ -19,10 +19,13 @@ from tts_engine.modules.base import (
     TTSModule,
     TTSOptions,
     feed_with_lookahead,
+    finite_number,
+    optional_str,
     resolve_path,
     run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
+    slice_bytes_for,
 )
 
 log = logging.getLogger(__name__)
@@ -35,16 +38,10 @@ _DEFAULT_VOICE = "en_US-ljspeech-medium"
 _MIN_SPEED, _MAX_SPEED = 0.5, 2.0
 # The Chinese phonemizer needs piper-tts's zh extra and a download directory.
 _UNSUPPORTED_PHONEME_TYPES = {"pinyin"}
+_LABEL = "Piper module"
 
 # A voice file pair on the Hub (repo_id, onnx filename, revision), or a path.
 _FileRef = tuple[str, str, str | None] | Path
-
-
-def _optional_str(config: dict, key: str) -> str | None:
-    value = config.get(key)
-    if value is not None and (not isinstance(value, str) or not value):
-        raise ConfigError(f"Piper module '{key}' must be a non-empty string")
-    return value
 
 
 def _catalog_voice(key: str) -> _FileRef:
@@ -82,8 +79,8 @@ def _model_ref(config: dict, value: str) -> _FileRef:
 
 class PiperModule(TTSModule):
     def __init__(self, config: dict) -> None:
-        voice_key = _optional_str(config, "voice")
-        model = _optional_str(config, "model")
+        voice_key = optional_str(config, "voice", label=_LABEL)
+        model = optional_str(config, "model", label=_LABEL)
         if voice_key is not None and model is not None:
             raise ConfigError("Piper module accepts 'voice' or 'model', not both")
         if model is not None:
@@ -103,15 +100,9 @@ class PiperModule(TTSModule):
                 "Piper module 'speaker' must be a speaker name or an index >= 0"
             )
 
-        speed = config.get("speed")
-        if speed is not None and (
-            isinstance(speed, bool)
-            or not isinstance(speed, int | float)
-            or not _MIN_SPEED <= speed <= _MAX_SPEED
-        ):
-            raise ConfigError(
-                f"Piper module 'speed' must be a number in [{_MIN_SPEED}, {_MAX_SPEED}]"
-            )
+        speed = finite_number(
+            config, "speed", label=_LABEL, minimum=_MIN_SPEED, maximum=_MAX_SPEED
+        )
 
         try:
             from huggingface_hub import hf_hub_download
@@ -184,8 +175,7 @@ class PiperModule(TTSModule):
         self._voice = voice
         self._syn_config = SynthesisConfig(**syn_kwargs)
         self._sample_rate = int(voice_config.sample_rate)
-        # 100 ms per callback: `AudioPlayer.feed` blocks for the whole chunk.
-        self._slice_bytes = 2 * (self._sample_rate // 10)
+        self._slice_bytes = slice_bytes_for(self._sample_rate)
         log.info(
             "piper voice loaded: voice=%s rate=%d speakers=%d",
             voice_key or model,

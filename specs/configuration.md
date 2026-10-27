@@ -47,7 +47,7 @@ Both public config dataclasses expose the **same symmetric trio**, layered file 
 |---|---|---|
 | `from_dict(data, *, base_dir=None)` | a parsed dict | validates and builds |
 | `from_json(text, *, base_dir=None)` | a JSON string | parses, then delegates to `from_dict` |
-| `from_json_file(path)` | a file path | reads the file, then delegates to `from_json`'s parse with `base_dir` set to the file's directory — an invalid-JSON error names the path |
+| `from_json_file(path)` | a file path | reads the file **as UTF-8**, whatever the platform's default encoding (a non-ASCII voice name must not depend on the locale, and some Windows environments default to a legacy code page), then delegates to `from_json`'s parse with `base_dir` set to the file's directory — an invalid-JSON error, or a file that is not valid UTF-8, raises `ConfigError` naming the path |
 
 **`base_dir`** is the directory relative file paths inside the config resolve against (the same idea as wica's `AgentConfig`/`WicaConfig` loaders). A dict or a JSON string has no location of its own, so `from_dict`/`from_json` take it as an optional keyword (`str | Path | None`); `from_json_file` supplies it from the config file's own directory, so a config file's relative paths are bound to where the file lives, not to the process working directory. With `base_dir=None`, relative paths are left as given and resolve against the working directory when used. How it reaches the module is described under "`engine.module` block" below.
 
@@ -168,7 +168,7 @@ There is no `logging` config block. The log level is set at the process level by
 The `engine`-block rules below are enforced by `TTSEngineConfig.from_dict` and so apply identically whether reached via `MCPServerConfig` or a direct `TTSEngineConfig` constructor; the top-level and `server` rules are `MCPServerConfig.from_dict`'s alone. Invalid JSON raises `ConfigError`, and the `*_json_file` constructors include the file path in that message.
 
 - `ConfigError` subclasses `ValueError` (a malformed config is invalid input data), so a caller can catch either `ConfigError` for the specific type or `ValueError` for any bad-config surface — including the module-level `ConfigError`s raised at `TTSEngine` construction.
-- Invalid JSON raises `ConfigError` (with the file path when parsing a file).
+- Invalid JSON raises `ConfigError` (with the file path when parsing a file); so does a config file that is not valid UTF-8, since the file constructors always read UTF-8.
 - The top-level value and the `engine`, `engine.module`, `engine.player`, and `server` blocks must be JSON objects. Shape failures raise `ConfigError`, never raw `AttributeError`/`TypeError`.
 - The `engine` block is required and must contain a `module` block. Missing required blocks/fields raise `ConfigError` with a message identifying the missing key.
 - `engine.module.type` must be a non-empty string. Registry membership is validated later by `load_module` during `TTSEngine` construction, avoiding a config↔module import cycle and allowing callers to register custom modules before constructing the engine. Unknown values still raise `ConfigError` before an engine is created.

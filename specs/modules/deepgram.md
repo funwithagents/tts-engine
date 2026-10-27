@@ -86,7 +86,7 @@ Messages from the server are either `bytes` (audio) or typed events, and the mod
 
 ### Output format and sample rate
 
-`encoding="linear16"` is headerless signed 16-bit little-endian mono PCM at exactly `sample_rate` (confirmed live: 1920-byte messages at 24 kHz, i.e. 40 ms frames). That matches the audio format contract ([tts-module-interface.md](../tts-module-interface.md)) with **no conversion in the module**. As a cheap guard, the module carries an odd trailing byte over to the next message, so `callback` only ever gets whole samples. The API has not been seen to split a sample. `sample_rate` returns the configured value and is fixed for the module's lifetime.
+`encoding="linear16"` is headerless signed 16-bit little-endian mono PCM at exactly `sample_rate` (confirmed live: 1920-byte messages at 24 kHz, i.e. 40 ms frames). That matches the audio format contract ([tts-module-interface.md](../tts-module-interface.md)) with **no conversion in the module**. The worker feeds the messages through the shared `PCMFeeder` ([tts-module-interface.md](../tts-module-interface.md), "Shared PCM helpers"): an odd trailing byte is carried over to the next message, so `callback` only ever gets whole samples (the API has not been seen to split a sample), and a message is handed over in slices of at most 100 ms, `stop` polled between them. `sample_rate` returns the configured value and is fixed for the module's lifetime.
 
 ### Threads: sender, reader, worker
 

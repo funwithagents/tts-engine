@@ -116,10 +116,10 @@ def _generate(self, text, callback, stop):
                 break
             except Exception as exc:
                 raise TTSError(f"phonon synthesis failed: {exc}") from exc
-            callback(_to_int16_pcm(chunk))
+            callback(float_to_int16_pcm(chunk))
 ```
 
-`_to_int16_pcm` reshapes to 1-D, clips to `[-1.0, 1.0]`, scales by `32767`, casts to little-endian `int16` and returns `.tobytes()` — the same conversion as pocket, minus the torch-to-numpy step. No gain is applied: the model's level is what plays.
+`float_to_int16_pcm` (shared in `base.py`, [tts-module-interface.md](../tts-module-interface.md), "Shared PCM helpers") reshapes to 1-D, clips to `[-1.0, 1.0]`, scales by `32767`, casts to little-endian `int16` and returns `.tobytes()` — the same conversion as pocket, minus the torch-to-numpy step pocket does itself. No gain is applied: the model's level is what plays.
 
 `synthesize_text` runs `_generate(text, callback, stop)` through `run_cancellable_worker`. The `ptts.TTS` object is built on the constructing thread and used from the worker thread; this was verified on 0.4.2 (the extension is not thread-bound and releases the GIL while decoding, so the engine's event loop keeps running).
 

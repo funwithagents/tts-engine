@@ -13,20 +13,23 @@ specs/modules/openai.md).
 """
 
 import logging
-import math
-import os
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
+    PCMFeeder,
     TTSError,
     TTSModule,
     TTSOptions,
     cleanup,
+    finite_number,
+    optional_str,
+    resolve_api_key,
     run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
+    slice_bytes_for,
 )
 
 log = logging.getLogger(__name__)
@@ -34,16 +37,10 @@ log = logging.getLogger(__name__)
 _DEFAULT_SAMPLE_RATE = 24000
 _DEFAULT_MODEL = "gpt-4o-mini-tts"
 _DEFAULT_TIMEOUT = 30.0
+_LABEL = "OpenAI module"
 _MIN_SPEED, _MAX_SPEED = 0.25, 4.0
 # A WAV body (some compatible servers ignore `response_format`) starts with this.
 _WAV_MAGIC = b"RIFF"
-
-
-def _optional_str(config: dict, key: str) -> str | None:
-    value = config.get(key)
-    if value is not None and (not isinstance(value, str) or not value):
-        raise ConfigError(f"OpenAI module '{key}' must be a non-empty string")
-    return value
 
 
 class OpenAIModule(TTSModule):
@@ -56,40 +53,27 @@ class OpenAIModule(TTSModule):
                 "pip install tts-engine[openai]"
             ) from exc
 
-        api_key = self._resolve_api_key(config)
+        api_key = resolve_api_key(config, label=_LABEL)
 
         voice = config.get("voice")
         if not isinstance(voice, str) or not voice:
             raise ConfigError("OpenAI module requires a non-empty 'voice'")
 
-        model = config.get("model", _DEFAULT_MODEL)
-        if not isinstance(model, str) or not model:
-            raise ConfigError("OpenAI module 'model' must be a non-empty string")
+        model = optional_str(config, "model", label=_LABEL, default=_DEFAULT_MODEL)
 
-        instructions = _optional_str(config, "instructions")
+        instructions = optional_str(config, "instructions", label=_LABEL)
+        speed = finite_number(
+            config, "speed", label=_LABEL, minimum=_MIN_SPEED, maximum=_MAX_SPEED
+        )
+        base_url = optional_str(config, "base_url", label=_LABEL)
 
-        speed = config.get("speed")
-        if speed is not None and (
-            isinstance(speed, bool)
-            or not isinstance(speed, int | float)
-            or not math.isfinite(speed)
-            or not _MIN_SPEED <= speed <= _MAX_SPEED
-        ):
-            raise ConfigError(
-                f"OpenAI module 'speed' must be a number in "
-                f"[{_MIN_SPEED}, {_MAX_SPEED}]"
-            )
-
-        base_url = _optional_str(config, "base_url")
-
-        timeout = config.get("timeout", _DEFAULT_TIMEOUT)
-        if (
-            isinstance(timeout, bool)
-            or not isinstance(timeout, int | float)
-            or not math.isfinite(timeout)
-            or timeout <= 0
-        ):
-            raise ConfigError("OpenAI module 'timeout' must be a finite number > 0")
+        timeout = finite_number(
+            config,
+            "timeout",
+            label=_LABEL,
+            default=_DEFAULT_TIMEOUT,
+            exclusive_minimum=0,
+        )
 
         sample_rate = config.get("sample_rate", _DEFAULT_SAMPLE_RATE)
         if (
@@ -106,9 +90,7 @@ class OpenAIModule(TTSModule):
                 "(OpenAI's pcm output is fixed at 24 kHz)"
             )
         self._sample_rate = sample_rate
-        # Feed at most 100 ms per callback: `AudioPlayer.feed` blocks for the
-        # whole chunk, and `stop` is polled between slices.
-        self._slice_bytes = 2 * max(1, sample_rate // 10)
+        self._slice_bytes = slice_bytes_for(sample_rate)
 
         # Only the fields that were set: the server's own defaults apply to the
         # rest. `timeout` bounds the wait for the response and for each read
@@ -118,12 +100,12 @@ class OpenAIModule(TTSModule):
             "model": model,
             "voice": voice,
             "response_format": "pcm",
-            "timeout": float(timeout),
+            "timeout": timeout,
         }
         if instructions is not None:
             self._request_kwargs["instructions"] = instructions
         if speed is not None:
-            self._request_kwargs["speed"] = float(speed)
+            self._request_kwargs["speed"] = speed
 
         client_kwargs: dict = {"api_key": api_key}
         if base_url is not None:
@@ -137,33 +119,6 @@ class OpenAIModule(TTSModule):
     @property
     def sample_rate(self) -> int:
         return self._sample_rate
-
-    @staticmethod
-    def _resolve_api_key(config: dict) -> str:
-        """Resolve the API key from a literal ``api_key`` or, failing that, the
-        environment variable named by ``api_key_env``."""
-        api_key = config.get("api_key")
-        env_name = config.get("api_key_env")
-        if api_key is not None and not isinstance(api_key, str):
-            raise ConfigError("OpenAI module 'api_key' must be a string")
-        if env_name is not None and not isinstance(env_name, str):
-            raise ConfigError("OpenAI module 'api_key_env' must be a string")
-
-        if api_key:
-            return api_key
-
-        if env_name:
-            api_key = os.environ.get(env_name)
-            if not api_key:
-                raise ConfigError(
-                    f"OpenAI module: environment variable {env_name!r} "
-                    "(named by 'api_key_env') is unset or empty"
-                )
-            return api_key
-
-        raise ConfigError(
-            "OpenAI module requires a non-empty 'api_key' or 'api_key_env'"
-        )
 
     def _generate(
         self, text: str, callback: Callable[[bytes], None], stop: threading.Event
@@ -189,9 +144,11 @@ class OpenAIModule(TTSModule):
             except Exception as exc:
                 raise TTSError(f"OpenAI request failed: {exc}") from exc
 
-            # Bytes not fed yet: an odd byte (a sample split across chunks), or
-            # the first few bytes until the WAV check has seen four.
-            pending = b""
+            # Whole samples in 100 ms slices (an odd trailing byte waits for
+            # the next chunk); `head` holds the first bytes until the WAV
+            # check has seen four.
+            feeder = PCMFeeder(callback, stop, slice_bytes=self._slice_bytes)
+            head = b""
             checked = False
             while not stop.is_set():
                 # Advance inside the provider try so SDK/transport errors become
@@ -203,27 +160,22 @@ class OpenAIModule(TTSModule):
                     break
                 except Exception as exc:
                     raise TTSError(f"OpenAI request failed: {exc}") from exc
-                data = pending + chunk
                 if not checked:
-                    if len(data) < len(_WAV_MAGIC):
-                        pending = data
+                    head += chunk
+                    if len(head) < len(_WAV_MAGIC):
                         continue
-                    if data.startswith(_WAV_MAGIC):
+                    if head.startswith(_WAV_MAGIC):
                         raise TTSError(
                             "OpenAI-compatible server returned WAV, not raw pcm"
                         )
                     checked = True
-                whole = len(data) - len(data) % 2
-                data, pending = data[:whole], data[whole:]
-                for start in range(0, len(data), self._slice_bytes):
-                    if stop.is_set():
-                        return
-                    callback(data[start : start + self._slice_bytes])
+                    chunk, head = head, b""
+                if not feeder.feed(chunk):
+                    return
 
             # A body shorter than the WAV check: feed its whole samples.
-            whole = len(pending) - len(pending) % 2
-            if not checked and whole and not stop.is_set():
-                callback(pending[:whole])
+            if not checked:
+                feeder.feed(head)
 
     async def synthesize_text(
         self,
