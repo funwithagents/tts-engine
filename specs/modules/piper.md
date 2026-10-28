@@ -35,7 +35,7 @@ It is a **local-model** backend following [tts-module-interface.md](../tts-modul
 | `en_US-lessac-*` (the voice most tutorials use) | Lessac/Blizzard 2013 **Research Licence Agreement** |
 | `en_US-amy-*` | "See URL" (no stated terms) |
 
-The default voice is a public-domain one for that reason, and the README tells users to read a voice's model card before shipping it.
+The default voice is a public-domain one for that reason, and the module's user page ([docs/modules/piper.md](../../docs/modules/piper.md)) tells users to read a voice's model card before shipping it.
 
 ## Config fields
 
