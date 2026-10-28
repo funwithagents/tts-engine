@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice audition</title>
+<!-- Template of tools/voice-audition/audition.py: `page` replaces the data
+     placeholder below with the audition's JSON and writes index.html. -->
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1d1d1f; --muted: #6e6e73; --line: #e3e3e6;
+    --panel: #f5f5f7; --accent: #1d1d1f; --accent-fg: #ffffff;
+    --yes: #2a9d4b; --maybe: #d99a00; --no: #c0392b; --playing: #fff6d6; --err: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161618; --fg: #f2f2f4; --muted: #9a9aa1; --line: #2e2e33;
+      --panel: #222226; --accent: #f2f2f4; --accent-fg: #161618;
+      --playing: #3a3320; --err: #ff8a80;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, sans-serif; }
+  main { max-width: 1400px; margin: 0 auto; padding: 20px 16px 60px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 17px; margin: 28px 0 8px; }
+  .sentence { color: var(--muted); font-style: italic; margin: 0 0 4px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 0; }
+  .bar { position: sticky; top: 0; z-index: 1; background: var(--bg); border-bottom: 1px solid var(--line);
+         padding: 10px 0; margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .bar .spacer { flex: 1; }
+  button { font: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--line);
+           border-radius: 7px; padding: 5px 12px; cursor: pointer; }
+  button.on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+  label.chain { font-size: 13px; color: var(--muted); }
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; vertical-align: middle; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  td.voice { min-width: 180px; }
+  td.voice .label { font-weight: 600; }
+  td.voice .notes { color: var(--muted); font-size: 12px; }
+  td.ttfa { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  td.config code { font-size: 11px; word-break: break-all; color: var(--muted); }
+  td.config { max-width: 380px; }
+  .status { color: var(--err); font-size: 13px; }
+  .choices { display: flex; gap: 4px; flex-wrap: nowrap; }
+  .choices button { padding: 3px 8px; font-size: 12px; }
+  .choices button.on[data-value=yes] { background: var(--yes); border-color: var(--yes); color: #fff; }
+  .choices button.on[data-value=maybe] { background: var(--maybe); border-color: var(--maybe); color: #fff; }
+  .choices button.on[data-value=no] { background: var(--no); border-color: var(--no); color: #fff; }
+  tr[data-choice=yes] td:first-child { box-shadow: inset 4px 0 var(--yes); }
+  tr[data-choice=maybe] td:first-child { box-shadow: inset 4px 0 var(--maybe); }
+  tr[data-choice=no] { opacity: .45; }
+  tr.playing { background: var(--playing); }
+  .hidden { display: none; }
+  .empty { color: var(--muted); margin-top: 24px; }
+  audio { height: 32px; max-width: 260px; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">Voice audition</h1>
+  <p class="sentence" id="sentence"></p>
+  <p class="hint">Latency: time to first audio measured while rendering (median of the runs after a warm-up; hover for the range).</p>
+  <div class="bar">
+    <button data-tab="all" class="on">All</button>
+    <button data-tab="yes">Yes (<span id="n-yes">0</span>)</button>
+    <button data-tab="maybe">Maybe (<span id="n-maybe">0</span>)</button>
+    <span class="spacer"></span>
+    <label class="chain"><input type="checkbox" id="chain" checked> play the next sample when one ends</label>
+    <button id="export">Export choices</button>
+    <button id="import">Import choices</button>
+    <input type="file" id="import-file" accept="application/json,.json" class="hidden">
+  </div>
+  <div id="sections"></div>
+  <p class="empty hidden" id="empty">No voice in this tab yet.</p>
+</main>
+<script>
+const DATA = /*AUDITION_DATA*/null;
+const CHOICES = [["yes", "Yes"], ["maybe", "Maybe"], ["no", "No"], ["notset", "NotSet"]];
+const KEY = "voice-audition:" + DATA.name;
+const ids = new Set(DATA.candidates.map(c => c.id));
+let state = {};
+let tab = "all";
+
+function load() {
+  try { state = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { state = {}; }
+}
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+}
+
+function el(tag, attrs, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") node.className = v; else node.setAttribute(k, v);
+  }
+  for (const child of children) node.append(child);
+  return node;
+}
+
+function ttfaCell(result) {
+  if (result.status !== "ok") return el("td", {class: "ttfa"}, "—");
+  const runs = result.ttfa_ms || [];
+  const cell = el("td", {class: "ttfa"}, Math.round(result.ttfa_median_ms) + " ms");
+  if (runs.length) cell.title = `${runs.length} runs: ${Math.round(Math.min(...runs))}–${Math.round(Math.max(...runs))} ms`;
+  return cell;
+}
+
+function audioCell(c) {
+  const r = c.result || {};
+  if (r.status === "ok") return el("td", {}, el("audio", {controls: "", preload: "none", src: `samples/${c.id}.wav`}));
+  const text = r.status === "skipped" ? "skipped: " + r.reason
+    : r.status === "error" ? "failed: " + r.error : "not rendered yet";
+  return el("td", {}, el("span", {class: "status"}, text));
+}
+
+function row(c) {
+  const choices = el("div", {class: "choices"});
+  for (const [value, label] of CHOICES) {
+    const b = el("button", {"data-value": value, type: "button"}, label);
+    b.addEventListener("click", () => {
+      if (value === "notset") delete state[c.id]; else state[c.id] = value;
+      save(); render();
+    });
+    choices.append(b);
+  }
+  const tr = el("tr", {"data-id": c.id},
+    el("td", {class: "voice"}, el("div", {class: "label"}, c.label), el("div", {class: "notes"}, c.notes || "")),
+    ttfaCell(c.result || {}),
+    audioCell(c),
+    el("td", {}, choices),
+    el("td", {class: "config"}, el("code", {}, JSON.stringify(c.config))),
+  );
+  return tr;
+}
+
+function build() {
+  document.title = "Voice audition: " + DATA.name;
+  document.getElementById("title").textContent = "Voice audition: " + DATA.name;
+  document.getElementById("sentence").textContent = "“" + DATA.text + "”";
+  const root = document.getElementById("sections");
+  for (const section of DATA.sections) {
+    const body = el("tbody");
+    for (const c of DATA.candidates.filter(c => c.section === section)) body.append(row(c));
+    const head = el("thead", {}, el("tr", {},
+      el("th", {}, "Voice"), el("th", {}, "Latency"), el("th", {}, "Audio"), el("th", {}, "Choice"), el("th", {}, "Module config")));
+    root.append(el("section", {class: "block"}, el("h2", {}, section),
+      el("div", {class: "table-wrap"}, el("table", {}, head, body))));
+  }
+}
+
+function render() {
+  const counts = {yes: 0, maybe: 0};
+  for (const v of Object.values(state)) if (v in counts) counts[v]++;
+  document.getElementById("n-yes").textContent = counts.yes;
+  document.getElementById("n-maybe").textContent = counts.maybe;
+  for (const tr of document.querySelectorAll("tr[data-id]")) {
+    const choice = state[tr.dataset.id] || "notset";
+    tr.dataset.choice = choice;
+    for (const b of tr.querySelectorAll(".choices button")) b.classList.toggle("on", b.dataset.value === choice);
+    tr.classList.toggle("hidden", tab !== "all" && choice !== tab);
+  }
+  let visible = 0;
+  for (const block of document.querySelectorAll(".block")) {
+    const shown = block.querySelectorAll("tr[data-id]:not(.hidden)").length;
+    block.classList.toggle("hidden", shown === 0);
+    visible += shown;
+  }
+  document.getElementById("empty").classList.toggle("hidden", visible > 0);
+  for (const b of document.querySelectorAll(".bar [data-tab]")) b.classList.toggle("on", b.dataset.tab === tab);
+}
+
+function exportChoices() {
+  const out = {audition: DATA.name, yes: [], maybe: [], no: []};
+  for (const c of DATA.candidates) { const v = state[c.id]; if (v in out && v !== "audition") out[v].push(c.id); }
+  const a = el("a", {download: DATA.name + "-choices.json"});
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], {type: "application/json"}));
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function importChoices(file) {
+  file.text().then(text => {
+    const data = JSON.parse(text);
+    if (data.audition !== undefined && data.audition !== DATA.name) {
+      alert(`These choices belong to the audition "${data.audition}", not "${DATA.name}".`);
+      return;
+    }
+    const next = {};
+    for (const value of ["yes", "maybe", "no"]) {
+      for (const id of Array.isArray(data[value]) ? data[value] : []) if (ids.has(id)) next[id] = value;
+    }
+    state = next; save(); render();
+  }).catch(e => alert("Cannot read the choices file: " + e.message));
+}
+
+function wirePlayback() {
+  const players = () => [...document.querySelectorAll("audio")];
+  for (const a of players()) {
+    a.addEventListener("play", () => {
+      for (const b of players()) {
+        if (b !== a) b.pause();
+        b.closest("tr").classList.toggle("playing", b === a);
+      }
+    });
+    a.addEventListener("ended", () => {
+      if (!document.getElementById("chain").checked) return;
+      const visible = players().filter(b => b.offsetParent !== null);
+      const next = visible[visible.indexOf(a) + 1];
+      if (next) { next.scrollIntoView({block: "center"}); next.play(); }
+    });
+  }
+}
+
+load();
+build();
+for (const b of document.querySelectorAll(".bar [data-tab]")) {
+  b.addEventListener("click", () => { tab = b.dataset.tab; render(); window.scrollTo(0, 0); });
+}
+document.getElementById("export").addEventListener("click", exportChoices);
+document.getElementById("import").addEventListener("click", () => document.getElementById("import-file").click());
+document.getElementById("import-file").addEventListener("change", e => {
+  if (e.target.files[0]) importChoices(e.target.files[0]);
+  e.target.value = "";
+});
+wirePlayback();
+render();
+</script>
+</body>
+</html>

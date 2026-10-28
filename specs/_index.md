@@ -41,6 +41,7 @@ Read the concept specs in order — each builds on the ones above it. `project.m
 | [audio-player.md](audio-player.md) | `AudioPlayer`, sounddevice integration, stream lifecycle, per-module sample rate | Implemented |
 | [benchmark.md](benchmark.md) | The latency benchmark under `benchmarks/latency/`: every module/model driven through `TTSEngine` with a timing sink, raw chunk timelines with the metrics (TTFA, TTFV, stalls, real-time factor) derived afterwards, a matrix of configurations, ignored runs merged into committed, described results (latest completed measurement of an entry wins), what is committed; findings in `RESULTS.md` | Implemented |
 | [audio-sink.md](audio-sink.md) | `AudioSink` Protocol, constructor sink injection, `TTSEngine.sample_rate`, lazy sounddevice import, one drain per `say`/`say_stream` utterance (on the loop; never hiding the utterance's error), the sink's lifetime left to the embedder | Implemented |
+| [voice-audition.md](voice-audition.md) | The voice audition tool under `tools/voice-audition/`: an audition file (one sentence, candidates as module configs), `new` from the backends' catalogs through `list_voices`, `render` through `TTSEngine` with measured time to first audio and a content-keyed cache, a static listening page with Yes/Maybe/No/NotSet choices, Yes and Maybe tabs and exportable choices; tooling, not installed, never run by CI | Implemented |
 
 ## Status legend
 

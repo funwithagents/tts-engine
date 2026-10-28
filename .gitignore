@@ -11,3 +11,7 @@ config.json
 benchmarks/**/runs/
 benchmarks/**/models/
 benchmarks/**/*.log
+
+# Voice audition (tools/voice-audition): the rendered samples and pages of an
+# audition file (<name>.audition/ next to it) are local output.
+*.audition/

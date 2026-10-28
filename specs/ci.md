@@ -36,7 +36,7 @@ One file, `.github/workflows/ci.yml`. It triggers on `pull_request`, on `push` t
 
 | Job | Runner | What |
 |---|---|---|
-| `check` | `ubuntu-24.04` | `uv sync --locked`, then `ruff check .`, `ruff format --check src tests tests-e2e`, `pyright` — the static gate |
+| `check` | `ubuntu-24.04` | `uv sync --locked`, then `ruff check .`, `ruff format --check src tests tests-e2e tools`, `pyright` — the static gate |
 | `fast-tier` | matrix: `ubuntu-24.04`, `ubuntu-24.04-arm`, `macos-15`, `windows-2025` | `libportaudio2` (Linux only), `uv sync --locked`, `uv run pytest` — the fast tier, `fail-fast: false` so one platform's failure leaves the others running |
 | `e2e` | `ubuntu-24.04` | `libportaudio2`; ALSA's null plugin as the default PCM; `uv sync --locked`; `uv run pytest tests-e2e -rs --durations=10` |
 

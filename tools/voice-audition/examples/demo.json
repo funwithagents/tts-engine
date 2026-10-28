@@ -1,0 +1,74 @@
+{
+  "name": "demo",
+  "text": "Hello! It's nice to meet you. What would you like to talk about today?",
+  "candidates": [
+    {
+      "id": "phonon-micah",
+      "label": "Micah",
+      "notes": "Local, 31M checkpoint · buoyant, playful",
+      "config": {"type": "phonon", "voice": "Micah"}
+    },
+    {
+      "id": "pocket-alba",
+      "label": "alba",
+      "notes": "Local · the English default voice",
+      "config": {"type": "pocket", "voice": "alba"}
+    },
+    {
+      "id": "piper-ljspeech",
+      "label": "en_US-ljspeech-medium",
+      "notes": "Local · the module's default voice",
+      "config": {"type": "piper", "voice": "en_US-ljspeech-medium"}
+    },
+    {
+      "id": "kokoro-heart",
+      "label": "af_heart",
+      "notes": "Local · the module's default voice",
+      "config": {"type": "kokoro", "voice": "af_heart"}
+    },
+    {
+      "id": "cartesia-eden",
+      "label": "Eden - Clear Advisor",
+      "notes": "neutral · en · young, clean delivery",
+      "config": {
+        "type": "cartesia",
+        "api_key_env": "CARTESIA_API_KEY",
+        "model": "sonic-3.6",
+        "voice_id": "83ae58a1-7e97-4b94-b03f-e4cc0a10d8af"
+      }
+    },
+    {
+      "id": "elevenlabs-river",
+      "label": "River - Relaxed, Neutral, Informative",
+      "notes": "neutral · calm, conversational",
+      "config": {
+        "type": "elevenlabs",
+        "api_key_env": "ELEVENLABS_API_KEY",
+        "model": "eleven_flash_v2_5",
+        "voice_id": "SAz9YHcvj6GT2YYXdXww"
+      }
+    },
+    {
+      "id": "gradium-spencer",
+      "label": "Spencer",
+      "notes": "Light and airy, a touch higher",
+      "config": {"type": "gradium", "api_key_env": "GRADIUM_API_KEY", "voice_id": "JOW0vchyswkQUMDS"}
+    },
+    {
+      "id": "deepgram-thalia",
+      "label": "aura-2-thalia-en",
+      "notes": "The module's default voice",
+      "config": {"type": "deepgram", "api_key_env": "DEEPGRAM_API_KEY", "model": "aura-2-thalia-en"}
+    },
+    {
+      "id": "mistral-james",
+      "label": "James",
+      "notes": "male · en_us",
+      "config": {
+        "type": "mistral",
+        "api_key_env": "MISTRAL_API_KEY",
+        "voice_id": "01a14675-dc30-778a-8d01-b5dead5a522a"
+      }
+    }
+  ]
+}
