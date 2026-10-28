@@ -3,10 +3,12 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
+import numpy as np
 import pytest
 
 from tts_engine.config import PlayerConfig, TTSEngineConfig
 from tts_engine.engine import TTSEngine
+from tts_engine.modules import load_module
 from tts_engine.modules.base import TTSError, TTSOptions
 
 
@@ -390,3 +392,121 @@ def _Source_with_error() -> _Source:
     source = _Source(["hello"])
     source.close_error = OSError("stream gone")
     return source
+
+
+# --- gain_db -------------------------------------------------------------------
+
+# The tone fixture emits a known sine (amplitude 0.2 of full scale by default),
+# so the gain step's output can be predicted sample by sample.
+_TONE = {"type": "tone", "seconds_per_char": 0.02}
+
+
+async def _tone_chunks(module: dict, text: str) -> list[bytes]:
+    """The chunks the module itself produces for `text`, before any gain."""
+    chunks: list[bytes] = []
+    await load_module(module).synthesize_text(
+        text, TTSOptions(), callback=chunks.append
+    )
+    return chunks
+
+
+async def _tone_samples(module: dict, text: str) -> np.ndarray:
+    return np.frombuffer(b"".join(await _tone_chunks(module, text)), dtype="<i2")
+
+
+def _tone_engine(
+    gain_db: float | None, module: dict = _TONE
+) -> tuple[TTSEngine, CaptureSink]:
+    block: dict = {"module": module}
+    if gain_db is not None:
+        block["gain_db"] = gain_db
+    sink = CaptureSink()
+    return TTSEngine(TTSEngineConfig.from_dict(block), sink=sink), sink
+
+
+def _fed(sink: CaptureSink) -> np.ndarray:
+    return np.frombuffer(b"".join(sink.chunks), dtype="<i2")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("gain_db", [None, 0])
+async def test_no_gain_feeds_the_module_bytes_unchanged(gain_db):
+    engine, sink = _tone_engine(gain_db)
+    await engine.say("hello there")
+    assert (
+        b"".join(sink.chunks) == (await _tone_samples(_TONE, "hello there")).tobytes()
+    )
+
+
+@pytest.mark.asyncio
+async def test_minus_six_db_halves_the_samples_in_say_and_say_stream():
+    expected = await _tone_samples(_TONE, "hello there") / 2
+    engine, sink = _tone_engine(-6.0206)
+
+    await engine.say("hello there")
+    np.testing.assert_allclose(_fed(sink), expected, atol=1)
+    # The gain keeps the module's chunking: no buffering, no re-slicing.
+    module_chunks = await _tone_chunks(_TONE, "hello there")
+    assert [len(c) for c in sink.chunks] == [len(c) for c in module_chunks]
+
+    sink.chunks.clear()
+    await engine.say_stream(["hello ", "there"])
+    np.testing.assert_allclose(_fed(sink), expected, atol=1)
+
+
+@pytest.mark.asyncio
+async def test_gain_applies_to_the_default_player(mocker):
+    player = CaptureSink()
+    mocker.patch("tts_engine.engine.AudioPlayer", return_value=player)
+    engine = TTSEngine(TTSEngineConfig.from_dict({"module": _TONE, "gain_db": -6.0206}))
+
+    await engine.say("hello")
+    np.testing.assert_allclose(
+        _fed(player), await _tone_samples(_TONE, "hello") / 2, atol=1
+    )
+    assert player.drains == 1
+
+
+@pytest.mark.asyncio
+async def test_a_clipping_gain_saturates_and_warns_once_per_utterance(caplog):
+    loud = {**_TONE, "amplitude": 0.5}
+    source = await _tone_samples(loud, "hello")
+    clipped = int(np.count_nonzero(np.abs(source * 10 ** (12 / 20)) > 32767.5))
+    assert clipped > 0
+    engine, sink = _tone_engine(12, loud)
+
+    with caplog.at_level("WARNING", logger="tts_engine.engine"):
+        await engine.say("hello")
+        await engine.say("hello")
+
+    fed = _fed(sink)
+    assert fed.max() == 32767 and fed.min() == -32768
+    warnings = [r for r in caplog.records if "gain_db" in r.getMessage()]
+    assert len(warnings) == 2  # one per utterance, the count reset in between
+    assert all(f"clipped {clipped} samples" in r.getMessage() for r in warnings)
+    assert sink.drains == 2
+
+
+@pytest.mark.asyncio
+async def test_a_gain_that_does_not_clip_does_not_warn(caplog):
+    engine, _ = _tone_engine(6)
+    with caplog.at_level("WARNING", logger="tts_engine.engine"):
+        await engine.say("hello")
+    assert not caplog.records
+
+
+@pytest.mark.asyncio
+async def test_an_odd_length_chunk_is_a_module_bug_the_gain_does_not_hide(
+    mock_module, mocker
+):
+    mock_module.synthesize_text.side_effect = _feeding_stream(b"\x01\x00\x02")
+    mocker.patch("tts_engine.engine.load_module", return_value=mock_module)
+    sink = CaptureSink()
+    engine = TTSEngine(
+        TTSEngineConfig(module={"type": "fake"}, gain_db=-6.0), sink=sink
+    )
+
+    with pytest.raises(ValueError, match="3 bytes"):
+        await engine.say("hello")
+    assert sink.chunks == []
+    assert sink.drains == 1

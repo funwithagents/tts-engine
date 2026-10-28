@@ -30,13 +30,17 @@
   .bar .tools button { margin: 0 0 0 6px; }
   .bar label { font-size: 14px; }
   table { border-collapse: collapse; width: 100%; max-width: 1400px; table-layout: fixed; }
-  col.c-voice { width: 17%; } col.c-notes { width: 23%; } col.c-ttfa { width: 7%; }
-  col.c-audio { width: 21%; } col.c-choice { width: 8%; } col.c-config { width: 24%; }
+  col.c-voice { width: 15%; } col.c-notes { width: 20%; } col.c-ttfa { width: 7%; } col.c-level { width: 10%; }
+  col.c-audio { width: 20%; } col.c-choice { width: 8%; } col.c-config { width: 20%; }
   th, td { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: middle;
            overflow-wrap: anywhere; }
   thead th { font-size: 13px; color: var(--muted); position: sticky; top: 52px; background: var(--bg); z-index: 1; }
   tr.section th { font-size: 17px; color: var(--fg); padding-top: 24px; border-bottom: 2px solid var(--line); }
-  td.ttfa { text-align: right; font-variant-numeric: tabular-nums; }
+  td.ttfa, td.level { text-align: right; font-variant-numeric: tabular-nums; }
+  td.level .gain { display: block; font-weight: 600; }
+  td.level .peak { display: block; color: var(--muted); font-size: 12px; }
+  td.level .peak.clips { color: var(--err); }
+  .bar input[type=number] { font: inherit; width: 5em; }
   td.notes { color: var(--muted); font-size: 13px; }
   td.config code { font-size: 11px; color: var(--muted); }
   td.choice label { display: block; white-space: nowrap; font-size: 13px; }
@@ -54,11 +58,13 @@
   <h1 id="title">Voice audition</h1>
   <p class="sentence"><i id="sentence"></i></p>
   <p class="hint">Latency: time to first audio measured while rendering (median of the runs after a warm-up; hover for the range).</p>
+  <p class="hint">Level: RMS of the sample's active speech (20 ms frames above −40 dBFS). Below it, the engine's <code>gain_db</code> that brings the voice to the target level, and the sample's peak after that gain.</p>
   <div class="bar">
     <button data-tab="all" class="on">All</button>
     <button data-tab="yes">Yes (<span id="n-yes">0</span>)</button>
     <button data-tab="maybe">Maybe (<span id="n-maybe">0</span>)</button>
     <span class="tools">
+      <label>target <input type="number" id="target" step="0.5" min="-60" max="0"> dBFS</label>
       <label><input type="checkbox" id="chain" checked> play the next sample when one ends</label>
       <button id="export">Export choices</button>
       <button id="import">Import choices</button>
@@ -66,8 +72,8 @@
     <input type="file" id="import-file" accept="application/json,.json" class="hidden">
   </div>
   <table>
-    <colgroup><col class="c-voice"><col class="c-notes"><col class="c-ttfa"><col class="c-audio"><col class="c-choice"><col class="c-config"></colgroup>
-    <thead><tr><th>Voice</th><th>Notes</th><th>Latency</th><th>Audio</th><th>Choice</th><th>Module config</th></tr></thead>
+    <colgroup><col class="c-voice"><col class="c-notes"><col class="c-ttfa"><col class="c-level"><col class="c-audio"><col class="c-choice"><col class="c-config"></colgroup>
+    <thead><tr><th>Voice</th><th>Notes</th><th>Latency</th><th>Level</th><th>Audio</th><th>Choice</th><th>Module config</th></tr></thead>
     <tbody id="rows"></tbody>
   </table>
   <p class="empty hidden" id="empty">No voice in this tab yet.</p>
@@ -103,6 +109,31 @@ function ttfaCell(result) {
   return cell;
 }
 
+function fixed(value) { return (value > 0 ? "+" : value < 0 ? "−" : "") + Math.abs(value).toFixed(1); }
+
+function levelCell(result) {
+  const cell = el("td", {class: "level"});
+  if (result.status !== "ok" || typeof result.level_dbfs !== "number") { cell.append("—"); return cell; }
+  cell.dataset.level = result.level_dbfs;
+  if (typeof result.peak_dbfs === "number") cell.dataset.peak = result.peak_dbfs;
+  cell.append(fixed(result.level_dbfs) + " dBFS", el("span", {class: "gain"}), el("span", {class: "peak"}));
+  return cell;
+}
+
+// The gain to the target, and the peak once it is applied, for every level cell.
+function levels() {
+  const target = parseFloat(document.getElementById("target").value);
+  for (const cell of document.querySelectorAll("td.level[data-level]")) {
+    const gain = Math.round((target - parseFloat(cell.dataset.level)) * 10) / 10;
+    cell.querySelector(".gain").textContent = Number.isFinite(gain) ? "gain_db " + fixed(gain) : "";
+    const peak = cell.querySelector(".peak");
+    if (cell.dataset.peak === undefined || !Number.isFinite(gain)) { peak.textContent = ""; continue; }
+    const after = parseFloat(cell.dataset.peak) + gain;
+    peak.textContent = "peak " + fixed(after) + " dBFS" + (after > 0 ? ", clips" : "");
+    peak.classList.toggle("clips", after > 0);
+  }
+}
+
 function audioCell(c) {
   const r = c.result || {};
   if (r.status === "ok") return el("td", {}, el("audio", {controls: "", preload: "none", src: `samples/${c.id}.wav`}));
@@ -125,6 +156,7 @@ function row(c, index) {
     el("td", {}, c.label),
     el("td", {class: "notes"}, c.notes || ""),
     ttfaCell(c.result || {}),
+    levelCell(c.result || {}),
     audioCell(c),
     choices,
     el("td", {class: "config"}, el("code", {}, JSON.stringify(c.config))),
@@ -138,7 +170,7 @@ function build() {
   const rows = document.getElementById("rows");
   DATA.candidates.forEach((c, index) => c.index = index);
   for (const section of DATA.sections) {
-    rows.append(el("tr", {class: "section", "data-heading": section}, el("th", {colspan: "6"}, section)));
+    rows.append(el("tr", {class: "section", "data-heading": section}, el("th", {colspan: "7"}, section)));
     for (const c of DATA.candidates.filter(c => c.section === section)) rows.append(row(c, c.index));
   }
 }
@@ -217,7 +249,11 @@ document.getElementById("import-file").addEventListener("change", e => {
   if (e.target.files[0]) importChoices(e.target.files[0]);
   e.target.value = "";
 });
+const target = document.getElementById("target");
+target.value = DATA.target_dbfs;
+target.addEventListener("input", levels);
 wirePlayback();
+levels();
 render();
 </script>
 </body>

@@ -5,6 +5,8 @@ import logging
 from collections.abc import AsyncIterable, AsyncIterator, Iterable
 from typing import Self
 
+import numpy as np
+
 from tts_engine.audio import AudioPlayer, AudioSink
 from tts_engine.config import TTSEngineConfig
 from tts_engine.modules import load_module
@@ -28,6 +30,41 @@ def _as_async_iterator(
     return _wrap()
 
 
+class _GainSink:
+    """Applies the engine's static `gain_db` to every chunk before the sink.
+
+    Each chunk is scaled, rounded and clipped to int16 on its own (chunks are
+    whole samples), so nothing is buffered and the chunk boundaries stay the
+    module's. The clipped samples of an utterance are counted and reported in
+    one WARNING when it is drained.
+    """
+
+    def __init__(self, inner: AudioSink, gain_db: float) -> None:
+        self._inner = inner
+        self._gain_db = gain_db
+        self._factor = 10 ** (gain_db / 20)
+        self._clipped = 0
+
+    def feed(self, chunk: bytes) -> None:
+        if len(chunk) % 2:
+            raise ValueError(
+                f"gain_db: a PCM chunk of {len(chunk)} bytes is not whole 16-bit samples"
+            )
+        scaled = np.rint(np.frombuffer(chunk, dtype="<i2") * self._factor)
+        self._clipped += int(np.count_nonzero((scaled > 32767) | (scaled < -32768)))
+        self._inner.feed(np.clip(scaled, -32768, 32767).astype("<i2").tobytes())
+
+    def drain(self) -> None:
+        clipped, self._clipped = self._clipped, 0
+        if clipped:
+            log.warning(
+                "gain_db %+g dB clipped %d samples in this utterance; lower gain_db",
+                self._gain_db,
+                clipped,
+            )
+        self._inner.drain()
+
+
 class TTSEngine:
     def __init__(
         self, config: TTSEngineConfig, *, sink: AudioSink | None = None
@@ -37,6 +74,8 @@ class TTSEngine:
 
         When a sink is injected, no AudioPlayer is constructed and sounddevice is
         never imported — the engine stays usable on hosts with no audio device.
+        A non-zero `config.gain_db` wraps the sink (injected or default) in the
+        gain step; at 0 the sink is used as is and gets the module's bytes.
         """
         self._module = load_module(config.module)
         self._sink: AudioSink = (
@@ -46,6 +85,8 @@ class TTSEngine:
                 device=config.player.device, sample_rate=self._module.sample_rate
             )
         )
+        if config.gain_db != 0:
+            self._sink = _GainSink(self._sink, config.gain_db)
         self._say_lock = asyncio.Lock()
         self._closed = False
 

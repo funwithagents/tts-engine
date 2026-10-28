@@ -15,8 +15,8 @@ tests:
 
 Choosing a voice for an application (an assistant, a character, a device) means hearing candidates side by side, across backends, saying the same sentence, and knowing how long each one makes the listener wait. Doing that by hand means one script per backend and a folder of WAV files. The voice audition tool in [`tools/voice-audition/`](../tools/voice-audition/) does it from one JSON file:
 - it builds a candidate list from the backends' own catalogs ([tts-module-interface.md](tts-module-interface.md), "Voice listing");
-- it renders every candidate through `TTSEngine`, measuring its time to first audio;
-- it writes a page to listen to them one by one and mark each Yes, Maybe or No. The Yes and Maybe voices get their own tabs, and the choices can be exported.
+- it renders every candidate through `TTSEngine`, measuring its time to first audio and its level;
+- it writes a page to listen to them one by one and mark each Yes, Maybe or No. The Yes and Maybe voices get their own tabs, the choices can be exported, and each voice shows the `gain_db` that brings it to a common level.
 
 Like the latency benchmark ([benchmark.md](benchmark.md)), it is tooling, not part of the library: nothing in `src/` depends on it, it is not installed with the package, and CI never runs it (it needs keys and makes paid calls). It is run from a checkout.
 
@@ -93,7 +93,7 @@ Unknown keys are rejected so a typo is not silently ignored. A relative file pat
 
 ## `render`: samples and latency
 
-`render AUDITION.json [--out DIR] [--runs N] [--only ID …] [--force]` renders the candidates into `DIR` (default: the audition file's path with `.json` replaced by `.audition`, e.g. `my-assistant.audition/`):
+`render AUDITION.json [--out DIR] [--runs N] [--only ID …] [--force] [--target DBFS]` renders the candidates into `DIR` (default: the audition file's path with `.json` replaced by `.audition`, e.g. `my-assistant.audition/`):
 
 ```
 my-assistant.audition/
@@ -104,11 +104,11 @@ my-assistant.audition/
 
 **Per candidate, in file order, one at a time in this process:**
 
-1. **Skip unchanged.** The candidate's cache key is a hash of `text` and `config`. If `results.json` has an `ok` entry with the same key and the WAV exists, the candidate is not rendered again, unless `--force` is given. `--only` restricts the pass to the given ids; the others keep their results.
+1. **Skip unchanged.** The candidate's cache key is a hash of `text` and `config`. If `results.json` has an `ok` entry with the same key and the WAV exists, the candidate is not rendered again, unless `--force` is given. An unchanged entry written before levels were recorded gets them measured from its WAV, with no synthesis. `--only` restricts the pass to the given ids; the others keep their results.
 2. **Skip what cannot run here.** A `config` whose `api_key_env` names an unset variable is recorded `skipped` with that reason, before any construction. So is a construction failing because the module's extra is not installed (its `ConfigError` names the extra). Any other construction failure is an `error`.
 3. **Render and measure.** The engine is built with a capturing sink. One warm-up `say(text)` runs first: it pays the connection, model load and kernel compilation, which an application pays once. Then come `--runs` measured `say(text)` calls (default 3, at least 1), each timed from the call to the first PCM chunk the sink receives. The audio of the last run is written as the sample. The engine is closed before the next candidate.
 4. **Record** in `results.json`:
-   - `ok` entries: `key`, `ttfa_ms` (every measured run), `ttfa_median_ms`, `duration_s`, `sample_rate`, `rendered_at`;
+   - `ok` entries: `key`, `ttfa_ms` (every measured run), `ttfa_median_ms`, `duration_s`, `sample_rate`, `level_dbfs` and `peak_dbfs` (below), `rendered_at`;
    - `skipped` entries: `key` and `reason`;
    - `error` entries: `key` and `error` (the exception's type and message).
 
@@ -116,16 +116,28 @@ my-assistant.audition/
 
 **Latency is measured, not looked up.** The page shows the median and the range of the TTFA measured during the render, on this machine and network, after warm-up. That is the number a listener of this machine's application would get, independent of any benchmark result. Three runs keep the cost of a hosted voice at four syntheses of one sentence; `--runs` raises it when the numbers need to be firmer.
 
+## Level and gain
+
+Each provider, model and voice speaks at its own level, so voices compared side by side, or played one after another by an application, jump in volume at every change. The engine's `gain_db` ([configuration.md](configuration.md), "`engine.gain_db`") corrects that per engine; the audition is where its value is found, since choosing a voice and its gain then happen in one place.
+
+- **`level_dbfs`** is the RMS of the sample's **active speech**: the sample is cut into 20 ms frames, the frames whose own RMS is above −40 dBFS are kept, and the RMS of all their samples is taken, in dBFS (full scale 32768). Leaving the silences out matters: engines pad an utterance with up to 0.7 s of silence, which lowers a whole-file RMS without changing what is heard. `null` when no frame is active.
+- **`peak_dbfs`** is the sample's largest absolute value in dBFS; `null` for a silent sample.
+- Both are measured on the kept sample (the last run), at the module's own rate, and rounded to 0.1 dB. The level of a configuration is stable across texts, so one sentence gives a usable value; a longer text gives a firmer one.
+- **The target.** The page shows, under each level, the **suggested `gain_db`** (`target − level`, to 0.1 dB) and the **peak after that gain**, flagged when it passes 0 dBFS, since the engine would then clip. The target starts at `--target` (default **−22 dBFS**, on `render` and `page`) and can be changed on the page, which recomputes every row. A target below most voices keeps the gains negative, and attenuating never clips.
+
+Active RMS is the simple measure and matched the ear on the voices it was tried on. Perceptual loudness (ITU-R BS.1770, LUFS) is stricter; it can replace it if two voices measure equal but sound different (Open questions).
+
 `render` exits non-zero when a candidate ends in `error`, after writing everything else; `skipped` is not a failure. Entries of ids no longer in the file are dropped from `results.json`, and their WAVs are left alone.
 
 ## The page
 
-`index.html` is `page.html` with the audition's data embedded as JSON: name, text, sections, candidates (label, notes, redacted config) and results. A static page with no server: it opens from disk, and the WAVs are referenced relatively.
+`index.html` is `page.html` with the audition's data embedded as JSON: name, text, target level, sections, candidates (label, notes, redacted config) and results. A static page with no server: it opens from disk, and the WAVs are referenced relatively.
 
 - **Rows.** One table with fixed column widths, so every row has the same columns in the same place. Each section starts with a heading row, and each candidate is one row:
   - the label;
   - the notes;
   - the TTFA (median, with min–max over the runs on hover);
+  - the level, the suggested `gain_db` and the peak after it (see "Level and gain");
   - an audio player, or the reason the candidate was skipped or failed;
   - four stacked radio buttons, **Yes**, **Maybe**, **No** and **NotSet** (the default);
   - the module config.
@@ -150,8 +162,9 @@ The exported file is how choices leave the browser: for another machine, a colle
 `tests/test_voice_audition.py`, in the fast tier, loads `audition.py` by path like `tests/test_benchmark.py` does, with no network and no key:
 - the file validation;
 - `new` against a faked `list_voices`: filters, unknown metadata, limit, ids and their deduplication, the hosted key variable, a module that cannot list, refusing to overwrite;
-- `render` with the `tone` fixture: the WAV and its rate, the runs and their median, the cache key (an unchanged candidate not rendered again, a changed text rendering it again, `--force`), a candidate with an unset key `skipped` without construction, a bad config an `error`;
-- the page: its data embedded, `api_key` redacted, the storage key.
+- `render` with the `tone` fixture: the WAV and its rate, the runs and their median, the level and peak, the cache key (an unchanged candidate not rendered again, a changed text rendering it again, `--force`), an older entry's level filled in from its WAV, a candidate with an unset key `skipped` without construction, a bad config an `error`;
+- the level measure on a known sine, with and without silence around it, and on silence;
+- the page: its data embedded, `api_key` redacted, the storage key, the target.
 
 The page's script is not run by the tests.
 
@@ -161,4 +174,6 @@ Deferrals only:
 
 1. **Several sentences.** One sentence covers a first pass; a greeting, a long answer and a question would separate close voices better. That would make `text` a list with labels, give each candidate one sample per text, and key the cache by both.
 2. **From choices back to a file.** A `select` command could turn an exported choices file into a new audition with only the Yes (and Maybe) candidates, to re-render a shortlist with more runs or a longer text, or print their configs.
-3. **Packaged CLI.** If users of the library outside this repository need it, the tool can become a `tts-engine-audition` entry point with `page.html` as package data. That makes its file format a public interface, which is why it starts in the repository.
+3. **LUFS instead of active RMS** for the level, if the RMS and the ear disagree on a set of voices.
+4. **Rendering with a gain.** A candidate could carry its `gain_db` so the page plays the voices already levelled; for now the samples are the engine's native level and the page only suggests the value.
+5. **Packaged CLI.** If users of the library outside this repository need it, the tool can become a `tts-engine-audition` entry point with `page.html` as package data. That makes its file format a public interface, which is why it starts in the repository.

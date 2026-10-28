@@ -4,7 +4,7 @@ The documentation of `tts-engine`, by what you want to do. The [README](../READM
 
 | I want to… | Read |
 |---|---|
-| speak a text from Python | the README's [quick start](../README.md#quick-start), then [configuration.md](configuration.md): the engine block, loading it from a dict or a JSON file, relative paths, the output device |
+| speak a text from Python | the README's [quick start](../README.md#quick-start), then [configuration.md](configuration.md): the engine block, loading it from a dict or a JSON file, relative paths, the output device, the output gain |
 | pick a backend and a voice | [choosing-a-backend-and-voice.md](choosing-a-backend-and-voice.md): where each one runs, how fast it answers, which voices it has, how to audition them |
 | set up one backend | its page under [modules/](modules/index.md): install, config fields, voices, licenses, troubleshooting |
 | find a backend's voices from code | [voices.md](voices.md): `list_voices` and `VoiceInfo` |

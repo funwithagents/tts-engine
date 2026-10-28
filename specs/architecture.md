@@ -161,9 +161,26 @@ class TTSEngine:
 - The constructor is the entry point for all use (library and MCP). It reads `config.module` (the raw module dict, including `type`) through `load_module`. If no `sink` is given it builds the default `AudioPlayer` from `config.player` (a `PlayerConfig`) **and the module's declared `sample_rate`** — `AudioPlayer(device=config.player.device, sample_rate=module.sample_rate)`. The module owns the rate (see [tts-module-interface.md](tts-module-interface.md)); the player opens its output stream to match.
 - **Sink injection** ([audio-sink.md](audio-sink.md)) makes the playback destination swappable: pass `sink=` to send synthesized PCM somewhere other than the local speaker (a robot pipeline, a buffer, a network stream). When a sink is injected the engine builds no `AudioPlayer` and never imports sounddevice, so the engine stays usable on hosts with no audio device. Backwards compatible — omitting `sink` reproduces today's local playback exactly.
 - `TTSEngine.sample_rate` (read-only property) exposes the active module's declared rate, so a custom sink can resample the int16-mono PCM to its destination's format.
+- **Output gain.** When `config.gain_db` is not `0`, the constructor wraps the sink it resolved (injected or default) in the internal gain step below. The wrapper is private: the constructor's signature and the `AudioSink` contract are unchanged.
 - Tests exercise `say()` behavior without touching a TTS provider or audio hardware by patching `load_module` and `AudioPlayer` in `engine.py` so the constructor yields fakes — dependency injection at the module-boundary rather than the constructor signature — or by injecting an in-memory fake sink directly.
 
 See [configuration.md](configuration.md) for `TTSEngineConfig` / `PlayerConfig`.
+
+## Output gain
+
+`TTSEngineConfig.gain_db` ([configuration.md](configuration.md), "`engine.gain_db`") is one static level per engine, applied between the module and the sink:
+
+- **`gain_db == 0` is a passthrough.** No wrapper is built: the sink receives the module's bytes unchanged, as before the field existed.
+- **Otherwise every chunk is scaled on its own.** Its int16 samples are multiplied by `10 ** (gain_db / 20)`, rounded to the nearest integer, clipped to −32768…32767 and fed. The work is O(n) per chunk and buffers nothing: it adds no latency, does not move the first chunk, and keeps the chunk boundaries the module produced. `sample_rate` and the chunk format are unchanged; only the values are.
+- **Chunks are whole samples.** Every module feeds whole int16 samples: the providers whose byte stream can split a sample carry it over through `PCMFeeder` ([tts-module-interface.md](tts-module-interface.md)). So the gain step carries nothing over between chunks. An odd-length chunk is a module bug the gain step does not hide: `feed` raises `ValueError`, which propagates as a callback error (the sink is still drained once). At `0`, with no wrapper, such a chunk reaches the sink as it is.
+- **Clipping is reported, never silent.** A positive gain can push peaks past full scale. The wrapper counts the clipped samples of an utterance and, in `drain` (run once per utterance on every path), logs one `WARNING` naming the gain and the count, suggesting a lower `gain_db`, then resets the count. Hard clipping is the behaviour: a limiter is deferred (Open questions).
+- **Threads and cancellation.** `feed` runs on the module's worker and `drain` on the loop after the worker has joined ([audio-sink.md](audio-sink.md), "Call discipline"), so the count needs no lock. The wrapper adds no awaits and holds nothing across utterances but that count, so cancellation behaves as without a gain.
+
+The level is a property of the module configuration (voice, model, emotion and speed settings, the provider's own normalization) and stable across texts, which is why it is a static value and not a correction measured per utterance. Rejected:
+- **Normalizing an utterance** needs all of it before playback starts, which defeats streaming.
+- **A running AGC** sets the first syllables before it has measured anything, pumps on pauses and flattens deliberate dynamics.
+- **A per-module `volume` field** would be written once per module, in each provider's unit, and still not cover the local models.
+- **The device's volume** sets one level for everything played on it and does not exist for an injected sink.
 
 ## Data flow
 
@@ -172,7 +189,7 @@ See [configuration.md](configuration.md) for `TTSEngineConfig` / `PlayerConfig`.
 1. MCP client sends a `say` tool call with `{"text": "Hello world"}`.
 2. `mcp.py`'s `say` wrapper calls `tools.say(text)` on its `TTSTools(engine)`.
 3. `TTSTools.say` guards empty text, then `await engine.say(text)`, mapping `TTSError` to an error string.
-4. `engine.say` builds a `TTSOptions()` and calls `module.synthesize_text(text, options, callback=sink.feed)` — the sink being the injected one or the default `AudioPlayer`.
+4. `engine.say` builds a `TTSOptions()` and calls `module.synthesize_text(text, options, callback=sink.feed)` — the sink being the injected one or the default `AudioPlayer`, wrapped in the gain step when `gain_db` is set ("Output gain").
 5. The module produces raw signed 16-bit PCM mono at its declared `sample_rate`, inside a single `asyncio.to_thread` worker: the ElevenLabs module opens an HTTPS streaming connection requesting MP3 (`mp3_44100_128`) and decodes each chunk via `miniaudio.stream_any` in-process; the pocket module runs local inference and converts each float32 chunk to int16; the `tone` module generates a sine wave and the `audiofile` module reads a WAV file.
 6. As PCM chunks are produced, the module calls `sink.feed(chunk)` for each one.
 7. With the default sink, `AudioPlayer.feed` writes the chunk to the open `sounddevice` output stream — playback begins on the first chunk. A custom sink does whatever its destination needs.
@@ -204,7 +221,7 @@ await engine.say_stream(llm_tokens())
 |-----------|---------------|
 | `mcp.py` | MCP protocol, tool registration, StreamableHTTP; thin wrappers over `tools`; builds the `FastMCP` app (behind the `mcp` extra) |
 | `tools.py` | `TTSTools`: engine-bound, provider/transport-agnostic operations (`say`); input guards; `TTSError` → string |
-| `engine.py` | Builds the module from `TTSEngineConfig`; uses an injected `AudioSink` or builds the default `AudioPlayer` (at the module's `sample_rate`); `say()` and `say_stream()`; `sample_rate` property; no protocol knowledge |
+| `engine.py` | Builds the module from `TTSEngineConfig`; uses an injected `AudioSink` or builds the default `AudioPlayer` (at the module's `sample_rate`); applies the static `gain_db` before the sink; `say()` and `say_stream()`; `sample_rate` property; no protocol knowledge |
 | `modules/base.py` | Defines `TTSModule` ABC (`synthesize_text`, `synthesize_text_stream`), shared dataclasses (`TTSOptions`), and the shared helpers (`run_cancellable_worker`, `run_text_stream_worker`, `segment_sentences`, `resolve_path`) |
 | `modules/elevenlabs/module.py` | ElevenLabs API interaction over HTTPS (complete text) and the stream-input WebSocket (text stream), MP3→PCM decoding via miniaudio (behind the `elevenlabs` extra, lazy import), config parsing |
 | `modules/gradium/module.py` | Gradium realtime WebSocket (both input shapes; the text stream is forwarded as it arrives), raw PCM output (behind the `gradium` extra, lazy import), config parsing |
@@ -253,3 +270,8 @@ from tts_engine import TTSEngine, TTSEngineConfig, MCPServerConfig, TTSTools, Au
 - For `say_stream`, the text source is consumed on the engine's event loop (a pump task inside `run_text_stream_worker`) and handed to the module's worker thread through a bounded queue (`MAX_PENDING_CHARS`); when the worker is behind, the pump awaits room rather than reading further, so the source sees backpressure and the loop keeps its turns ([tts-module-interface.md](tts-module-interface.md), "Text-stream helpers"). `feed` runs on the worker thread, never on the loop; `drain` is the one sink call made **on the loop**, synchronously, at the end of each utterance — the default player's drain waits for its buffered audio to play out, so the loop is held for that long (see [audio-sink.md](audio-sink.md), "Call discipline").
 - A module must stop invoking its callback before `synthesize_text()` / `synthesize_text_stream()` returns or raises, including cancellation. Every module requests cooperative worker shutdown and waits for its thread before propagating cancellation, so the engine can safely drain and release the lock.
 - With the default sink, a long pause in the text stream (the LLM thinking) is an output **underrun**: the device plays silence until the next chunk, which is expected, not an error.
+
+## Open questions
+
+- **A limiter for positive gains.** Hard clipping with a warning is enough while gains stay negative, which the audition tool's suggestion encourages (a target below most voices). A soft limiter (a fixed ceiling with a short look-ahead, or a `tanh` knee) would let a positive gain raise a quiet voice safely, at the cost of some code and some colouring. Deferred until a positive gain is needed in practice.
+- **A per-call gain** (`TTSOptions`) is deferred: the level is per voice, and no use asks for a per-utterance level yet.

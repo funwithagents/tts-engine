@@ -10,8 +10,9 @@ complete ``engine.module`` block. Three commands:
   run's audio kept as ``samples/<id>.wav``. Only what changed is rendered
   again, and a candidate whose key or extra is missing is skipped;
 - ``page`` writes ``index.html``: one row per candidate with its player, its
-  measured latency and Yes / Maybe / No / NotSet choices, Yes and Maybe tabs,
-  and an export/import of the choices.
+  measured latency, its level with the ``gain_db`` that brings it to a target
+  level, and Yes / Maybe / No / NotSet choices, Yes and Maybe tabs, and an
+  export/import of the choices.
 
 Design: specs/voice-audition.md. Usage (from the repo root):
 
@@ -39,6 +40,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from tts_engine import (
     TTSEngine,
     TTSEngineConfig,
@@ -58,6 +61,11 @@ _ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
 _TOP_KEYS = {"name", "text", "candidates"}
 _CANDIDATE_KEYS = {"id", "label", "section", "notes", "config"}
 _GENDERS = ("male", "female", "neutral")
+# The level measure: the RMS of the 20 ms frames above -40 dBFS, so the
+# silence an engine pads an utterance with does not lower it.
+_FRAME_S = 0.02
+_ACTIVE_DBFS = -40.0
+DEFAULT_TARGET_DBFS = -22.0
 
 
 class AuditionError(Exception):
@@ -298,6 +306,32 @@ class _CaptureSink:
         pass
 
 
+def _dbfs(value: float) -> float:
+    return round(20 * np.log10(value / 32768), 1)
+
+
+def measure_level(pcm: bytes, sample_rate: int) -> dict[str, float | None]:
+    """The active level and the peak of int16 mono PCM, in dBFS (``None`` for
+    no active speech, or no signal at all)."""
+    samples = np.frombuffer(pcm, dtype="<i2").astype(np.float64)
+    peak = float(np.abs(samples).max()) if samples.size else 0.0
+    frame = max(1, round(_FRAME_S * sample_rate))
+    frames = samples[: samples.size // frame * frame].reshape(-1, frame)
+    power = (frames**2).mean(axis=1)
+    active = frames[power > (32768 * 10 ** (_ACTIVE_DBFS / 20)) ** 2]
+    return {
+        "level_dbfs": _dbfs(float(np.sqrt((active**2).mean())))
+        if active.size
+        else None,
+        "peak_dbfs": _dbfs(peak) if peak else None,
+    }
+
+
+def _wav_level(path: Path) -> dict[str, float | None]:
+    with wave.open(str(path), "rb") as wav:
+        return measure_level(wav.readframes(wav.getnframes()), wav.getframerate())
+
+
 def cache_key(text: str, config: dict[str, Any]) -> str:
     canonical = json.dumps(
         {"text": text, "config": config}, sort_keys=True, ensure_ascii=False
@@ -369,6 +403,7 @@ async def render_candidate(
         "ttfa_median_ms": round(statistics.median(ttfa), 1),
         "duration_s": round(len(pcm) / 2 / rate, 2),
         "sample_rate": rate,
+        **measure_level(pcm, rate),
         "rendered_at": datetime.now(UTC).isoformat(timespec="seconds"),
     }
 
@@ -398,6 +433,7 @@ async def render(
     runs: int = 3,
     only: list[str] | None = None,
     force: bool = False,
+    target_dbfs: float = DEFAULT_TARGET_DBFS,
 ) -> dict[str, Any]:
     """Render the audition's candidates into `out` and write the page; the
     results by id."""
@@ -425,6 +461,9 @@ async def render(
             and previous.get("key") == key
             and (samples / f"{cid}.wav").exists()
         ):
+            if "level_dbfs" not in previous:  # rendered before levels were kept
+                previous.update(_wav_level(samples / f"{cid}.wav"))
+                _write_results(out, results)
             print(f"{cid}: unchanged")
             continue
         print(f"{cid}: rendering ...", flush=True)
@@ -441,7 +480,7 @@ async def render(
         _write_results(out, results)
 
     _write_results(out, results)
-    write_page(audition, results, out)
+    write_page(audition, results, out, target_dbfs=target_dbfs)
     return results
 
 
@@ -452,7 +491,12 @@ def _redacted(config: dict[str, Any]) -> dict[str, Any]:
     return {k: ("***" if k == "api_key" else v) for k, v in config.items()}
 
 
-def page_data(audition: dict[str, Any], results: dict[str, Any]) -> dict[str, Any]:
+def page_data(
+    audition: dict[str, Any],
+    results: dict[str, Any],
+    *,
+    target_dbfs: float = DEFAULT_TARGET_DBFS,
+) -> dict[str, Any]:
     sections: list[str] = []
     for candidate in audition["candidates"]:
         if candidate["section"] not in sections:
@@ -460,6 +504,7 @@ def page_data(audition: dict[str, Any], results: dict[str, Any]) -> dict[str, An
     return {
         "name": audition["name"],
         "text": audition["text"],
+        "target_dbfs": target_dbfs,
         "sections": sections,
         "candidates": [
             {
@@ -477,16 +522,22 @@ def page_data(audition: dict[str, Any], results: dict[str, Any]) -> dict[str, An
     }
 
 
-def write_page(audition: dict[str, Any], results: dict[str, Any], out: Path) -> Path:
+def write_page(
+    audition: dict[str, Any],
+    results: dict[str, Any],
+    out: Path,
+    *,
+    target_dbfs: float = DEFAULT_TARGET_DBFS,
+) -> Path:
     template = _TEMPLATE.read_text(encoding="utf-8")
     if template.count(_DATA_PLACEHOLDER) != 1:
         raise AuditionError(
             f"{_TEMPLATE}: expected one {_DATA_PLACEHOLDER} placeholder"
         )
     # Inside a <script>, "</" could end the element: escape it in the JSON.
-    data = json.dumps(page_data(audition, results), ensure_ascii=False).replace(
-        "</", "<\\/"
-    )
+    data = json.dumps(
+        page_data(audition, results, target_dbfs=target_dbfs), ensure_ascii=False
+    ).replace("</", "<\\/")
     out.mkdir(parents=True, exist_ok=True)
     page = out / "index.html"
     page.write_text(template.replace(_DATA_PLACEHOLDER, data), encoding="utf-8")
@@ -549,6 +600,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     page = sub.add_parser("page", help="rewrite the page from the existing results")
     page.add_argument("audition", help="the audition file")
     page.add_argument("--out", help="output folder (default: <audition>.audition)")
+    for command in (ren, page):
+        command.add_argument(
+            "--target",
+            type=float,
+            default=DEFAULT_TARGET_DBFS,
+            help="the level (dBFS) the page's suggested gain_db aims at"
+            f" (default {DEFAULT_TARGET_DBFS:g}; also editable on the page)",
+        )
     return p.parse_args(argv)
 
 
@@ -560,11 +619,23 @@ def main(argv: list[str] | None = None) -> int:
         audition_path = Path(args.audition)
         out = Path(args.out) if args.out else default_out_dir(audition_path)
         if args.command == "page":
-            page = write_page(load_audition(audition_path), load_results(out), out)
+            page = write_page(
+                load_audition(audition_path),
+                load_results(out),
+                out,
+                target_dbfs=args.target,
+            )
             print(f"wrote {page}")
             return 0
         results = asyncio.run(
-            render(audition_path, out, runs=args.runs, only=args.only, force=args.force)
+            render(
+                audition_path,
+                out,
+                runs=args.runs,
+                only=args.only,
+                force=args.force,
+                target_dbfs=args.target,
+            )
         )
     except AuditionError as exc:
         print(f"error: {exc}", file=sys.stderr)

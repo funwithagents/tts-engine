@@ -11,6 +11,7 @@ import sys
 import wave
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from tts_engine import VoiceInfo, VoiceListingUnsupported
@@ -260,6 +261,44 @@ def test_render_writes_samples_measurements_and_the_page(tmp_path):
     assert (out / "index.html").exists()
 
 
+def test_measure_level_reads_the_active_speech_and_the_peak():
+    rate = 24000
+    t = np.arange(rate) / rate
+    sine = np.round(0.2 * 32767 * np.sin(2 * np.pi * 440 * t)).astype("<i2")
+    silence = np.zeros(rate // 2, dtype="<i2")
+
+    # A sine of amplitude 0.2: RMS 0.2/sqrt(2) (-17.0 dBFS), peak -14.0 dBFS;
+    # the silence padding either end leaves the active level unchanged.
+    padded = np.concatenate([silence, sine, silence]).tobytes()
+    assert audition.measure_level(padded, rate) == {
+        "level_dbfs": -17.0,
+        "peak_dbfs": -14.0,
+    }
+    assert audition.measure_level(silence.tobytes(), rate) == {
+        "level_dbfs": None,
+        "peak_dbfs": None,
+    }
+
+
+def test_render_records_the_level_and_fills_it_in_for_older_results(tmp_path):
+    path = _tone_audition(tmp_path)
+    entry = _render(path, runs=1)["tone-a"]
+    # The tone fixture's default amplitude is 0.2 of full scale.
+    assert entry["level_dbfs"] == pytest.approx(-17.0, abs=0.1)
+    assert entry["peak_dbfs"] == pytest.approx(-14.0, abs=0.1)
+
+    results_path = tmp_path / "trial.audition" / "results.json"
+    older = json.loads(results_path.read_text(encoding="utf-8"))
+    for result in older.values():
+        del result["level_dbfs"], result["peak_dbfs"]
+    results_path.write_text(json.dumps(older), encoding="utf-8")
+
+    again = _render(path, runs=1)  # unchanged: measured from the WAV, not rendered
+    assert again["tone-a"]["level_dbfs"] == entry["level_dbfs"]
+    assert again["tone-a"]["ttfa_ms"] == entry["ttfa_ms"]
+    assert json.loads(results_path.read_text(encoding="utf-8")) == again
+
+
 def test_render_only_renders_again_what_changed(tmp_path, monkeypatch):
     path = _tone_audition(tmp_path)
     _render(path, runs=1)
@@ -372,6 +411,11 @@ def test_page_embeds_the_data_without_secrets(tmp_path):
     assert candidate["config"] == {"type": "tone", "api_key": "***"}
     assert candidate["result"] == {}  # not rendered yet
     assert 'const KEY = "voice-audition:" + DATA.name;' in page
+    assert data["target_dbfs"] == audition.DEFAULT_TARGET_DBFS
+
+    assert audition.main(["page", str(path), "--target", "-18"]) == 0
+    page = (tmp_path / "secret.audition" / "index.html").read_text(encoding="utf-8")
+    assert _embedded_data(page)["target_dbfs"] == -18.0
 
 
 def test_example_audition_is_valid():

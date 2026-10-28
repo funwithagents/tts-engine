@@ -10,7 +10,8 @@
   },
   "player": {
     "device": null
-  }
+  },
+  "gain_db": 0
 }
 ```
 
@@ -48,3 +49,21 @@ The optional `player.device` field selects the local output device: `null` uses 
 ```bash
 uv run python -c "import sounddevice; print(sounddevice.query_devices())"
 ```
+
+## Output gain
+
+Every provider, model and voice speaks at its own level: across ten voices of ten backends, the loudest is more than 8 dB above the quietest. An application that plays several engines through one output (a demo comparing voices, one voice per character, a voice the user picks from a list) hears that as a volume jump at every change. The optional `gain_db` field of the engine block sets one static gain for the engine, in decibels:
+
+```json
+{
+  "module": { "type": "piper", "voice": "en_US-ryan-medium" },
+  "gain_db": -7.6
+}
+```
+
+- **Negative attenuates, positive amplifies.** The default, `0`, leaves the audio exactly as the module produced it. The accepted range is −60 to +24.
+- **It applies to everything the engine plays:** `say` and `say_stream`, the local device and a custom sink, the agent tools and the MCP server. It adds no latency.
+- **A positive gain can clip** the loudest peaks. The engine then logs one warning per utterance with the number of clipped samples; lower `gain_db` until it stops.
+- **It is per engine, so per voice.** The level depends on the module's whole configuration (voice, model, speed or emotion settings), so give each engine configuration its own value.
+
+**Finding the value.** The [voice audition tool](../tools/voice-audition/README.md) measures each candidate's level when it renders it and shows, on its page, the `gain_db` that brings that voice to a target level (−22 dBFS by default, editable on the page) and the peak once it is applied. Copy that number into the engine block next to the voice's `module`. A target below most voices keeps every gain negative, so nothing clips.
