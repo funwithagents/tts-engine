@@ -17,6 +17,7 @@ Apple M5 Pro, macOS 26, Python 3.13, the development machine on its home connect
 | `20261028-095540` | 2026-10-28 09:55–10:10 | `openai-compatible/gpt-4o-mini-tts` (alias), `tts-1`, `tts-1-hd` | 3 entries clean. |
 | `20261028-101003` | 2026-10-28 10:10–10:17 | `openai-compatible/gpt-4o-mini-tts-2025-03-20`, `-2025-12-15` (`--include-disabled`) | 2 entries clean. |
 | `20261028-114337` | 2026-10-28 11:43–12:12 | `deepgram/*`, `cartesia/*` | 6 entries clean, on the held-socket modules (git `418857e`); they replace the socket-per-utterance measurements of the first run. |
+| `20261028-122151` | 2026-10-28 12:21–12:33 | the nine CPU-oriented entries added for the Raspberry Pi plan: pocket 2m / 7m / 18m with `quantize`, phonon 40m-en and 40m-multilingual at `cpu`, `cpu+q8_0`, `cpu+q4k` | 9 entries clean: the Mac baseline for the entries a Pi result will run. |
 
 50 entries measured (plus `mistral/voxtral-mini-tts-2603`, which only ever errored). Not yet measured: the Gemini entries (rate-limited to 10 req/min per model; `pause_s: 20`; about 50 minutes, mostly pauses).
 
@@ -41,6 +42,7 @@ An earlier run with a 30 ms/word fake-LLM pacing was discarded: it put a ≈340 
 - Non-streaming backends show a TTFA that grows with the text and 0.5–1.2 s pauses between sentences: ElevenLabs multilingual_v2 over HTTP, kokoro, piper `high`, openai-compatible `tts-1`/`tts-1-hd`.
 - With the socket held, Deepgram Flux reaches first audio before Aura-2 (174 vs 213 ms) but generates slower (1.5× vs 2.2× real time), the reverse of the per-utterance picture that fixed Aura-2 as the default. ElevenLabs v3/v4 are 4–5× slower than their turbo/conversational siblings and stall; qwen3 0.6B emits ≈150 ms of silence before voice.
 - Reproducibility: ElevenLabs flash_v2_5 matched within 15 ms across two runs; the full OpenAI Realtime 2.1 model swings ±0.3 s between runs.
+- On the M5, int8 does not pay: pocket `quantize` is slower than fp32 at every size (2m 16 → 21 ms, 7m 22 → 30, 18m 26 → 35, 100M 38 → 77) with a lower real-time factor; phonon 40m on CPU is 21–26 ms against 14 on Metal, `q8_0` the best CPU variant (21 ms, 44× real time) and `q4k` the slowest and noisiest (p90 up to 71 ms). Whether int8 helps on an ARM CPU without Metal is exactly what the Pi result has to show.
 
 ### What this result changed
 

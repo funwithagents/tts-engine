@@ -546,6 +546,20 @@
       "notes": "18.2M params. The *_refl_* siblings are the same size (reward fine-tuned) so are not listed."
     },
     {
+      "id": "pocket/english_18m_2026-10+quantize",
+      "type": "pocket",
+      "config": {
+        "voice": "alba",
+        "language": "english_18m_2026-10",
+        "device": "cpu",
+        "quantize": true
+      },
+      "tags": [
+        "local"
+      ],
+      "notes": "int8 dynamic quantization of the 18.2M model (CPU only). Slower than fp32 on the M5 for the 100M; kept for ARM CPUs (Raspberry Pi), where int8 is the point."
+    },
+    {
       "id": "pocket/english_7m_2026-10",
       "type": "pocket",
       "config": {
@@ -559,6 +573,20 @@
       "notes": "6.9M params."
     },
     {
+      "id": "pocket/english_7m_2026-10+quantize",
+      "type": "pocket",
+      "config": {
+        "voice": "alba",
+        "language": "english_7m_2026-10",
+        "device": "cpu",
+        "quantize": true
+      },
+      "tags": [
+        "local"
+      ],
+      "notes": "int8 dynamic quantization of the 6.9M model (CPU only). Slower than fp32 on the M5 for the 100M; kept for ARM CPUs (Raspberry Pi), where int8 is the point."
+    },
+    {
       "id": "pocket/english_2m_2026-10",
       "type": "pocket",
       "config": {
@@ -570,6 +598,20 @@
         "local"
       ],
       "notes": "1.9M params."
+    },
+    {
+      "id": "pocket/english_2m_2026-10+quantize",
+      "type": "pocket",
+      "config": {
+        "voice": "alba",
+        "language": "english_2m_2026-10",
+        "device": "cpu",
+        "quantize": true
+      },
+      "tags": [
+        "local"
+      ],
+      "notes": "int8 dynamic quantization of the 1.9M model (CPU only). Slower than fp32 on the M5 for the 100M; kept for ARM CPUs (Raspberry Pi), where int8 is the point."
     },
     {
       "id": "pocket/english_2026-10@mps",
@@ -648,6 +690,54 @@
       "notes": "Gated CC BY-NC 4.0 checkpoint: needs HF_TOKEN with access granted."
     },
     {
+      "id": "phonon/40m-en@cpu",
+      "type": "phonon",
+      "config": {
+        "model": "hf://gradium/phonon-40m-en",
+        "device": "cpu"
+      },
+      "requires_env": [
+        "HF_TOKEN"
+      ],
+      "tags": [
+        "local",
+        "gated"
+      ],
+      "notes": "CPU fp32, the 40M counterpart of 31m-en@cpu."
+    },
+    {
+      "id": "phonon/40m-en@cpu+q8_0",
+      "type": "phonon",
+      "config": {
+        "model": "hf://gradium/phonon-40m-en",
+        "device": "cpu",
+        "quant": "q8_0"
+      },
+      "requires_env": [
+        "HF_TOKEN"
+      ],
+      "tags": [
+        "local",
+        "gated"
+      ]
+    },
+    {
+      "id": "phonon/40m-en@cpu+q4k",
+      "type": "phonon",
+      "config": {
+        "model": "hf://gradium/phonon-40m-en",
+        "device": "cpu",
+        "quant": "q4k"
+      },
+      "requires_env": [
+        "HF_TOKEN"
+      ],
+      "tags": [
+        "local",
+        "gated"
+      ]
+    },
+    {
       "id": "phonon/40m-multilingual@auto",
       "type": "phonon",
       "config": {
@@ -662,6 +752,54 @@
         "gated"
       ],
       "notes": "Gated CC BY-NC 4.0; en/fr/de/es/pt in one checkpoint."
+    },
+    {
+      "id": "phonon/40m-multilingual@cpu",
+      "type": "phonon",
+      "config": {
+        "model": "hf://gradium/phonon-40m-multilingual",
+        "device": "cpu"
+      },
+      "requires_env": [
+        "HF_TOKEN"
+      ],
+      "tags": [
+        "local",
+        "gated"
+      ],
+      "notes": "CPU fp32, the 40M counterpart of 31m-en@cpu."
+    },
+    {
+      "id": "phonon/40m-multilingual@cpu+q8_0",
+      "type": "phonon",
+      "config": {
+        "model": "hf://gradium/phonon-40m-multilingual",
+        "device": "cpu",
+        "quant": "q8_0"
+      },
+      "requires_env": [
+        "HF_TOKEN"
+      ],
+      "tags": [
+        "local",
+        "gated"
+      ]
+    },
+    {
+      "id": "phonon/40m-multilingual@cpu+q4k",
+      "type": "phonon",
+      "config": {
+        "model": "hf://gradium/phonon-40m-multilingual",
+        "device": "cpu",
+        "quant": "q4k"
+      },
+      "requires_env": [
+        "HF_TOKEN"
+      ],
+      "tags": [
+        "local",
+        "gated"
+      ]
     },
     {
       "id": "qwen3/0.6B-CustomVoice-Q8_0",
