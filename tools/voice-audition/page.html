@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice audition</title>
+<!-- Template of tools/voice-audition/audition.py: `page` replaces the data
+     placeholder below with the audition's JSON and writes index.html. -->
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1d1d1f; --muted: #666; --line: #ddd; --panel: #f4f4f4;
+    --on-bg: #222; --on-fg: #fff; --yes: #2a9d4b; --maybe: #e0a100; --playing: #fff6d6; --err: #b00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161618; --fg: #eee; --muted: #9a9aa1; --line: #333; --panel: #26262a;
+      --on-bg: #eee; --on-fg: #161618; --playing: #3a3320; --err: #ff8a80;
+    }
+  }
+  body { font: 15px system-ui, sans-serif; margin: 24px; background: var(--bg); color: var(--fg); }
+  h1 { font-size: 24px; margin: 0 0 6px; }
+  .sentence { margin: 0 0 4px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 0; }
+  .bar { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 10px 0;
+         border-bottom: 1px solid var(--line); margin: 12px 0 0; }
+  .bar button { font: inherit; padding: 6px 14px; margin-right: 6px; border: 1px solid #bbb;
+                border-radius: 6px; background: var(--panel); color: var(--fg); cursor: pointer; }
+  .bar button.on { background: var(--on-bg); color: var(--on-fg); border-color: var(--on-bg); }
+  .bar .tools { float: right; }
+  .bar .tools button { margin: 0 0 0 6px; }
+  .bar label { font-size: 14px; }
+  table { border-collapse: collapse; width: 100%; max-width: 1400px; table-layout: fixed; }
+  col.c-voice { width: 17%; } col.c-notes { width: 23%; } col.c-ttfa { width: 7%; }
+  col.c-audio { width: 21%; } col.c-choice { width: 8%; } col.c-config { width: 24%; }
+  th, td { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: middle;
+           overflow-wrap: anywhere; }
+  thead th { font-size: 13px; color: var(--muted); position: sticky; top: 52px; background: var(--bg); z-index: 1; }
+  tr.section th { font-size: 17px; color: var(--fg); padding-top: 24px; border-bottom: 2px solid var(--line); }
+  td.ttfa { text-align: right; font-variant-numeric: tabular-nums; }
+  td.notes { color: var(--muted); font-size: 13px; }
+  td.config code { font-size: 11px; color: var(--muted); }
+  td.choice label { display: block; white-space: nowrap; font-size: 13px; }
+  audio { width: 100%; }
+  .status { color: var(--err); font-size: 13px; }
+  tr[data-choice=yes] td:first-child { box-shadow: inset 4px 0 var(--yes); }
+  tr[data-choice=maybe] td:first-child { box-shadow: inset 4px 0 var(--maybe); }
+  tr[data-choice=no] { opacity: .45; }
+  tr.playing { background: var(--playing); }
+  .hidden { display: none; }
+  .empty { color: var(--muted); }
+</style>
+</head>
+<body>
+  <h1 id="title">Voice audition</h1>
+  <p class="sentence"><i id="sentence"></i></p>
+  <p class="hint">Latency: time to first audio measured while rendering (median of the runs after a warm-up; hover for the range).</p>
+  <div class="bar">
+    <button data-tab="all" class="on">All</button>
+    <button data-tab="yes">Yes (<span id="n-yes">0</span>)</button>
+    <button data-tab="maybe">Maybe (<span id="n-maybe">0</span>)</button>
+    <span class="tools">
+      <label><input type="checkbox" id="chain" checked> play the next sample when one ends</label>
+      <button id="export">Export choices</button>
+      <button id="import">Import choices</button>
+    </span>
+    <input type="file" id="import-file" accept="application/json,.json" class="hidden">
+  </div>
+  <table>
+    <colgroup><col class="c-voice"><col class="c-notes"><col class="c-ttfa"><col class="c-audio"><col class="c-choice"><col class="c-config"></colgroup>
+    <thead><tr><th>Voice</th><th>Notes</th><th>Latency</th><th>Audio</th><th>Choice</th><th>Module config</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <p class="empty hidden" id="empty">No voice in this tab yet.</p>
+<script>
+const DATA = /*AUDITION_DATA*/null;
+const CHOICES = [["yes", "Yes"], ["maybe", "Maybe"], ["no", "No"], ["notset", "NotSet"]];
+const KEY = "voice-audition:" + DATA.name;
+const ids = new Set(DATA.candidates.map(c => c.id));
+let state = {};
+let tab = "all";
+
+function load() {
+  try { state = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { state = {}; }
+}
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+}
+
+function el(tag, attrs, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") node.className = v; else node.setAttribute(k, v);
+  }
+  for (const child of children) node.append(child);
+  return node;
+}
+
+function ttfaCell(result) {
+  if (result.status !== "ok") return el("td", {class: "ttfa"}, "—");
+  const runs = result.ttfa_ms || [];
+  const cell = el("td", {class: "ttfa"}, Math.round(result.ttfa_median_ms) + " ms");
+  if (runs.length) cell.title = `${runs.length} runs: ${Math.round(Math.min(...runs))}–${Math.round(Math.max(...runs))} ms`;
+  return cell;
+}
+
+function audioCell(c) {
+  const r = c.result || {};
+  if (r.status === "ok") return el("td", {}, el("audio", {controls: "", preload: "none", src: `samples/${c.id}.wav`}));
+  const text = r.status === "skipped" ? "skipped: " + r.reason
+    : r.status === "error" ? "failed: " + r.error : "not rendered yet";
+  return el("td", {}, el("span", {class: "status"}, text));
+}
+
+function row(c, index) {
+  const choices = el("td", {class: "choice"});
+  for (const [value, label] of CHOICES) {
+    const input = el("input", {type: "radio", name: "choice-" + index, value});
+    input.addEventListener("change", () => {
+      if (value === "notset") delete state[c.id]; else state[c.id] = value;
+      save(); render();
+    });
+    choices.append(el("label", {}, input, " " + label));
+  }
+  return el("tr", {"data-id": c.id, "data-section": c.section},
+    el("td", {}, c.label),
+    el("td", {class: "notes"}, c.notes || ""),
+    ttfaCell(c.result || {}),
+    audioCell(c),
+    choices,
+    el("td", {class: "config"}, el("code", {}, JSON.stringify(c.config))),
+  );
+}
+
+function build() {
+  document.title = "Voice audition: " + DATA.name;
+  document.getElementById("title").textContent = "Voice audition: " + DATA.name;
+  document.getElementById("sentence").textContent = DATA.text;
+  const rows = document.getElementById("rows");
+  DATA.candidates.forEach((c, index) => c.index = index);
+  for (const section of DATA.sections) {
+    rows.append(el("tr", {class: "section", "data-heading": section}, el("th", {colspan: "6"}, section)));
+    for (const c of DATA.candidates.filter(c => c.section === section)) rows.append(row(c, c.index));
+  }
+}
+
+function render() {
+  const counts = {yes: 0, maybe: 0};
+  for (const v of Object.values(state)) if (v in counts) counts[v]++;
+  document.getElementById("n-yes").textContent = counts.yes;
+  document.getElementById("n-maybe").textContent = counts.maybe;
+  for (const tr of document.querySelectorAll("tr[data-id]")) {
+    const choice = state[tr.dataset.id] || "notset";
+    tr.dataset.choice = choice;
+    for (const r of tr.querySelectorAll("input[type=radio]")) r.checked = r.value === choice;
+    tr.classList.toggle("hidden", tab !== "all" && choice !== tab);
+  }
+  let visible = 0;
+  for (const heading of document.querySelectorAll("tr.section")) {
+    const shown = document.querySelectorAll(`tr[data-section="${CSS.escape(heading.dataset.heading)}"]:not(.hidden)`).length;
+    heading.classList.toggle("hidden", shown === 0);
+    visible += shown;
+  }
+  document.getElementById("empty").classList.toggle("hidden", visible > 0);
+  for (const b of document.querySelectorAll(".bar [data-tab]")) b.classList.toggle("on", b.dataset.tab === tab);
+}
+
+function exportChoices() {
+  const out = {audition: DATA.name, yes: [], maybe: [], no: []};
+  for (const c of DATA.candidates) { const v = state[c.id]; if (v in out && v !== "audition") out[v].push(c.id); }
+  const a = el("a", {download: DATA.name + "-choices.json"});
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], {type: "application/json"}));
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function importChoices(file) {
+  file.text().then(text => {
+    const data = JSON.parse(text);
+    if (data.audition !== undefined && data.audition !== DATA.name) {
+      alert(`These choices belong to the audition "${data.audition}", not "${DATA.name}".`);
+      return;
+    }
+    const next = {};
+    for (const value of ["yes", "maybe", "no"]) {
+      for (const id of Array.isArray(data[value]) ? data[value] : []) if (ids.has(id)) next[id] = value;
+    }
+    state = next; save(); render();
+  }).catch(e => alert("Cannot read the choices file: " + e.message));
+}
+
+function wirePlayback() {
+  const players = () => [...document.querySelectorAll("audio")];
+  for (const a of players()) {
+    a.addEventListener("play", () => {
+      for (const b of players()) {
+        if (b !== a) b.pause();
+        b.closest("tr").classList.toggle("playing", b === a);
+      }
+    });
+    a.addEventListener("ended", () => {
+      if (!document.getElementById("chain").checked) return;
+      const visible = players().filter(b => b.offsetParent !== null);
+      const next = visible[visible.indexOf(a) + 1];
+      if (next) { next.scrollIntoView({block: "center"}); next.play(); }
+    });
+  }
+}
+
+load();
+build();
+for (const b of document.querySelectorAll(".bar [data-tab]")) {
+  b.addEventListener("click", () => { tab = b.dataset.tab; render(); window.scrollTo(0, 0); });
+}
+document.getElementById("export").addEventListener("click", exportChoices);
+document.getElementById("import").addEventListener("click", () => document.getElementById("import-file").click());
+document.getElementById("import-file").addEventListener("change", e => {
+  if (e.target.files[0]) importChoices(e.target.files[0]);
+  e.target.value = "";
+});
+wirePlayback();
+render();
+</script>
+</body>
+</html>

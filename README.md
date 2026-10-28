@@ -916,6 +916,24 @@ A `ConfigError` such as `The 'pocket' module requires the pocket extra` means th
 
 `benchmarks/latency/` measures time to first audio, time to first voice, stalls and real-time factor for every module and model through the public `TTSEngine` API, with no audio hardware. The committed result of the development Mac is `benchmarks/latency/results/20261027-1453_mac-m5-pro/` (its `summary.md`), the findings in `benchmarks/latency/RESULTS.md`, and the how-to in its README. It is not run by CI.
 
+## Voice audition
+
+`tools/voice-audition/` helps choose a voice: it renders candidate voices from any backends saying the same sentence, measures each one's time to first audio, and writes a page to listen to them one by one and mark each Yes, Maybe or No. It runs from a checkout and is not installed with the package.
+
+```bash
+# An audition file from the catalogs: English male or neutral voices, 8 per backend
+uv run python tools/voice-audition/audition.py new my-assistant.json \
+    --text "Hello! What would you like to talk about today?" \
+    --module phonon --module cartesia --module gradium \
+    --gender male --gender neutral --language en --limit 8 --keep-unknown
+
+# Render every candidate (a warm-up, then 3 measured runs) and write the page
+uv run python tools/voice-audition/audition.py render my-assistant.json
+open my-assistant.audition/index.html
+```
+
+The audition file is plain JSON: one `text` and a list of candidates, each with an `id` and a complete module `config`, so it can be written or edited by hand (see `tools/voice-audition/examples/demo.json`). Rendering again only renders what changed. A candidate whose API key or extra is missing is skipped, not failed. The page keeps your choices in the browser, shows the Yes and Maybe voices in their own tabs, and exports and imports the choices as JSON. Details: [specs/voice-audition.md](specs/voice-audition.md).
+
 ## Development
 
 Install development dependencies and run all default checks:
@@ -923,7 +941,7 @@ Install development dependencies and run all default checks:
 ```bash
 uv sync --dev
 uv run ruff check .
-uv run ruff format --check src tests tests-e2e benchmarks
+uv run ruff format --check src tests tests-e2e benchmarks tools
 uv run pyright
 uv run pytest
 ```

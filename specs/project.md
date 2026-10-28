@@ -23,7 +23,7 @@ Structure and tooling for the `tts-engine` project itself: Python version, depen
 - **Package layout:** `src/` layout — `src/tts_engine/...` — not flat, to avoid accidentally importing an uninstalled package from the repo root.
 - **Dependency/venv management:** `uv`. Dev tooling lives in the `dev` dependency group (`uv sync --dev`), not in runtime `dependencies`.
 - **Runtime dependencies:** see the table below.
-- **Linting/formatting:** `ruff`; `ruff check .` is the lint gate and `ruff format src tests tests-e2e` applies formatting to the code directories — not `ruff format .`, which also reflows the Python blocks inside the Markdown specs and plans, and is what CI checks (see [AGENTS.md](../AGENTS.md), "Commands", and [ci.md](ci.md)).
+- **Linting/formatting:** `ruff`; `ruff check .` is the lint gate and `ruff format src tests tests-e2e tools` applies formatting to the code directories — not `ruff format .`, which also reflows the Python blocks inside the Markdown specs and plans, and is what CI checks (see [AGENTS.md](../AGENTS.md), "Commands", and [ci.md](ci.md)).
 - **Type checking:** `pyright` (`standard` mode), a dev dependency run via `uv run pyright`. Config lives in `[tool.pyright]` in `pyproject.toml`, targeting `src`, `tests`, and `tests-e2e`, pinned to the `.venv`.
 - **Testing:** `pytest`, in two physically-separated tiers — a fast, deterministic, no-network default run (`tests/`, the only tier `testpaths` collects) and an opt-in live tier (`tests-e2e/`) that hits the real provider backends and audio hardware. Full strategy is specced in [testing.md](testing.md).
 - **Distribution name:** `tts-engine` (`[project].name`).

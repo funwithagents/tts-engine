@@ -1,0 +1,205 @@
+{
+  "name": "demo",
+  "text": "Hello! It's nice to meet you. What would you like to talk about today?",
+  "candidates": [
+    {
+      "id": "phonon-micah",
+      "label": "Micah",
+      "notes": "Local · buoyant, playful lift at phrase ends",
+      "config": {
+        "type": "phonon",
+        "voice": "Micah"
+      }
+    },
+    {
+      "id": "phonon-zoey",
+      "label": "Zoey",
+      "notes": "Local · playful, upbeat, standard American accent",
+      "config": {
+        "type": "phonon",
+        "voice": "Zoey"
+      }
+    },
+    {
+      "id": "phonon-spencer",
+      "label": "Spencer",
+      "notes": "Local · light and airy, a touch higher",
+      "config": {
+        "type": "phonon",
+        "voice": "Spencer"
+      }
+    },
+    {
+      "id": "pocket-alba",
+      "label": "alba",
+      "notes": "Local · the English default voice",
+      "config": {
+        "type": "pocket",
+        "voice": "alba"
+      }
+    },
+    {
+      "id": "pocket-george",
+      "label": "george",
+      "notes": "Local · VCTK speaker p315",
+      "config": {
+        "type": "pocket",
+        "voice": "george"
+      }
+    },
+    {
+      "id": "piper-ljspeech",
+      "label": "en_US-ljspeech-medium",
+      "notes": "Local · the module's default voice",
+      "config": {
+        "type": "piper",
+        "voice": "en_US-ljspeech-medium"
+      }
+    },
+    {
+      "id": "piper-arctic-bdl",
+      "label": "en_US-arctic-medium / bdl",
+      "notes": "Local · one speaker of a multi-speaker voice",
+      "config": {
+        "type": "piper",
+        "voice": "en_US-arctic-medium",
+        "speaker": "bdl"
+      }
+    },
+    {
+      "id": "kokoro-heart",
+      "label": "af_heart",
+      "notes": "Local · female, American English",
+      "config": {
+        "type": "kokoro",
+        "voice": "af_heart"
+      }
+    },
+    {
+      "id": "kokoro-puck",
+      "label": "am_puck",
+      "notes": "Local · male, American English",
+      "config": {
+        "type": "kokoro",
+        "voice": "am_puck"
+      }
+    },
+    {
+      "id": "cartesia-eden",
+      "label": "Eden - Clear Advisor",
+      "notes": "neutral · young, clean delivery",
+      "config": {
+        "type": "cartesia",
+        "api_key_env": "CARTESIA_API_KEY",
+        "model": "sonic-3.6",
+        "voice_id": "83ae58a1-7e97-4b94-b03f-e4cc0a10d8af"
+      }
+    },
+    {
+      "id": "cartesia-skylar",
+      "label": "Skylar",
+      "notes": "female · approachable, for customer care",
+      "config": {
+        "type": "cartesia",
+        "api_key_env": "CARTESIA_API_KEY",
+        "model": "sonic-3.6",
+        "voice_id": "db6b0ed5-d5d3-463d-ae85-518a07d3c2b4"
+      }
+    },
+    {
+      "id": "cartesia-zeke-happy",
+      "label": "Zeke - Friendly Sidekick, happy",
+      "notes": "male · high pitched, friendly · emotion happy, speed 1.1",
+      "config": {
+        "type": "cartesia",
+        "api_key_env": "CARTESIA_API_KEY",
+        "model": "sonic-3.6",
+        "voice_id": "e00d0e4c-a5c8-443f-a8a3-473eb9a62355",
+        "emotion": "happy",
+        "speed": 1.1
+      }
+    },
+    {
+      "id": "elevenlabs-river",
+      "label": "River - Relaxed, Neutral, Informative",
+      "notes": "neutral · calm, conversational",
+      "config": {
+        "type": "elevenlabs",
+        "api_key_env": "ELEVENLABS_API_KEY",
+        "model": "eleven_flash_v2_5",
+        "voice_id": "SAz9YHcvj6GT2YYXdXww"
+      }
+    },
+    {
+      "id": "elevenlabs-will",
+      "label": "Will - Relaxed Optimist",
+      "notes": "male · young · conversational",
+      "config": {
+        "type": "elevenlabs",
+        "api_key_env": "ELEVENLABS_API_KEY",
+        "model": "eleven_flash_v2_5",
+        "voice_id": "bIHbv24MWmeRgasZH58o"
+      }
+    },
+    {
+      "id": "gradium-spencer",
+      "label": "Spencer",
+      "notes": "male · light and airy",
+      "config": {
+        "type": "gradium",
+        "api_key_env": "GRADIUM_API_KEY",
+        "voice_id": "JOW0vchyswkQUMDS"
+      }
+    },
+    {
+      "id": "gradium-everly",
+      "label": "Everly",
+      "notes": "female · middle-age · rounded, relaxed",
+      "config": {
+        "type": "gradium",
+        "api_key_env": "GRADIUM_API_KEY",
+        "voice_id": "vjFyp2BcCyTlUmYb"
+      }
+    },
+    {
+      "id": "deepgram-thalia",
+      "label": "aura-2-thalia-en",
+      "notes": "female · the module's default voice",
+      "config": {
+        "type": "deepgram",
+        "api_key_env": "DEEPGRAM_API_KEY",
+        "model": "aura-2-thalia-en"
+      }
+    },
+    {
+      "id": "deepgram-apollo",
+      "label": "aura-2-apollo-en",
+      "notes": "male · confident, casual",
+      "config": {
+        "type": "deepgram",
+        "api_key_env": "DEEPGRAM_API_KEY",
+        "model": "aura-2-apollo-en"
+      }
+    },
+    {
+      "id": "mistral-james",
+      "label": "James",
+      "notes": "male · en_us",
+      "config": {
+        "type": "mistral",
+        "api_key_env": "MISTRAL_API_KEY",
+        "voice_id": "01a14675-dc30-778a-8d01-b5dead5a522a"
+      }
+    },
+    {
+      "id": "mistral-paul-cheerful",
+      "label": "Paul - Cheerful",
+      "notes": "male · 30 · upbeat, breezy",
+      "config": {
+        "type": "mistral",
+        "api_key_env": "MISTRAL_API_KEY",
+        "voice_id": "01d985cd-5e0c-4457-bfd8-80ba31a5bc03"
+      }
+    }
+  ]
+}

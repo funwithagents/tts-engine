@@ -19,6 +19,7 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | `tests/` | Fast, deterministic, no-network tests; mirrors the `src/tts_engine/` module structure — the only tier the default `pytest` collects; `tests/modules/` stays flat — one `test_<backend>.py` per backend, not a folder per backend |
 | `tests-e2e/` | Opt-in tests against the real backends and audio hardware, not collected by default — strategy and skip rules in [specs/testing.md](specs/testing.md) |
 | `benchmarks/` | Measurement tooling, not part of the library and never run by CI — `latency/` is the per-module/model latency benchmark (`bench.py`, `matrix.json`, runs under the ignored `runs/`, committed results merged from them under `results/<date>_<name>/`, findings in `RESULTS.md`) — specced in [specs/benchmark.md](specs/benchmark.md) |
+| `tools/` | Developer tools run from a checkout, not part of the library and never run by CI — `voice-audition/` builds an audition file from the backends' catalogs, renders every candidate voice through `TTSEngine` with its measured time to first audio, and writes a listening page with Yes/Maybe/No choices (`audition.py`, `page.html`, `examples/`) — specced in [specs/voice-audition.md](specs/voice-audition.md) |
 | `.github/workflows/` | CI: one `ci.yml` — static gate, fast tier on Linux (x86_64, arm64)/macOS/Windows, live tier on Linux — specced in [specs/ci.md](specs/ci.md) |
 
 ### `src/tts_engine/` modules
@@ -103,9 +104,10 @@ After any code change, run linting, type checking, and tests, and fix any failur
 uv sync --dev                                # Full contributor environment (dev depends on tts-engine[all]: every extra, torch included)
 uv sync --no-dev --extra pocket              # Consumer-style install (or --extra elevenlabs / --extra mcp); --no-dev is required, uv includes dev by default
 uv run ruff check .
-uv run ruff format src tests tests-e2e benchmarks   # Code dirs only: `ruff format .` also reflows Python blocks in Markdown plans
+uv run ruff format src tests tests-e2e benchmarks tools   # Code dirs only: `ruff format .` also reflows Python blocks in Markdown plans
 uv run pyright
 uv run pytest                                # Unit tier only
 uv run pytest tests-e2e/                     # Opt-in live tier (see Testing for the key-sourcing invocation)
 uv run tts-engine-mcp --config examples/config.tone.json   # Start the MCP server on the tone fixture
+uv run python tools/voice-audition/audition.py render tools/voice-audition/examples/demo.json   # Render a voice audition (see specs/voice-audition.md)
 ```
