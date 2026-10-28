@@ -12,13 +12,13 @@ from tts_engine.modules import REGISTRY
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # The Markdown a reader can reach from the repository: the root files and the
-# tracked documentation trees. `analysis/` (untracked notes) and the
-# benchmark's git-ignored `runs/` are left out.
+# tracked documentation trees. Left out: `plans/` (records of what was built,
+# not rewritten when a file they link to later moves), `analysis/` (untracked
+# notes) and the benchmark's git-ignored `runs/`.
 _ROOT_FILES = ["README.md", "AGENTS.md", "CONTRIBUTING.md"]
 _DOC_DIRS = [
     "docs",
     "specs",
-    "plans",
     "benchmarks",
     "tools",
     "examples",
