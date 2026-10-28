@@ -4,6 +4,7 @@ code:
   - src/tts_engine/mcp_server_cli.py
 tests:
   - tests/test_project_map.py
+  - tests/test_docs.py
   - tests/modules/test_lazy_imports.py
   - tests/test_no_mcp_import.py
 ---
@@ -23,12 +24,13 @@ Structure and tooling for the `tts-engine` project itself: Python version, depen
 - **Package layout:** `src/` layout — `src/tts_engine/...` — not flat, to avoid accidentally importing an uninstalled package from the repo root.
 - **Dependency/venv management:** `uv`. Dev tooling lives in the `dev` dependency group (`uv sync --dev`), not in runtime `dependencies`.
 - **Runtime dependencies:** see the table below.
-- **Linting/formatting:** `ruff`; `ruff check .` is the lint gate and `ruff format src tests tests-e2e tools` applies formatting to the code directories — not `ruff format .`, which also reflows the Python blocks inside the Markdown specs and plans, and is what CI checks (see [AGENTS.md](../AGENTS.md), "Commands", and [ci.md](ci.md)).
+- **Linting/formatting:** `ruff`; `ruff check .` is the lint gate and `ruff format src tests tests-e2e benchmarks tools` applies formatting to the code directories — not `ruff format .`, which also reflows the Python blocks inside the Markdown specs and plans, and is what CI checks (see [AGENTS.md](../AGENTS.md), "Commands", and [ci.md](ci.md)).
 - **Type checking:** `pyright` (`standard` mode), a dev dependency run via `uv run pyright`. Config lives in `[tool.pyright]` in `pyproject.toml`, targeting `src`, `tests`, and `tests-e2e`, pinned to the `.venv`.
 - **Testing:** `pytest`, in two physically-separated tiers — a fast, deterministic, no-network default run (`tests/`, the only tier `testpaths` collects) and an opt-in live tier (`tests-e2e/`) that hits the real provider backends and audio hardware. Full strategy is specced in [testing.md](testing.md).
 - **Distribution name:** `tts-engine` (`[project].name`).
 - **Entry point:** `tts-engine-mcp = "tts_engine.mcp_server_cli:main"` (declared in `[project.scripts]`) — starts the MCP server. Extras cannot gate a console script, so it is installed with the base package, but it runs only with the `mcp` extra; without it the script exits with the install hint (see "Dependency strategy for transports"). Both the script and the module (`mcp_server_cli.py`) are named for the interface they launch, since the library itself is used by import, not by a script; the module name leaves room for other clients/entry points later. The MCP entry point is specced in [mcp-server.md](mcp-server.md).
 - **Public API:** `src/tts_engine/__init__.py` re-exports `TTSEngine`, `TTSEngineConfig`, `MCPServerConfig`, `TTSTools`, and `AudioSink` (see [architecture.md](architecture.md), "Public API").
+- **Documentation checks:** `tests/test_docs.py`, in the fast tier, keeps the Markdown honest the way `tests/test_project_map.py` keeps the AGENTS.md map honest. Every relative link in the root Markdown files and under `docs/`, `specs/`, `benchmarks/`, `tools/`, `examples/`, `tests/` and `tests-e2e/` must resolve, and an anchor into a Markdown file must name one of its headings (GitHub's slugs); links inside code are examples and are skipped. Not scanned: `plans/`, which record what was built and are not rewritten when a file they link to later moves; `analysis/` (untracked); the benchmark's git-ignored `runs/`. The README's module table must list exactly the registered modules with their `kind`; its *Voice listing* cell is checked by calling `list_voices` where that needs no network (`no`: `VoiceListingUnsupported`; `—`: a fixture listing nothing), while a `yes` is only checked not to be a fixture, since listing would reach the provider or download a catalog.
 - **Repo shape:**
   - `src/tts_engine/` — the package, one module per core concept (`engine.py`, `tools.py`, `mcp.py`, `audio.py`, `config.py`, `mcp_server_cli.py`) plus the `modules/` subpackage of TTS backends — the registry (`__init__.py`) and the ABC (`base.py`) at its root, then one package per backend (`elevenlabs/`, `pocket/`, `gradium/`, `phonon/`, `mistral/`, `deepgram/`, `gemini/`, `cartesia/`, `openai/`, `openai_compatible/`, `qwen3/`, `kokoro/`, `piper/`, `tone/`, `audiofile/`), each specced by `specs/modules/<backend>.md`.
   - `examples/` — one complete config file per module (`config.<type>.json`), so no module reads as the default; see [configuration.md](configuration.md).
