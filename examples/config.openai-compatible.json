@@ -4,7 +4,7 @@
       "type": "openai-compatible",
       "api_key_env": "OPENAI_API_KEY",
       "voice": "marin",
-      "model": "gpt-4o-mini-tts"
+      "model": "gpt-4o-mini-tts-2025-03-20"
     },
     "player": {
       "device": null

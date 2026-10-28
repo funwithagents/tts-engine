@@ -180,7 +180,7 @@ _OPENAI_REALTIME_CONFIG = {"api_key_env": "OPENAI_API_KEY"}
 
 # Config for the `openai-compatible` row of `MODULES` — same shape as the other API rows:
 # `api_key_env` names the variable, never the key. The row pins `tts-1` rather
-# than the module's default `gpt-4o-mini-tts`: that model's latency is erratic
+# than the `gpt-4o-mini-tts` alias: that model's latency is erratic
 # on the provider side (up to two minutes for four seconds of audio, raw SDK,
 # no retries — specs/modules/openai-compatible.md, "Open questions"), which once cost the
 # CI live tier 140 s on these five tests; `tts-1` answers in one to three

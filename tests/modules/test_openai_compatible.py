@@ -175,7 +175,7 @@ def test_defaults_reach_the_request(fake):
     assert fake.requests == [
         {
             "input": "Hi.",
-            "model": "gpt-4o-mini-tts",
+            "model": "gpt-4o-mini-tts-2025-03-20",
             "voice": "v",
             "response_format": "pcm",
             "timeout": 30.0,
