@@ -200,7 +200,7 @@ def test_new_writes_candidates_from_the_catalogs(tmp_path, monkeypatch, capsys):
     assert audition.main(argv) == 0
 
     assert seen[0] == {"type": "cartesia", "api_key_env": "CARTESIA_API_KEY"}
-    written = json.loads((tmp_path / "picked.json").read_text())
+    written = json.loads((tmp_path / "picked.json").read_text(encoding="utf-8"))
     assert written["name"] == "picked" and written["text"] == "Hi."
     ids = [c["id"] for c in written["candidates"]]
     assert ids == [
@@ -231,7 +231,7 @@ def test_new_refuses_to_overwrite_and_reports_no_match(tmp_path, monkeypatch):
     (tmp_path / "picked.json").write_text("{}")
     assert audition.main(_new_args(tmp_path, "phonon")) == 2
     assert audition.main(_new_args(tmp_path, "phonon", gender="male", force=True)) == 1
-    assert (tmp_path / "picked.json").read_text() == "{}"
+    assert (tmp_path / "picked.json").read_text(encoding="utf-8") == "{}"
 
 
 # --- render ---------------------------------------------------------------------
@@ -256,7 +256,7 @@ def test_render_writes_samples_measurements_and_the_page(tmp_path):
         assert wav.getnframes() / wav.getframerate() == pytest.approx(
             entry["duration_s"], abs=0.01
         )
-    assert json.loads((out / "results.json").read_text()) == results
+    assert json.loads((out / "results.json").read_text(encoding="utf-8")) == results
     assert (out / "index.html").exists()
 
 
@@ -311,7 +311,9 @@ def test_render_skips_an_unset_key_and_records_a_failing_config(tmp_path, monkey
         audition.main(["render", str(path), "--runs", "1"]) == 1
     )  # an error fails the command
 
-    results = json.loads((tmp_path / "mixed.audition" / "results.json").read_text())
+    results = json.loads(
+        (tmp_path / "mixed.audition" / "results.json").read_text(encoding="utf-8")
+    )
     assert results["hosted"]["status"] == "skipped"
     assert results["hosted"]["reason"] == "AUDITION_TEST_KEY is not set"
     assert results["broken"]["status"] == "error"
@@ -359,7 +361,7 @@ def test_page_embeds_the_data_without_secrets(tmp_path):
         },
     )
     assert audition.main(["page", str(path)]) == 0
-    page = (tmp_path / "secret.audition" / "index.html").read_text()
+    page = (tmp_path / "secret.audition" / "index.html").read_text(encoding="utf-8")
 
     assert "sk-123" not in page
     assert "</script> name" not in page  # escaped inside the script element
