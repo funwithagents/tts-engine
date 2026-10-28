@@ -1,6 +1,6 @@
 """Per-module live conformance, driven engine-direct (no MCP server).
 
-Parametrized over ``MODULES`` in ``support`` — every backend runs three scenarios
+Parametrized over ``MODULES`` in ``support`` — every backend runs these scenarios (among others)
 with its own config:
 
 - ``test_module_say_produces_pcm`` — synthesize into an injected ``AudioSink``
@@ -12,6 +12,9 @@ with its own config:
 - ``test_module_say_stream_produces_pcm`` — ``say_stream`` fed from a small
   async source of text pieces into an injected ``AudioSink``; whole PCM, drained
   once for the whole stream. No audio hardware.
+- ``test_module_say_after_cancel`` — a ``say`` cancelled mid-audio, then
+  another ``say`` on the same engine, which must complete with audio: the
+  cancel-then-reuse path of the modules holding a socket across utterances.
 
 The MCP transport is module-agnostic and covered once in ``test_mcp.py``.
 
@@ -192,3 +195,26 @@ async def test_module_say_stream_cancel_stops_feeding(
     task = asyncio.create_task(engine.say_stream(source()))
     elapsed = await _cancel_after_first_chunk(task, sink)
     log.info("%s: say_stream cancel surfaced after %.2f s", module_type, elapsed)
+
+
+@pytest.mark.parametrize("module_type, module_config", MODULES)
+async def test_module_say_after_cancel(module_type: str, module_config: dict) -> None:
+    # A cancelled `say`, then another on the same engine: the module must be
+    # ready for the next utterance. For the modules holding a socket across
+    # utterances (openai, deepgram, cartesia) this is the cancel-without-
+    # closing path: the cancelled utterance's tail must not keep the next one
+    # from completing, nor be fed in its place.
+    require_module(module_type, module_config)
+    sink = _PacedCaptureSink()
+    engine_cfg = TTSEngineConfig.from_dict(engine_block(module_type, module_config))
+    engine = TTSEngine(engine_cfg, sink=sink)
+
+    task = asyncio.create_task(engine.say(_LONG_TEXT))
+    await _cancel_after_first_chunk(task, sink)
+    cancelled = len(sink.data)
+
+    await asyncio.wait_for(engine.say("Hello again."), timeout=_FIRST_CHUNK_TIMEOUT)
+    assert len(sink.data) > cancelled
+    assert (len(sink.data) - cancelled) % 2 == 0  # whole signed-16-bit samples
+    assert sink.drains == 2
+    await engine.close()

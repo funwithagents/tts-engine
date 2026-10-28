@@ -7,9 +7,13 @@ becomes a clear `ConfigError`.
 Both input shapes run over the SDK's sync TTS WebSocket (`websocket_connect`),
 whose contexts take text incrementally: a complete text is sent in small
 slices, a text stream is forwarded as it arrives, so this is a true
-stream-to-stream pass. Three threads share the socket: a sender (text pushed
-to contexts), a reader (the socket's events, into a queue) and the worker,
-which polls that queue so it can honor `stop` while the server is silent.
+stream-to-stream pass. The module opens one socket at construction and holds
+it for its lifetime (replaced before an utterance once dead, idle near the
+server's 300 s limit, or after a host sleep), so no utterance pays the
+handshake. A reader thread per socket routes the server's events by
+`context_id` to the utterance that opened the context; per utterance, a sender
+pushes text to contexts and the worker polls the routed events so it can honor
+`stop` while the server is silent.
 
 A context is the unit of flow control. It takes at most one segment of text
 and is then ended with `no_more_inputs`; the next context opens only once the
@@ -19,7 +23,8 @@ context the same way once the utterance has been idle for `rotate_after`,
 ahead of the server's ~7 s expiry (after which pushed text is dropped
 silently), so an LLM pause is acknowledged before text resumes (see
 specs/modules/cartesia.md, "Contexts: segments, idle rotation and the `done`
-acknowledgement"). Every context is cancelled before the socket closes.
+acknowledgement"). An utterance cut short cancels its unacknowledged contexts
+and leaves the socket open for the next one.
 """
 
 import logging
@@ -80,21 +85,32 @@ _POLL_SECONDS = 0.1
 _ROTATE_MIN = 4.0
 _EXPIRY_MARGIN = 1.0
 _DEFAULT_BUFFER_DELAY = 3.0  # the API's max_buffer_delay_ms default, in seconds
+# The server closes a socket after 300 s with no message either way (pings do
+# not count). One idle longer than this at the start of an utterance is
+# replaced first, so a push never races that close and the utterance has a
+# minute left to send its first text.
+_IDLE_REPLACE = 240.0
+# A wall clock ahead of the monotonic one (which stops while the host sleeps)
+# by more than this since the socket's last message means a sleep long enough
+# to miss a keepalive ping: the socket may be half-open, so it is replaced.
+_SLEPT = 20.0
 
 _ENDS_SENTENCE = re.compile(r"(?:[.!?…][\"'”’)\]]*|\n)\s*$")
 
 
 class _Session:
-    """State shared by the three threads of one utterance. Everything below
-    `changed` is read and written under it."""
+    """State of one utterance, shared by its sender, its worker and the
+    socket's reader. Everything below `changed` is read and written under it."""
 
     def __init__(self) -> None:
         self.inbox: queue.Queue = queue.Queue()  # (event, audio) or an exception
         self.changed = threading.Condition()
         self.unread = 0  # audio bytes in the inbox: read, not yet fed
-        self.last_message = time.monotonic()  # when the server last spoke
+        self.last_message = time.monotonic()  # when the server last spoke to us
         self.last_activity = time.monotonic()  # last push or audio chunk
-        self.contexts: list[Any] = []  # every context opened, to cancel at the end
+        # Every context this utterance opened, by id: the reader routes only
+        # their events here, and the unacknowledged ones are cancelled at the end.
+        self.opened: dict[str, Any] = {}
         self.current: Any = None
         self.current_id: str | None = None
         self.pushed = False  # the current context has received text
@@ -103,6 +119,7 @@ class _Session:
         self.done: set[str] = set()  # contexts the server answered with `done`
         self.sender_done = False
         self.sender_errors: list[Exception] = []
+        self.stalled = False  # the server went silent on a pending context
 
     def stale(self) -> bool:
         """Whether the next push needs a fresh context: none yet, ended (by
@@ -123,7 +140,7 @@ class _Session:
         )
 
     def open(self, ctx: Any, context_id: str) -> None:
-        self.contexts.append(ctx)
+        self.opened[context_id] = ctx
         self.current, self.current_id = ctx, context_id
         self.pushed = False
         self.segment_chars = 0
@@ -138,12 +155,128 @@ class _Session:
         """The sender is done and every context it ended has been acknowledged."""
         return self.sender_done and self.ended <= self.done
 
+    def unacknowledged(self) -> list[Any]:
+        return [ctx for cid, ctx in self.opened.items() if cid not in self.done]
+
+
+class _Socket:
+    """The module's connection: the SDK manager and connection, whether the
+    socket still works, when it last carried a message, and the utterance
+    (session) using it."""
+
+    def __init__(self, manager, ws) -> None:
+        self.manager = manager
+        self.ws = ws
+        # Set once the reader has ended or a send failed; `error` says why.
+        self.dead = threading.Event()
+        self.error: Exception | None = None
+        # Set once the socket is being closed: the reader stops.
+        self.closed = threading.Event()
+        self._lock = threading.Lock()
+        self.session: _Session | None = None
+        self.last_mono = 0.0
+        self.last_wall = 0.0
+        self.touch()
+
+    def touch(self) -> None:
+        """A message went either way: stamp it on both clocks."""
+        self.last_mono = time.monotonic()
+        self.last_wall = time.time()
+
+    def worn(self) -> str | None:
+        """Why this socket should be replaced before an utterance, if it
+        should: idle near the server's limit, or the host slept since its
+        last message."""
+        mono = time.monotonic() - self.last_mono
+        wall = time.time() - self.last_wall
+        if max(mono, wall) > _IDLE_REPLACE:
+            return f"idle {max(mono, wall):.0f} s"
+        if wall - mono > _SLEPT:
+            return f"host slept ~{wall - mono:.0f} s"
+        return None
+
+    def fail(self, exc: Exception) -> None:
+        with self._lock:
+            if self.error is None:
+                self.error = exc
+        self.dead.set()
+
+    def attach(self, session: _Session | None) -> None:
+        with self._lock:
+            self.session = session
+
+    def attached(self) -> _Session | None:
+        with self._lock:
+            return self.session
+
+    def close_in_background(self) -> None:
+        """Close once, on a daemon thread: the server can hold the close
+        handshake for ~1 s, which no caller should wait for."""
+        with self._lock:
+            if self.closed.is_set():
+                return
+            self.closed.set()
+        threading.Thread(
+            target=_close,
+            args=(self.manager,),
+            name="cartesia-closer",
+            daemon=True,
+        ).start()
+
+
+def _close(manager) -> None:
+    try:
+        manager.__exit__(None, None, None)
+    except Exception:  # closing a socket already broken
+        log.debug("Cartesia socket close failed", exc_info=True)
+
+
+def _read(socket: _Socket) -> None:
+    """The reader thread, living as long as its socket: route each event to
+    the attached utterance when it names one of that utterance's contexts
+    (counting its audio), drop it otherwise. The socket is always drained, so
+    its close handshake gets through and the sender's gate opens without the
+    worker. Ends when the socket fails or is closed."""
+    ws = socket.ws
+    while not socket.closed.is_set():
+        try:
+            event = ws.parse_event(ws.recv_bytes(timeout=_POLL_SECONDS))
+        except TimeoutError:
+            continue
+        except Exception as exc:  # noqa: BLE001  (surfaced by the worker)
+            socket.fail(exc)
+            session = socket.attached()
+            if session is not None:
+                session.inbox.put(exc)
+            return
+        socket.touch()
+        session = socket.attached()
+        kind = getattr(event, "type", None)
+        context_id = getattr(event, "context_id", None)
+        # The sender registers a context before its first push, so none of
+        # its events can arrive before it is known here.
+        if session is None or (
+            context_id is not None and context_id not in session.opened
+        ):
+            log.debug("Dropping a %s of foreign context %s", kind, context_id)
+            continue
+        audio = event.audio if kind == "chunk" else None
+        with session.changed:
+            now = time.monotonic()
+            session.last_message = now
+            if audio:
+                session.last_activity = now
+                session.unread += len(audio)
+            session.changed.notify_all()
+        session.inbox.put((event, audio))
+
 
 class CartesiaModule(TTSModule):
     def __init__(self, config: dict) -> None:
         try:
             import websockets.sync.client  # noqa: F401  (the SDK's [websockets] extra)
             from cartesia import Cartesia
+            from websockets.exceptions import InvalidStatus
         except ImportError as exc:
             raise ConfigError(
                 "The 'cartesia' module requires the cartesia extra: "
@@ -240,42 +373,104 @@ class CartesiaModule(TTSModule):
         # The key is always passed explicitly, so this module's key rules are
         # the only ones in force.
         self._client = Cartesia(api_key=api_key)
+        # The handshake is paid here, not by the first utterance; it is also
+        # where the server rejects a bad key.
+        self._socket: _Socket | None = None
+        try:
+            self._socket = self._open(threading.Event())
+        except InvalidStatus as exc:
+            self._client.close()
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status in (401, 403):
+                raise ConfigError(
+                    f"{_LABEL}: the server rejected the key (HTTP {status})"
+                ) from exc
+            raise TTSError(f"Cartesia request failed: {exc}") from exc
+        except Exception as exc:
+            self._client.close()
+            raise TTSError(f"Cartesia request failed: {exc}") from exc
+        except BaseException:
+            self._client.close()
+            raise
 
     def close(self) -> None:
-        # Closes the SDK's HTTP client (sockets are per utterance); the module is done.
+        socket, self._socket = self._socket, None
+        if socket is not None:
+            socket.close_in_background()
         self._client.close()
 
     @property
     def sample_rate(self) -> int:
         return self._sample_rate
 
+    def _open(self, stop: threading.Event) -> _Socket | None:
+        """Handshake (polling `stop`, bounded by `timeout`), then the socket's
+        reader started. `None` once cancelled meanwhile; the connection, if it
+        completes later, is closed on the helper thread."""
+        # The options are splatted into `websockets.sync.client.connect`,
+        # whose `open_timeout` the SDK's TypedDict just does not list, so an
+        # abandoned handshake ends on its own after `timeout` too.
+        options = cast(Any, {"open_timeout": self._timeout})
+        manager = self._client.tts.websocket_connect(
+            websocket_connection_options=options
+        )
+        ws = open_cancellable(
+            manager.__enter__,
+            lambda _ws: _close(manager),
+            stop=stop,
+            timeout=self._timeout,
+            what="Cartesia socket",
+        )
+        if ws is None:
+            return None
+        socket = _Socket(manager, ws)
+        threading.Thread(
+            target=_read, args=(socket,), name="cartesia-reader", daemon=True
+        ).start()
+        return socket
+
+    def _ready_socket(self, stop: threading.Event) -> _Socket | None:
+        """The held socket, or a fresh one when it is missing, dead, idle near
+        the server's limit or possibly half-open after a host sleep; `None`
+        once cancelled during a reconnect."""
+        socket = self._socket
+        if socket is not None:
+            if socket.dead.is_set():
+                log.debug("Cartesia socket dead, reconnecting: %s", socket.error)
+            else:
+                reason = socket.worn()
+                if reason is None:
+                    return socket
+                log.debug("Cartesia socket replaced: %s", reason)
+            self._socket = None
+            socket.close_in_background()
+        try:
+            self._socket = self._open(stop)
+        except Exception as exc:
+            raise TTSError(f"Cartesia request failed: {exc}") from exc
+        return self._socket
+
+    def _drop(self, socket: _Socket) -> None:
+        """Give up a socket that is dead or in an unknown state: the next
+        utterance reconnects."""
+        if self._socket is socket:
+            self._socket = None
+        socket.close_in_background()
+
     @staticmethod
-    def _read(ws, session: _Session) -> None:
-        """Reader thread: move the socket's events into the inbox, counting
-        the audio it holds, so the socket is always drained (the close
-        handshake gets through) and the sender's gate opens without the
-        worker. Ends when the socket fails or is closed."""
-        while True:
-            try:
-                event = ws.parse_event(ws.recv_bytes(timeout=_POLL_SECONDS))
-            except TimeoutError:
-                continue
-            except Exception as exc:  # noqa: BLE001  (surfaced by the worker)
-                session.inbox.put(exc)
-                return
-            audio = event.audio if getattr(event, "type", None) == "chunk" else None
-            with session.changed:
-                now = time.monotonic()
-                session.last_message = now
-                if audio:
-                    session.last_activity = now
-                    session.unread += len(audio)
-                session.changed.notify_all()
-            session.inbox.put((event, audio))
+    def _sending(socket: _Socket, send: Callable[[], None]) -> None:
+        """One client message: stamp the socket's idle clock; a failure marks
+        the socket dead and propagates."""
+        try:
+            send()
+        except Exception as exc:
+            socket.fail(exc)
+            raise
+        socket.touch()
 
     def _send(
         self,
-        ws,
+        socket: _Socket,
         pieces: Iterator[str],
         session: _Session,
         stop: threading.Event,
@@ -285,6 +480,7 @@ class CartesiaModule(TTSModule):
         the previous one is acknowledged and the unread audio is under its
         bound, then end the last context. Sends nothing more once `stop` is
         set, and never an empty transcript (the API rejects one)."""
+        ws = socket.ws
 
         def push(text: str) -> None:
             with session.changed:
@@ -299,11 +495,15 @@ class CartesiaModule(TTSModule):
                         ctx = ws.context(context_id=context_id, **self._context_kwargs)
                         session.open(ctx, context_id)
                     break
+                # Every push happens here, under the lock and after this
+                # check; the worker sets `stop` before it takes the lock to
+                # cancel what is open. So a sender outliving its utterance
+                # never pushes into the socket's next one.
                 if stop.is_set():
                     return
                 # Under the lock, so the worker's idle check cannot end the
                 # context between the choice and the push.
-                session.current.push(text)
+                self._sending(socket, lambda: session.current.push(text))
                 session.pushed = True
                 session.segment_chars += len(text)
                 session.last_activity = time.monotonic()
@@ -311,7 +511,7 @@ class CartesiaModule(TTSModule):
                     session.segment_chars >= _SEGMENT_SOFT
                     and _ENDS_SENTENCE.search(text)
                 ):
-                    session.end_current()
+                    self._sending(socket, session.end_current)
 
         def send(text: str) -> None:
             while text and not stop.is_set():
@@ -334,14 +534,14 @@ class CartesiaModule(TTSModule):
                 if words.strip():
                     send(words)
             if stop.is_set():
-                return  # aborted: the worker cancels and closes
+                return  # aborted: the worker cancels what is open
             if buffer.strip():
                 send(buffer)
             with session.changed:
                 # A context already ended (full segment, idle) or expired has
                 # nothing to end; an empty stream has no context at all.
                 if not stop.is_set() and session.pushed and not session.stale():
-                    session.end_current()
+                    self._sending(socket, session.end_current)
         except Exception as exc:  # noqa: BLE001  (surfaced by the worker)
             if not stop.is_set():
                 with session.changed:
@@ -357,84 +557,54 @@ class CartesiaModule(TTSModule):
         callback: Callable[[bytes], None],
         stop: threading.Event,
     ) -> None:
-        """Run one utterance over one socket on the worker thread: open the
-        socket (polling `stop`, bounded by `timeout`), start the reader and
-        the sender, then feed audio until every ended context is acknowledged
-        and the sender is done, `stop`, or a failure.
+        """Run one utterance over the module's socket on the worker thread:
+        take the socket (reconnected or replaced first when needed), attach
+        this utterance to it, start the sender, then feed audio until every
+        ended context is acknowledged and the sender is done, `stop`, or a
+        failure. The socket is kept for the next utterance unless it died or
+        stalled.
 
         SDK/socket failures become TTSError; `callback` runs outside that
         boundary so a downstream playback failure keeps its own identity.
         """
-        try:
-            # The options are splatted into `websockets.sync.client.connect`,
-            # whose `open_timeout` the SDK's TypedDict just does not list, so
-            # an abandoned handshake ends on its own after `timeout` too.
-            options = cast(Any, {"open_timeout": self._timeout})
-            connection = self._client.tts.websocket_connect(
-                websocket_connection_options=options
-            )
-            ws = open_cancellable(
-                connection.__enter__,
-                lambda _ws: self._close(connection),
-                stop=stop,
-                timeout=self._timeout,
-                what="Cartesia socket",
-            )
-        except Exception as exc:
-            raise TTSError(f"Cartesia request failed: {exc}") from exc
-        if ws is None:
+        socket = self._ready_socket(stop)
+        if socket is None:
             return  # cancelled during the handshake: nothing was sent
 
         session = _Session()
+        socket.attach(session)
         try:
-            threading.Thread(
-                target=self._read,
-                args=(ws, session),
-                name="cartesia-reader",
-                daemon=True,
-            ).start()
             # Daemon: a sender blocked on text after the worker has left is
-            # released when `stop` or end-of-stream reaches `pieces`; its late
-            # send on the closed socket is then ignored.
+            # released when `stop` or end-of-stream reaches `pieces`, and
+            # pushes nothing more.
             threading.Thread(
                 target=self._send,
-                args=(ws, pieces, session, stop),
+                args=(socket, pieces, session, stop),
                 name="cartesia-sender",
                 daemon=True,
             ).start()
-            self._receive(session, callback, stop)
+            self._receive(socket, session, callback, stop)
         finally:
             # Release a sender still blocked on text, on an acknowledgement or
-            # on the gate.
+            # on the gate; from here on it pushes nothing.
             stop.set()
             with session.changed:
-                contexts = list(session.contexts)
-            # Stop any generation still running for this utterance.
-            for ctx in contexts:
+                pending = session.unacknowledged()
+            # Stop any generation still running for this utterance. A context
+            # already acknowledged is left alone (a cancel of it is a 400).
+            for ctx in pending:
                 try:
-                    ctx.cancel()
+                    self._sending(socket, ctx.cancel)
                 except Exception:  # a socket already broken
                     log.debug("Cartesia context cancel failed", exc_info=True)
-            # The server often holds the close handshake for ~1 s, even after
-            # `done`. Callbacks have stopped, so close off the worker thread
-            # and return now; the reader keeps draining until the socket is
-            # closed, so the handshake is never starved.
-            threading.Thread(
-                target=self._close,
-                args=(connection,),
-                name="cartesia-closer",
-                daemon=True,
-            ).start()
-
-    @staticmethod
-    def _close(connection) -> None:
-        try:
-            connection.__exit__(None, None, None)
-        except Exception:  # closing a socket already broken
-            log.debug("Cartesia socket close failed", exc_info=True)
+                    break
+            socket.attach(None)
+            if session.stalled or socket.dead.is_set():
+                self._drop(socket)
 
     def _receive(
         self,
+        socket: _Socket,
         session: _Session,
         callback: Callable[[bytes], None],
         stop: threading.Event,
@@ -448,7 +618,7 @@ class CartesiaModule(TTSModule):
                     session.sender_errors[0] if session.sender_errors else None
                 )
                 finished = session.finished()
-                self._end_if_idle(session)
+                self._end_if_idle(socket, session)
             if sender_error is not None:
                 raise TTSError(
                     f"Cartesia request failed: {sender_error}"
@@ -458,6 +628,11 @@ class CartesiaModule(TTSModule):
             try:
                 item = session.inbox.get(timeout=_POLL_SECONDS)
             except queue.Empty:
+                if socket.dead.is_set() and session.inbox.empty():
+                    # Died before this utterance was attached to it.
+                    raise TTSError(
+                        f"Cartesia request failed: {socket.error}"
+                    ) from socket.error
                 self._check_stall(session)
                 continue
             if isinstance(item, Exception):
@@ -502,7 +677,7 @@ class CartesiaModule(TTSModule):
                     f"(status {getattr(event, 'status_code', None)})"
                 )
 
-    def _end_if_idle(self, session: _Session) -> None:
+    def _end_if_idle(self, socket: _Socket, session: _Session) -> None:
         """Caller holds the lock. End a pushed context idle past rotate_after,
         so its `done` is in hand before the text resumes and the server's
         expiry never swallows a push."""
@@ -513,18 +688,19 @@ class CartesiaModule(TTSModule):
             and time.monotonic() - session.last_activity >= self._rotate_after
         ):
             try:
-                session.end_current()
+                self._sending(socket, session.end_current)
             except Exception as exc:
                 raise TTSError(f"Cartesia request failed: {exc}") from exc
 
     def _check_stall(self, session: _Session) -> None:
         """An ended context with no `done` and nothing from the server for
         `timeout` is a stalled request, not a pause: fail instead of waiting
-        forever."""
+        forever (the socket is then dropped)."""
         with session.changed:
             pending = not session.ended <= session.done
             silent = time.monotonic() - session.last_message
         if pending and silent > self._timeout:
+            session.stalled = True
             raise TTSError(
                 f"Cartesia request failed: no answer within {self._timeout:g} s"
             )
@@ -535,6 +711,9 @@ class CartesiaModule(TTSModule):
         options: TTSOptions,
         callback: Callable[[bytes], None],
     ) -> None:
+        if not text.strip():
+            return  # nothing to say: the socket is not touched
+
         def _worker(stop: threading.Event) -> None:
             self._synthesize(slice_text(text, _SLICE_CHARS), callback, stop)
 
