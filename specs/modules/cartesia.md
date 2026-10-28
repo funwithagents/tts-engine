@@ -209,7 +209,7 @@ Confirmed from the package and from live calls on 2026-10-26 (API version `2026-
 
 Deferrals only (design is settled):
 
-1. **Connection reuse.** One socket per utterance is the simplest correct shape, as for the other providers. Cartesia's sockets are designed to be long-lived (contexts multiplex on one connection), which would save the handshake; it needs care with the server's idle timeout. Measure before adding it.
+1. **Connection reuse.** One socket per utterance is the simplest correct shape, as for the other providers. Cartesia's sockets are designed to be long-lived (contexts multiplex on one connection), which would save the handshake; it needs care with the server's idle timeout. Measured on 2026-10-28 through the module's own client, 12 opens from the development Mac: 120 ms warm (113–133 ms; 377 ms cold), about half of the 0.20–0.28 s time to first audio the engine measured on 2026-10-27. Worth doing; the OpenAI held socket ([openai.md](openai.md)) is the pattern to follow.
 2. **Timestamps.** `add_timestamps` gives word timings that could drive captions; the engine has no channel for them yet.
 3. **`base_url` / `websocket_base_url`** for a regional or proxied endpoint. The client takes both; not needed for the hosted API.
 4. **Expiry threshold.** The 7 s expiry is measured, not documented (the docs say "1 second after the last audio output"). If Cartesia changes it, `rotate_after` moves; no config field until there is a reason.
