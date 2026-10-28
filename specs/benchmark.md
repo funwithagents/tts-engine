@@ -45,7 +45,7 @@ The matrix covers every model reachable through each module, the module default 
 
 ### Where the findings live
 
-`benchmarks/latency/RESULTS.md` is the human reading of the benches: what was measured when, what stood out, which decisions it fed, what remains to measure. It cites results and runs by id and is updated in the same change as a run that changes a conclusion. A spec that relies on a measurement quotes the number and the run id.
+`benchmarks/latency/RESULTS.md` is the human reading of the benches: what was measured when, what stood out, which decisions it fed, what remains to measure. It cites results and runs by id and is updated in the same change as a run that changes a conclusion; a merge that changes what a result covers updates its `description.md` in the same change too. A spec that relies on a measurement quotes the number and the run id.
 
 ## Open questions
 

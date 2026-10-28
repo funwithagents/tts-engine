@@ -164,25 +164,25 @@ uv run python -c "import sounddevice; print(sounddevice.query_devices())"
 
 A module is a swappable synthesis backend. Its `type` selects an entry from the module registry, while every other field in the `module` object is specific to that backend. Changing modules does not change `TTSEngine`, playback, tools, or MCP usage.
 
-| Module | Kind | Execution | Installation | Credentials |
+| Module | `kind` | Synthesis | Installation | Credentials |
 |---|---|---|---|---|
-| `pocket` | Provider | Local, in-process model | `tts-engine[pocket]` | None |
-| `phonon` | Provider | Local, in-process model | `tts-engine[phonon]` | None |
-| `qwen3` | Provider | Local, in-process model (Apple silicon) | `tts-engine[qwen3]` | None |
-| `kokoro` | Provider | Local, in-process model | `tts-engine[kokoro]` | None |
-| `piper` | Provider | Local, in-process model | `tts-engine[piper]` | None |
-| `elevenlabs` | Provider | ElevenLabs cloud API | `tts-engine[elevenlabs]` | API key |
-| `gradium` | Provider | Gradium cloud API | `tts-engine[gradium]` | API key |
-| `mistral` | Provider | Mistral cloud API (Voxtral TTS) | `tts-engine[mistral]` | API key |
-| `deepgram` | Provider | Deepgram cloud API (Aura-2, Flux TTS) | `tts-engine[deepgram]` | API key |
-| `gemini` | Provider | Google Gemini API (Gemini TTS) | `tts-engine[gemini]` | API key |
-| `cartesia` | Provider | Cartesia cloud API (Sonic) | `tts-engine[cartesia]` | API key |
-| `openai` | Provider | OpenAI Realtime API (`gpt-realtime-2.1-mini`) | `tts-engine[openai]` | API key |
-| `openai-compatible` | Provider | OpenAI's `/v1/audio/speech` (`gpt-4o-mini-tts`, `tts-1`) or an OpenAI-compatible server | `tts-engine[openai-compatible]` | API key |
-| `tone` | Fixture | Sine tone, no synthesis | Base installation | None |
-| `audiofile` | Fixture | Pre-recorded WAV files, no synthesis | Base installation | None |
+| `pocket` | `local` | In-process model | `tts-engine[pocket]` | None |
+| `phonon` | `local` | In-process model | `tts-engine[phonon]` | None |
+| `qwen3` | `local` | In-process model (Apple silicon) | `tts-engine[qwen3]` | None |
+| `kokoro` | `local` | In-process model | `tts-engine[kokoro]` | None |
+| `piper` | `local` | In-process model | `tts-engine[piper]` | None |
+| `elevenlabs` | `hosted` | ElevenLabs cloud API | `tts-engine[elevenlabs]` | API key |
+| `gradium` | `hosted` | Gradium cloud API | `tts-engine[gradium]` | API key |
+| `mistral` | `hosted` | Mistral cloud API (Voxtral TTS) | `tts-engine[mistral]` | API key |
+| `deepgram` | `hosted` | Deepgram cloud API (Aura-2, Flux TTS) | `tts-engine[deepgram]` | API key |
+| `gemini` | `hosted` | Google Gemini API (Gemini TTS) | `tts-engine[gemini]` | API key |
+| `cartesia` | `hosted` | Cartesia cloud API (Sonic) | `tts-engine[cartesia]` | API key |
+| `openai` | `hosted` | OpenAI Realtime API (`gpt-realtime-2.1-mini`) | `tts-engine[openai]` | API key |
+| `openai-compatible` | `hosted` | OpenAI's `/v1/audio/speech` (`gpt-4o-mini-tts`, `tts-1`) or an OpenAI-compatible server | `tts-engine[openai-compatible]` | API key |
+| `tone` | `fixture` | Sine tone, no synthesis | Base installation | None |
+| `audiofile` | `fixture` | Pre-recorded WAV files, no synthesis | Base installation | None |
 
-Providers produce real speech. Fixture modules exist for tests and demos and are never a substitute for a provider.
+`kind` is the module's class attribute (`REGISTRY[type].kind`): `hosted` and `local` modules are providers and produce real speech, `hosted` from a cloud API (a key and a network), `local` from an in-process model (no network after the first download of its weights). `fixture` modules exist for tests and demos and are never a substitute for a provider.
 
 ### Finding a voice
 
@@ -554,7 +554,7 @@ pip install "tts-engine[gemini]"
 
 The module emits mono PCM at 24,000 Hz. Text is sent verbatim as the prompt, so natural-language direction ("Say cheerfully: …") and inline tags pass through. A text stream is synthesized one request per sentence, which has two limitations:
 
-- Each sentence starts after a short pause (median ~0.8 s, up to ~1 s), the time to first audio of one request.
+- Each sentence starts after a short pause, the time to first audio of one request: 691 ms median, 991 ms at p90 for `gemini-3.8-flash-tts` in the latency benchmark's result [`20261027-1453_mac-m5-pro`](benchmarks/latency/results/20261027-1453_mac-m5-pro/summary.md).
 - The Gemini API limits requests per model per minute (10 on Tier 1). A text stream of more than ~10 sentences within a minute fails partway with a `TTSError` reporting `429 RESOURCE_EXHAUSTED`; a higher usage tier raises the limit.
 
 ### `cartesia`
@@ -656,7 +656,7 @@ pip install "tts-engine[openai-compatible]"
 | `sample_rate` | no | `24000` | The rate of the server's `pcm` output. OpenAI's is always 24,000 Hz; set it only with `base_url`, to match the server. |
 | `timeout` | no | `30` | Seconds to wait for the provider before a stalled request fails; also how long a cancel issued during such a stall can take. |
 
-The module emits mono PCM at `sample_rate`. A text stream is synthesized one request per sentence. OpenAI's time to first audio varies: `tts-1` takes about 1.2 s, while the `gpt-4o-mini-tts` alias took from under 1 s to about 19 s in testing; the default `2025-03-20` snapshot answers in under 1 s. OpenAI has announced the shutdown of these speech models for 2027-01-06; after that date the module serves compatible servers only. Their successor, OpenAI's Realtime API, is the [`openai`](#openai) module.
+The module emits mono PCM at `sample_rate`. A text stream is synthesized one request per sentence. Time to first audio differs by model: in the latency benchmark's result [`20261027-1453_mac-m5-pro`](benchmarks/latency/results/20261027-1453_mac-m5-pro/summary.md) (one short sentence, median of 20), the default `2025-03-20` snapshot answers in 367 ms, the `gpt-4o-mini-tts` alias in 516 ms, `tts-1` in 1.1 s and `tts-1-hd` in 2.0 s. The alias has also stalled for tens of seconds on other days, which is why the default is pinned to the snapshot. OpenAI has announced the shutdown of these speech models for 2027-01-06; after that date the module serves compatible servers only. Their successor, OpenAI's Realtime API, is the [`openai`](#openai) module.
 
 ### `tone`
 
@@ -702,11 +702,11 @@ Paths are absolute or relative to `base_dir` (the config file's directory when l
 To add another synthesis backend:
 
 1. Create a package `src/tts_engine/modules/<name>/` (one folder per backend) with the class extending `TTSModule` from [`src/tts_engine/modules/base.py`](src/tts_engine/modules/base.py) in `module.py`, re-exported from its `__init__.py`. A provider with third-party dependencies should put them behind its own packaging extra and import them inside `__init__`, raising `ConfigError` when they are missing. Resolve file-path fields with `resolve_path(config, value)`.
-2. Implement `sample_rate`, `async synthesize_text(text, options, callback)`, `async synthesize_text_stream(text_stream, options, callback)` and the `list_voices(config)` classmethod (the backend's voices as `VoiceInfo`, or `VoiceListingUnsupported` naming where they are documented). The callback receives signed 16-bit little-endian mono PCM chunks. For the text stream, a backend with an incremental API forwards the pieces as they arrive; one that needs a whole prompt groups them into sentences with `segment_sentences` and synthesizes each sentence as soon as it is complete (see `tone`, `audiofile` and `pocket` for the shapes, and `run_text_stream_worker` in `base.py` for the async-source-to-worker-thread bridge).
+2. Declare its `kind` (`hosted`, `local` or `fixture`) and implement `sample_rate`, `async synthesize_text(text, options, callback)`, `async synthesize_text_stream(text_stream, options, callback)` and the `list_voices(config)` classmethod (the backend's voices as `VoiceInfo`, or `VoiceListingUnsupported` naming where they are documented). The callback receives signed 16-bit little-endian mono PCM chunks. For the text stream, a backend with an incremental API forwards the pieces as they arrive; one that needs a whole prompt groups them into sentences with `segment_sentences` and synthesizes each sentence as soon as it is complete (see `tone`, `audiofile` and `pocket` for the shapes, and `run_text_stream_worker` in `base.py` for the async-source-to-worker-thread bridge).
 3. Register the class under a type name in [`src/tts_engine/modules/__init__.py`](src/tts_engine/modules/__init__.py).
 4. Select it with `{"module": {"type": "your-module", ...}}` in the engine configuration.
 
-The engine and its integrations require no backend-specific changes.
+The engine and its integrations require no backend-specific changes. A module contributed to this repository also needs its spec, an example config, a live-tier row and benchmark rows: the full checklist is in [AGENTS.md](AGENTS.md#adding-a-new-tts-module).
 
 ## Speak an LLM response as it streams
 
@@ -914,25 +914,11 @@ A `ConfigError` such as `The 'pocket' module requires the pocket extra` means th
 
 ## Latency benchmark
 
-`benchmarks/latency/` measures time to first audio, time to first voice, stalls and real-time factor for every module and model through the public `TTSEngine` API, with no audio hardware. The committed result of the development Mac is `benchmarks/latency/results/20261027-1453_mac-m5-pro/` (its `summary.md`), the findings in `benchmarks/latency/RESULTS.md`, and the how-to in its README. It is not run by CI.
+`benchmarks/latency/` measures time to first audio, time to first voice, stalls and real-time factor for every module and model through the public `TTSEngine` API, with no audio hardware. The committed result of the development Mac is [`20261027-1453_mac-m5-pro`](benchmarks/latency/results/20261027-1453_mac-m5-pro/summary.md), the findings are in [RESULTS.md](benchmarks/latency/RESULTS.md), and the how-to in [its README](benchmarks/latency/README.md). It is not run by CI.
 
 ## Voice audition
 
-`tools/voice-audition/` helps choose a voice: it renders candidate voices from any backends saying the same sentence, measures each one's time to first audio, and writes a page to listen to them one by one and mark each Yes, Maybe or No. It runs from a checkout and is not installed with the package.
-
-```bash
-# An audition file from the catalogs: English male or neutral voices, 8 per backend
-uv run python tools/voice-audition/audition.py new my-assistant.json \
-    --text "Hello! What would you like to talk about today?" \
-    --module phonon --module cartesia --module gradium \
-    --gender male --gender neutral --language en --limit 8 --keep-unknown
-
-# Render every candidate (a warm-up, then 3 measured runs) and write the page
-uv run python tools/voice-audition/audition.py render my-assistant.json
-open my-assistant.audition/index.html
-```
-
-The audition file is plain JSON: one `text` and a list of candidates, each with an `id` and a complete module `config`, so it can be written or edited by hand (see `tools/voice-audition/examples/demo.json`). Rendering again only renders what changed. A candidate whose API key or extra is missing is skipped, not failed. The page keeps your choices in the browser, shows the Yes and Maybe voices in their own tabs, and exports and imports the choices as JSON. Details: [specs/voice-audition.md](specs/voice-audition.md).
+`tools/voice-audition/` helps choose a voice: it renders candidate voices from any backends saying the same sentence, measures each one's time to first audio on this machine, and writes a page to listen to them one by one and mark each Yes, Maybe or No. It runs from a checkout and is not installed with the package. How to run it: [its README](tools/voice-audition/README.md); design: [specs/voice-audition.md](specs/voice-audition.md).
 
 ## Development
 

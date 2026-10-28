@@ -36,13 +36,13 @@ One file, `.github/workflows/ci.yml`. It triggers on `pull_request`, on `push` t
 
 | Job | Runner | What |
 |---|---|---|
-| `check` | `ubuntu-24.04` | `uv sync --locked`, then `ruff check .`, `ruff format --check src tests tests-e2e tools`, `pyright` — the static gate |
+| `check` | `ubuntu-24.04` | `uv sync --locked`, then `ruff check .`, `ruff format --check src tests tests-e2e benchmarks tools`, `pyright` — the static gate |
 | `fast-tier` | matrix: `ubuntu-24.04`, `ubuntu-24.04-arm`, `macos-15`, `windows-2025` | `libportaudio2` (Linux only), `uv sync --locked`, `uv run pytest` — the fast tier, `fail-fast: false` so one platform's failure leaves the others running |
 | `e2e` | `ubuntu-24.04` | `libportaudio2`; ALSA's null plugin as the default PCM; `uv sync --locked`; `uv run pytest tests-e2e -rs --durations=10` |
 
 The six jobs run side by side, each on its own runner, and none waits on another: a run takes as long as its slowest job. Each job carries a `timeout-minutes` well under GitHub's default, so a hung synthesis or server fails in minutes, not hours.
 
-- **The format check covers the code directories only.** `ruff format .` also rewrites the Python blocks inside Markdown files (the plans), so the gate — and the local command in [AGENTS.md](../AGENTS.md) — is `ruff format src tests tests-e2e`.
+- **The format check covers the code directories only.** `ruff format .` also rewrites the Python blocks inside Markdown files (the plans), so the gate — and the local command in [AGENTS.md](../AGENTS.md) — is `ruff format src tests tests-e2e benchmarks tools`, every directory holding Python code.
 - **The fast tier runs as locally**: plain `uv run pytest`, whose `testpaths` is `tests/`. The tier carries no platform list and no platform skips.
 - **The live tier runs as locally**, serial: `uv run pytest tests-e2e`, the MCP test spawning its own `tts-engine-mcp` subprocess. `-rs` prints every skip into the job log; `--durations=10` prints the ten slowest tests, so a provider that turns slow (the OpenAI-compatible rows, on OpenAI's hosted models, once took 140 s of a 310 s step) shows up in the summary rather than in log timestamps.
 
