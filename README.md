@@ -164,25 +164,25 @@ uv run python -c "import sounddevice; print(sounddevice.query_devices())"
 
 A module is a swappable synthesis backend. Its `type` selects an entry from the module registry, while every other field in the `module` object is specific to that backend. Changing modules does not change `TTSEngine`, playback, tools, or MCP usage.
 
-| Module | `kind` | Synthesis | Installation | Credentials |
-|---|---|---|---|---|
-| `pocket` | `local` | In-process model | `tts-engine[pocket]` | None |
-| `phonon` | `local` | In-process model | `tts-engine[phonon]` | None |
-| `qwen3` | `local` | In-process model (Apple silicon) | `tts-engine[qwen3]` | None |
-| `kokoro` | `local` | In-process model | `tts-engine[kokoro]` | None |
-| `piper` | `local` | In-process model | `tts-engine[piper]` | None |
-| `elevenlabs` | `hosted` | ElevenLabs cloud API | `tts-engine[elevenlabs]` | API key |
-| `gradium` | `hosted` | Gradium cloud API | `tts-engine[gradium]` | API key |
-| `mistral` | `hosted` | Mistral cloud API (Voxtral TTS) | `tts-engine[mistral]` | API key |
-| `deepgram` | `hosted` | Deepgram cloud API (Aura-2, Flux TTS) | `tts-engine[deepgram]` | API key |
-| `gemini` | `hosted` | Google Gemini API (Gemini TTS) | `tts-engine[gemini]` | API key |
-| `cartesia` | `hosted` | Cartesia cloud API (Sonic) | `tts-engine[cartesia]` | API key |
-| `openai` | `hosted` | OpenAI Realtime API (`gpt-realtime-2.1-mini`) | `tts-engine[openai]` | API key |
-| `openai-compatible` | `hosted` | OpenAI's `/v1/audio/speech` (`gpt-4o-mini-tts`, `tts-1`) or an OpenAI-compatible server | `tts-engine[openai-compatible]` | API key |
-| `tone` | `fixture` | Sine tone, no synthesis | Base installation | None |
-| `audiofile` | `fixture` | Pre-recorded WAV files, no synthesis | Base installation | None |
+| Module | `kind` | Synthesis | Installation | Credentials | Voice listing |
+|---|---|---|---|---|---|
+| `pocket` | `local` | In-process model | `tts-engine[pocket]` | None | yes |
+| `phonon` | `local` | In-process model | `tts-engine[phonon]` | None | yes |
+| `qwen3` | `local` | In-process model (Apple silicon) | `tts-engine[qwen3]` | None | yes |
+| `kokoro` | `local` | In-process model | `tts-engine[kokoro]` | None | yes |
+| `piper` | `local` | In-process model | `tts-engine[piper]` | None | yes |
+| `elevenlabs` | `hosted` | ElevenLabs cloud API | `tts-engine[elevenlabs]` | API key | yes |
+| `gradium` | `hosted` | Gradium cloud API | `tts-engine[gradium]` | API key | yes |
+| `mistral` | `hosted` | Mistral cloud API (Voxtral TTS) | `tts-engine[mistral]` | API key | yes |
+| `deepgram` | `hosted` | Deepgram cloud API (Aura-2, Flux TTS) | `tts-engine[deepgram]` | API key | yes |
+| `gemini` | `hosted` | Google Gemini API (Gemini TTS) | `tts-engine[gemini]` | API key | no |
+| `cartesia` | `hosted` | Cartesia cloud API (Sonic) | `tts-engine[cartesia]` | API key | yes |
+| `openai` | `hosted` | OpenAI Realtime API (`gpt-realtime-2.1-mini`) | `tts-engine[openai]` | API key | no |
+| `openai-compatible` | `hosted` | OpenAI's `/v1/audio/speech` (`gpt-4o-mini-tts`, `tts-1`) or an OpenAI-compatible server | `tts-engine[openai-compatible]` | API key | no |
+| `tone` | `fixture` | Sine tone, no synthesis | Base installation | None | — |
+| `audiofile` | `fixture` | Pre-recorded WAV files, no synthesis | Base installation | None | — |
 
-`kind` is the module's class attribute (`REGISTRY[type].kind`): `hosted` and `local` modules are providers and produce real speech, `hosted` from a cloud API (a key and a network), `local` from an in-process model (no network after the first download of its weights). `fixture` modules exist for tests and demos and are never a substitute for a provider.
+`kind` is the module's class attribute (`REGISTRY[type].kind`): `hosted` and `local` modules are providers and produce real speech, `hosted` from a cloud API (a key and a network), `local` from an in-process model (no network after the first download of its weights). `fixture` modules exist for tests and demos and are never a substitute for a provider. *Voice listing* says whether [`list_voices`](#finding-a-voice) can read the backend's catalog; for a `no`, it raises `VoiceListingUnsupported` with a link to where the voices are documented.
 
 ### Finding a voice
 

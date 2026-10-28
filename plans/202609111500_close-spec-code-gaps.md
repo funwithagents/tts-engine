@@ -646,7 +646,7 @@ async def stream(self, text, options, callback):
     await run_cancellable_worker(_blocking_stream)
 ```
 
-In the paragraph right after that block, replace "On coroutine cancellation, a thread-safe stop flag requests termination between decoded chunks and the coroutine waits for the worker to finish before propagating `CancelledError`; no callback can occur after `stream()` exits." with "Cancellation is cooperative via `run_cancellable_worker` (see [tts-module-interface.md](tts-module-interface.md), "Cancellation"): the worker polls the stop flag between decoded chunks, and the coroutine waits for the thread to finish before propagating `CancelledError`, so no callback can occur after `stream()` exits."
+In the paragraph right after that block, replace "On coroutine cancellation, a thread-safe stop flag requests termination between decoded chunks and the coroutine waits for the worker to finish before propagating `CancelledError`; no callback can occur after `stream()` exits." with "Cancellation is cooperative via `run_cancellable_worker` (see [tts-module-interface.md](../specs/tts-module-interface.md), "Cancellation"): the worker polls the stop flag between decoded chunks, and the coroutine waits for the thread to finish before propagating `CancelledError`, so no callback can occur after `stream()` exits."
 
 Then change `**Status:** Updated` → `**Status:** Implemented`.
 
