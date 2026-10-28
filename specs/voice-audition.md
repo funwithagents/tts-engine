@@ -122,15 +122,16 @@ my-assistant.audition/
 
 `index.html` is `page.html` with the audition's data embedded as JSON: name, text, sections, candidates (label, notes, redacted config) and results. A static page with no server: it opens from disk, and the WAVs are referenced relatively.
 
-- **Rows.** One table per section, one row per candidate:
-  - the label and notes;
+- **Rows.** One table with fixed column widths, so every row has the same columns in the same place. Each section starts with a heading row, and each candidate is one row:
+  - the label;
+  - the notes;
   - the TTFA (median, with min–max over the runs on hover);
   - an audio player, or the reason the candidate was skipped or failed;
-  - four choice buttons, **Yes**, **Maybe**, **No** and **NotSet** (the default);
+  - four stacked radio buttons, **Yes**, **Maybe**, **No** and **NotSet** (the default);
   - the module config.
 
-  A row marked Yes or Maybe is highlighted, a row marked No is dimmed.
-- **Tabs.** **All**, **Yes (n)**, **Maybe (n)**. The Yes and Maybe tabs show only those candidates, still grouped by section, with live counts.
+  A row marked Yes or Maybe gets a coloured edge, a row marked No is dimmed.
+- **Tabs.** **All**, **Yes (n)**, **Maybe (n)**. The Yes and Maybe tabs show only those candidates, under their section headings (a section with none left is hidden), with live counts.
 - **Listening one by one.** Starting a player pauses the others. When a sample ends, the next one *visible in the current tab* starts and scrolls into view (a checkbox turns this off), so a tab can be heard straight through.
 - **Choices** live in the browser's `localStorage` under `voice-audition:<name>`. They survive a reload and a re-render, but stay in that browser only, so the page exports and imports them:
   - **Export** downloads `<name>-choices.json`: `{"audition": name, "yes": [ids], "maybe": [ids], "no": [ids]}`.

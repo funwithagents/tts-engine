@@ -8,74 +8,69 @@
      placeholder below with the audition's JSON and writes index.html. -->
 <style>
   :root {
-    --bg: #ffffff; --fg: #1d1d1f; --muted: #6e6e73; --line: #e3e3e6;
-    --panel: #f5f5f7; --accent: #1d1d1f; --accent-fg: #ffffff;
-    --yes: #2a9d4b; --maybe: #d99a00; --no: #c0392b; --playing: #fff6d6; --err: #b3261e;
+    --bg: #ffffff; --fg: #1d1d1f; --muted: #666; --line: #ddd; --panel: #f4f4f4;
+    --on-bg: #222; --on-fg: #fff; --yes: #2a9d4b; --maybe: #e0a100; --playing: #fff6d6; --err: #b00;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #161618; --fg: #f2f2f4; --muted: #9a9aa1; --line: #2e2e33;
-      --panel: #222226; --accent: #f2f2f4; --accent-fg: #161618;
-      --playing: #3a3320; --err: #ff8a80;
+      --bg: #161618; --fg: #eee; --muted: #9a9aa1; --line: #333; --panel: #26262a;
+      --on-bg: #eee; --on-fg: #161618; --playing: #3a3320; --err: #ff8a80;
     }
   }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, sans-serif; }
-  main { max-width: 1400px; margin: 0 auto; padding: 20px 16px 60px; }
-  h1 { font-size: 22px; margin: 0 0 4px; }
-  h2 { font-size: 17px; margin: 28px 0 8px; }
-  .sentence { color: var(--muted); font-style: italic; margin: 0 0 4px; }
+  body { font: 15px system-ui, sans-serif; margin: 24px; background: var(--bg); color: var(--fg); }
+  h1 { font-size: 24px; margin: 0 0 6px; }
+  .sentence { margin: 0 0 4px; }
   .hint { color: var(--muted); font-size: 13px; margin: 0; }
-  .bar { position: sticky; top: 0; z-index: 1; background: var(--bg); border-bottom: 1px solid var(--line);
-         padding: 10px 0; margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  .bar .spacer { flex: 1; }
-  button { font: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--line);
-           border-radius: 7px; padding: 5px 12px; cursor: pointer; }
-  button.on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
-  label.chain { font-size: 13px; color: var(--muted); }
-  .table-wrap { overflow-x: auto; }
-  table { border-collapse: collapse; width: 100%; }
-  th, td { text-align: left; vertical-align: middle; padding: 7px 10px; border-bottom: 1px solid var(--line); }
-  th { font-size: 12px; color: var(--muted); font-weight: 600; }
-  td.voice { min-width: 180px; }
-  td.voice .label { font-weight: 600; }
-  td.voice .notes { color: var(--muted); font-size: 12px; }
-  td.ttfa { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-  td.config code { font-size: 11px; word-break: break-all; color: var(--muted); }
-  td.config { max-width: 380px; }
+  .bar { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 10px 0;
+         border-bottom: 1px solid var(--line); margin: 12px 0 0; }
+  .bar button { font: inherit; padding: 6px 14px; margin-right: 6px; border: 1px solid #bbb;
+                border-radius: 6px; background: var(--panel); color: var(--fg); cursor: pointer; }
+  .bar button.on { background: var(--on-bg); color: var(--on-fg); border-color: var(--on-bg); }
+  .bar .tools { float: right; }
+  .bar .tools button { margin: 0 0 0 6px; }
+  .bar label { font-size: 14px; }
+  table { border-collapse: collapse; width: 100%; max-width: 1400px; table-layout: fixed; }
+  col.c-voice { width: 17%; } col.c-notes { width: 23%; } col.c-ttfa { width: 7%; }
+  col.c-audio { width: 21%; } col.c-choice { width: 8%; } col.c-config { width: 24%; }
+  th, td { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: middle;
+           overflow-wrap: anywhere; }
+  thead th { font-size: 13px; color: var(--muted); position: sticky; top: 52px; background: var(--bg); z-index: 1; }
+  tr.section th { font-size: 17px; color: var(--fg); padding-top: 24px; border-bottom: 2px solid var(--line); }
+  td.ttfa { text-align: right; font-variant-numeric: tabular-nums; }
+  td.notes { color: var(--muted); font-size: 13px; }
+  td.config code { font-size: 11px; color: var(--muted); }
+  td.choice label { display: block; white-space: nowrap; font-size: 13px; }
+  audio { width: 100%; }
   .status { color: var(--err); font-size: 13px; }
-  .choices { display: flex; gap: 4px; flex-wrap: nowrap; }
-  .choices button { padding: 3px 8px; font-size: 12px; }
-  .choices button.on[data-value=yes] { background: var(--yes); border-color: var(--yes); color: #fff; }
-  .choices button.on[data-value=maybe] { background: var(--maybe); border-color: var(--maybe); color: #fff; }
-  .choices button.on[data-value=no] { background: var(--no); border-color: var(--no); color: #fff; }
   tr[data-choice=yes] td:first-child { box-shadow: inset 4px 0 var(--yes); }
   tr[data-choice=maybe] td:first-child { box-shadow: inset 4px 0 var(--maybe); }
   tr[data-choice=no] { opacity: .45; }
   tr.playing { background: var(--playing); }
   .hidden { display: none; }
-  .empty { color: var(--muted); margin-top: 24px; }
-  audio { height: 32px; max-width: 260px; }
+  .empty { color: var(--muted); }
 </style>
 </head>
 <body>
-<main>
   <h1 id="title">Voice audition</h1>
-  <p class="sentence" id="sentence"></p>
+  <p class="sentence"><i id="sentence"></i></p>
   <p class="hint">Latency: time to first audio measured while rendering (median of the runs after a warm-up; hover for the range).</p>
   <div class="bar">
     <button data-tab="all" class="on">All</button>
     <button data-tab="yes">Yes (<span id="n-yes">0</span>)</button>
     <button data-tab="maybe">Maybe (<span id="n-maybe">0</span>)</button>
-    <span class="spacer"></span>
-    <label class="chain"><input type="checkbox" id="chain" checked> play the next sample when one ends</label>
-    <button id="export">Export choices</button>
-    <button id="import">Import choices</button>
+    <span class="tools">
+      <label><input type="checkbox" id="chain" checked> play the next sample when one ends</label>
+      <button id="export">Export choices</button>
+      <button id="import">Import choices</button>
+    </span>
     <input type="file" id="import-file" accept="application/json,.json" class="hidden">
   </div>
-  <div id="sections"></div>
+  <table>
+    <colgroup><col class="c-voice"><col class="c-notes"><col class="c-ttfa"><col class="c-audio"><col class="c-choice"><col class="c-config"></colgroup>
+    <thead><tr><th>Voice</th><th>Notes</th><th>Latency</th><th>Audio</th><th>Choice</th><th>Module config</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
   <p class="empty hidden" id="empty">No voice in this tab yet.</p>
-</main>
 <script>
 const DATA = /*AUDITION_DATA*/null;
 const CHOICES = [["yes", "Yes"], ["maybe", "Maybe"], ["no", "No"], ["notset", "NotSet"]];
@@ -116,38 +111,35 @@ function audioCell(c) {
   return el("td", {}, el("span", {class: "status"}, text));
 }
 
-function row(c) {
-  const choices = el("div", {class: "choices"});
+function row(c, index) {
+  const choices = el("td", {class: "choice"});
   for (const [value, label] of CHOICES) {
-    const b = el("button", {"data-value": value, type: "button"}, label);
-    b.addEventListener("click", () => {
+    const input = el("input", {type: "radio", name: "choice-" + index, value});
+    input.addEventListener("change", () => {
       if (value === "notset") delete state[c.id]; else state[c.id] = value;
       save(); render();
     });
-    choices.append(b);
+    choices.append(el("label", {}, input, " " + label));
   }
-  const tr = el("tr", {"data-id": c.id},
-    el("td", {class: "voice"}, el("div", {class: "label"}, c.label), el("div", {class: "notes"}, c.notes || "")),
+  return el("tr", {"data-id": c.id, "data-section": c.section},
+    el("td", {}, c.label),
+    el("td", {class: "notes"}, c.notes || ""),
     ttfaCell(c.result || {}),
     audioCell(c),
-    el("td", {}, choices),
+    choices,
     el("td", {class: "config"}, el("code", {}, JSON.stringify(c.config))),
   );
-  return tr;
 }
 
 function build() {
   document.title = "Voice audition: " + DATA.name;
   document.getElementById("title").textContent = "Voice audition: " + DATA.name;
-  document.getElementById("sentence").textContent = "“" + DATA.text + "”";
-  const root = document.getElementById("sections");
+  document.getElementById("sentence").textContent = DATA.text;
+  const rows = document.getElementById("rows");
+  DATA.candidates.forEach((c, index) => c.index = index);
   for (const section of DATA.sections) {
-    const body = el("tbody");
-    for (const c of DATA.candidates.filter(c => c.section === section)) body.append(row(c));
-    const head = el("thead", {}, el("tr", {},
-      el("th", {}, "Voice"), el("th", {}, "Latency"), el("th", {}, "Audio"), el("th", {}, "Choice"), el("th", {}, "Module config")));
-    root.append(el("section", {class: "block"}, el("h2", {}, section),
-      el("div", {class: "table-wrap"}, el("table", {}, head, body))));
+    rows.append(el("tr", {class: "section", "data-heading": section}, el("th", {colspan: "6"}, section)));
+    for (const c of DATA.candidates.filter(c => c.section === section)) rows.append(row(c, c.index));
   }
 }
 
@@ -159,13 +151,13 @@ function render() {
   for (const tr of document.querySelectorAll("tr[data-id]")) {
     const choice = state[tr.dataset.id] || "notset";
     tr.dataset.choice = choice;
-    for (const b of tr.querySelectorAll(".choices button")) b.classList.toggle("on", b.dataset.value === choice);
+    for (const r of tr.querySelectorAll("input[type=radio]")) r.checked = r.value === choice;
     tr.classList.toggle("hidden", tab !== "all" && choice !== tab);
   }
   let visible = 0;
-  for (const block of document.querySelectorAll(".block")) {
-    const shown = block.querySelectorAll("tr[data-id]:not(.hidden)").length;
-    block.classList.toggle("hidden", shown === 0);
+  for (const heading of document.querySelectorAll("tr.section")) {
+    const shown = document.querySelectorAll(`tr[data-section="${CSS.escape(heading.dataset.heading)}"]:not(.hidden)`).length;
+    heading.classList.toggle("hidden", shown === 0);
     visible += shown;
   }
   document.getElementById("empty").classList.toggle("hidden", visible > 0);
