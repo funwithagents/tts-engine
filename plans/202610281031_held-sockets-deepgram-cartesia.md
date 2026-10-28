@@ -1,6 +1,6 @@
 # Deepgram and Cartesia: one socket held for the module's lifetime
 
-**Status:** Todo
+**Status:** In progress
 
 Implements the settled held-socket designs in `specs/modules/deepgram.md` and `specs/modules/cartesia.md`, following the pattern the `openai` module landed in [202610280911_openai-held-socket.md](202610280911_openai-held-socket.md): the socket opens at construction, every utterance runs over it, it is reconnected when dead and replaced before an utterance (never inside one) when it is too idle or too old, events of earlier utterances are filtered out, and a cancel stops the backend's work without closing. Gradium was measured and decided against (last section). It deliberately leaves out reconnecting in the background when a socket drops (the next utterance reconnects instead), application keepalives, and any config knob.
 
