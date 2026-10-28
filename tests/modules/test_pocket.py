@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 from tts_engine.config import ConfigError
-from tts_engine.modules.base import TTSError, TTSOptions
+from tts_engine.modules.base import TTSError, TTSOptions, VoiceListingUnsupported
 from tts_engine.modules.pocket import PocketModule
 
 
@@ -412,3 +412,37 @@ def test_close_drops_the_model(monkeypatch):
     module.close()
     gc.collect()
     assert ref() is None
+
+
+# --- voice listing -----------------------------------------------------------
+
+
+def _fake_preset_table(monkeypatch, presets) -> None:
+    package = types.ModuleType("pocket_tts")
+    utils_package = types.ModuleType("pocket_tts.utils")
+    utils = types.ModuleType("pocket_tts.utils.utils")
+    if presets is not None:
+        utils._ORIGINS_OF_PREDEFINED_VOICES = presets  # type: ignore[attr-defined]
+    utils_package.utils = utils  # type: ignore[attr-defined]
+    package.utils = utils_package  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "pocket_tts", package)
+    monkeypatch.setitem(sys.modules, "pocket_tts.utils", utils_package)
+    monkeypatch.setitem(sys.modules, "pocket_tts.utils.utils", utils)
+
+
+def test_list_voices_lists_the_presets_with_their_source(monkeypatch):
+    _fake_preset_table(
+        monkeypatch, {"george": "hf://kyutai/tts-voices/vctk/p315.wav", "alba": None}
+    )
+    george, alba = PocketModule.list_voices({"type": "pocket"})
+    assert (george.config, george.description) == (
+        {"voice": "george"},
+        "hf://kyutai/tts-voices/vctk/p315.wav",
+    )
+    assert (alba.name, alba.description) == ("alba", None)
+
+
+def test_list_voices_without_the_private_table_is_unsupported(monkeypatch):
+    _fake_preset_table(monkeypatch, None)
+    with pytest.raises(VoiceListingUnsupported, match="pocket-tts README"):
+        PocketModule.list_voices({"type": "pocket"})

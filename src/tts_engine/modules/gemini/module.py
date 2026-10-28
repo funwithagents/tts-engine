@@ -22,6 +22,8 @@ from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    VoiceInfo,
+    VoiceListingUnsupported,
     cleanup,
     finite_number,
     optional_str,
@@ -113,6 +115,15 @@ class GeminiModule(TTSModule):
     def close(self) -> None:
         # Closes the SDK's pooled HTTP connections; the module is done.
         self._client.close()
+
+    @classmethod
+    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+        """Gemini has no voice-listing endpoint."""
+        raise VoiceListingUnsupported(
+            "Gemini module: the API has no voice-listing endpoint; the prebuilt "
+            "voices (Kore, Puck, Charon, ...) and their styles are listed at "
+            "https://ai.google.dev/gemini-api/docs/speech-generation"
+        )
 
     @property
     def sample_rate(self) -> int:

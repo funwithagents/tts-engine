@@ -7,6 +7,7 @@ import json
 import queue
 import sys
 import time
+import types
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -805,3 +806,91 @@ async def test_text_stream_cancel_while_the_server_is_silent_stops_promptly(
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(task, timeout=5)
     assert ws.closed is True
+
+
+# --- voice listing -----------------------------------------------------------
+
+
+def _fake_voice_sdk(monkeypatch, *, voices=(), error: Exception | None = None) -> dict:
+    calls: dict = {}
+
+    class Voices:
+        def get_all(self, **kwargs):
+            calls["get_all"] = kwargs
+            if error is not None:
+                raise error
+            return types.SimpleNamespace(voices=list(voices))
+
+    class ElevenLabs:
+        def __init__(self, **kwargs) -> None:
+            calls["client"] = kwargs
+            self.voices = Voices()
+
+    package = types.ModuleType("elevenlabs")
+    package.ElevenLabs = ElevenLabs  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "elevenlabs", package)
+    return calls
+
+
+def _el_voice(voice_id, name, labels=None, languages=(), description=None):
+    return types.SimpleNamespace(
+        voice_id=voice_id,
+        name=name,
+        labels=labels,
+        description=description,
+        verified_languages=[
+            types.SimpleNamespace(language=lang, locale=locale)
+            for lang, locale in languages
+        ],
+    )
+
+
+def test_list_voices_maps_labels_and_languages(monkeypatch):
+    calls = _fake_voice_sdk(
+        monkeypatch,
+        voices=[
+            _el_voice(
+                "v1",
+                "River",
+                {"gender": "non-binary", "age": "middle_aged", "accent": "american"},
+                languages=[("en", "en-US"), ("en", "en-US"), ("fr", None)],
+                description="Relaxed",
+            ),
+            _el_voice("v2", None, {"language": "en", "use_case": "conversational"}),
+        ],
+    )
+    voices = ElevenLabsModule.list_voices(
+        {"type": "elevenlabs", "api_key": "k", "timeout": 2.5}
+    )
+
+    assert calls["client"] == {"api_key": "k"}
+    assert calls["get_all"] == {"request_options": {"timeout_in_seconds": 3}}
+    river, second = voices
+    assert river.config == {"voice_id": "v1"}
+    assert (river.name, river.gender, river.age) == ("River", "neutral", "middle_aged")
+    assert river.languages == ("en-US", "fr")
+    assert (river.description, river.tags) == ("Relaxed", ("american",))
+    assert (second.name, second.languages, second.gender, second.tags) == (
+        "v2",
+        ("en",),
+        None,
+        ("conversational",),
+    )
+
+
+def test_list_voices_reports_an_api_error_by_its_message(monkeypatch):
+    error = Exception("headers: {...} body: ...")
+    error.status_code = 401  # type: ignore[attr-defined]
+    error.body = {"detail": {"message": "missing the permission voices_read"}}  # type: ignore[attr-defined]
+    _fake_voice_sdk(monkeypatch, error=error)
+    with pytest.raises(
+        TTSError, match=r"HTTP 401: missing the permission voices_read$"
+    ):
+        ElevenLabsModule.list_voices({"type": "elevenlabs", "api_key": "k"})
+
+
+def test_list_voices_needs_a_key_but_no_voice(monkeypatch):
+    _fake_voice_sdk(monkeypatch)
+    assert ElevenLabsModule.list_voices({"type": "elevenlabs", "api_key": "k"}) == []
+    with pytest.raises(ConfigError):
+        ElevenLabsModule.list_voices({"type": "elevenlabs"})

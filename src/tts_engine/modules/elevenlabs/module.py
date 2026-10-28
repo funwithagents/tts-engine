@@ -31,8 +31,10 @@ from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    VoiceInfo,
     cleanup,
     finite_number,
+    normalize_gender,
     optional_str,
     resolve_api_key,
     run_cancellable_worker,
@@ -101,6 +103,17 @@ def _make_chunk_source_class(miniaudio_mod):
             return data
 
     return _ChunkSource
+
+
+def _api_error(exc: Exception) -> str:
+    """An SDK `ApiError` as its status and the API's own message (its string
+    form starts with every response header), anything else as is."""
+    status, body = getattr(exc, "status_code", None), getattr(exc, "body", None)
+    if status is None:
+        return str(exc)
+    detail = body.get("detail", body) if isinstance(body, dict) else body
+    message = detail.get("message", detail) if isinstance(detail, dict) else detail
+    return f"HTTP {status}: {message}"
 
 
 class ElevenLabsModule(TTSModule):
@@ -212,6 +225,64 @@ class ElevenLabsModule(TTSModule):
             final_key="is_final",
             keep_alive_frame={"keep_alive": True},
         )
+
+    @classmethod
+    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+        """The premade voices and the account's own, from `voices.get_all()`
+        (the key needs the `voices_read` permission). The voice's `labels`
+        carry its gender and age; the other labels become tags."""
+        try:
+            from elevenlabs import ElevenLabs
+        except ImportError as exc:
+            raise ConfigError(
+                "The 'elevenlabs' module requires the elevenlabs extra: "
+                "pip install tts-engine[elevenlabs]"
+            ) from exc
+        api_key = resolve_api_key(config, label=_LABEL)
+        timeout = finite_number(
+            config,
+            "timeout",
+            label=_LABEL,
+            default=_DEFAULT_TIMEOUT,
+            exclusive_minimum=0,
+        )
+        try:
+            response = ElevenLabs(api_key=api_key).voices.get_all(
+                request_options={"timeout_in_seconds": math.ceil(timeout)}
+            )
+        except Exception as exc:
+            raise TTSError(
+                f"{_LABEL}: voice listing failed: {_api_error(exc)}"
+            ) from exc
+
+        voices: list[VoiceInfo] = []
+        for voice in response.voices:
+            labels = dict(voice.labels or {})
+            languages = tuple(
+                dict.fromkeys(
+                    language.locale or language.language
+                    for language in voice.verified_languages or ()
+                )
+            )
+            if not languages and labels.get("language"):
+                languages = (labels["language"],)
+            voices.append(
+                VoiceInfo(
+                    id=voice.voice_id,
+                    name=voice.name or voice.voice_id,
+                    config={"voice_id": voice.voice_id},
+                    languages=languages,
+                    gender=normalize_gender(labels.get("gender")),
+                    age=labels.get("age") or None,
+                    description=voice.description or None,
+                    tags=tuple(
+                        value
+                        for key, value in labels.items()
+                        if key not in ("gender", "age", "language") and value
+                    ),
+                )
+            )
+        return voices
 
     @property
     def sample_rate(self) -> int:

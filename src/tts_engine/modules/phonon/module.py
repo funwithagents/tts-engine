@@ -16,6 +16,7 @@ from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    VoiceInfo,
     cleanup,
     finite_number,
     float_to_int16_pcm,
@@ -113,6 +114,33 @@ class PhononModule(TTSModule):
     def close(self) -> None:
         # Drop the runtime so its weights can be collected; the module is done.
         vars(self).pop("_tts", None)
+
+    @classmethod
+    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+        """The voice catalog `ptts` pins (`ptts.catalog_voices()`), in every
+        language: the catalog is shared by the checkpoints and has no gender
+        field. Only the catalog index is downloaded, no voice and no model."""
+        try:
+            import ptts
+        except ImportError as exc:
+            raise ConfigError(
+                "The 'phonon' module requires the phonon extra: pip install tts-engine[phonon]"
+            ) from exc
+        try:
+            entries = ptts.catalog_voices()
+        except Exception as exc:
+            raise TTSError(f"{_LABEL}: voice listing failed: {exc}") from exc
+        return [
+            VoiceInfo(
+                id=str(entry["name"]),
+                name=str(entry["name"]),
+                config={"voice": entry["name"]},
+                languages=(str(entry["language"]),) if entry.get("language") else (),
+                description=entry.get("description") or None,
+            )
+            for entry in entries
+            if entry.get("name")
+        ]
 
     @property
     def sample_rate(self) -> int:

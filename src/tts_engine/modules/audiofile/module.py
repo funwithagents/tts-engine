@@ -15,6 +15,7 @@ from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    VoiceInfo,
     resolve_path,
     run_cancellable_worker,
     run_text_stream_worker,
@@ -119,6 +120,11 @@ class AudioFileModule(TTSModule):
                 )
         assert rate is not None  # the constructor guarantees at least one path
         return rate
+
+    @classmethod
+    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+        """A fixture has no voice to choose."""
+        return []
 
     @property
     def sample_rate(self) -> int:

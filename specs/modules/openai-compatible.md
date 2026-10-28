@@ -160,6 +160,10 @@ Confirmed from the package and live calls on 2026-10-26:
 - `base_url` + `sample_rate` exercised through the real SDK against a local stub server: the request reaches `<base_url>/audio/speech` with `{model, input, voice, response_format: "pcm"}` and `Authorization: Bearer <placeholder>`; the declared 44100 Hz reaches the engine; a `RIFF` body raises `TTSError` with nothing fed. No real compatible server was run.
 - Unknown voice → 400 `BadRequestError` listing the 13 voices; unknown model → 404 `NotFoundError` `model_not_found`; `speed: 9` → 400; empty `input` → 400; bad key → 401 `AuthenticationError`. `instructions` with `tts-1` is accepted (and ignored).
 
+## Voice listing
+
+`list_voices` raises `VoiceListingUnsupported`: `/v1/audio/speech` has no endpoint that lists voices. Without `base_url` the message points to OpenAI's voices (https://platform.openai.com/docs/guides/text-to-speech). With one, it says that the server at that URL documents its own voices, since a compatible server's voice names are its own.
+
 ## Open questions
 
 Deferrals only (design is settled):

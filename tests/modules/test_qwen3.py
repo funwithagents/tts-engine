@@ -16,7 +16,12 @@ import numpy as np
 import pytest
 
 from tts_engine.config import ConfigError
-from tts_engine.modules.base import TTSError, TTSOptions, float_to_int16_pcm
+from tts_engine.modules.base import (
+    TTSError,
+    TTSOptions,
+    VoiceListingUnsupported,
+    float_to_int16_pcm,
+)
 from tts_engine.modules.qwen3 import Qwen3Module
 
 _SPEAKERS = ["serena", "vivian", "uncle_fu", "ryan", "aiden"]
@@ -348,3 +353,28 @@ def test_close_frees_the_native_context_and_drops_the_runtime(fake):
     gc.collect()
     assert fake.tts_closed
     assert runtime() is None
+
+
+# --- voice listing -----------------------------------------------------------
+
+
+def test_list_voices_loads_the_model_reads_its_speakers_and_closes_it(fake):
+    voices = Qwen3Module.list_voices(
+        {
+            "type": "qwen3",
+            "model": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+            "quant": "Q4_K_M",
+        }
+    )
+    assert [v.config for v in voices] == [{"voice": name} for name in _SPEAKERS]
+    assert fake.load_args == ("Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",)
+    assert fake.load_kwargs is not None and fake.load_kwargs["quant"] == "Q4_K_M"
+    assert fake.tts_closed
+
+
+def test_list_voices_voice_design_has_no_presets_and_loads_nothing(fake):
+    with pytest.raises(VoiceListingUnsupported, match="instruct"):
+        Qwen3Module.list_voices(
+            {"type": "qwen3", "model": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign"}
+        )
+    assert fake.load_args is None

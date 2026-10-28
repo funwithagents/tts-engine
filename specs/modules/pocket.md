@@ -165,6 +165,15 @@ The API was confirmed against the pinned package (`torch==2.14.0`, Apple M-serie
 - An unknown `language` raises `FileNotFoundError` (`Config file not found`).
 - `mps` still aborts with the Metal command-encoder assertion.
 
+## Voice listing
+
+`list_voices(config)` returns the preset names of pocket-tts's built-in table (27 voices), each with the recording it was made from as its description (e.g. `hf://kyutai/tts-voices/vctk/p315_023_enhanced.wav`). For the VCTK presets, that path identifies the speaker in VCTK's speaker table (age, accent).
+
+- **Selector:** `{"voice": <name>}`.
+- **Metadata:** none beyond the description: pocket-tts gives no language, gender or age.
+- **Private table:** pocket-tts exposes the table only as the private `pocket_tts.utils.utils._ORIGINS_OF_PREDEFINED_VOICES`, so the module reads it with `getattr`. A version without it raises `VoiceListingUnsupported` pointing to the pocket-tts README, rather than guessing.
+- **Cloning:** a cloned voice (an audio file, see "Voice cloning") is not a preset and is not listed.
+
 ## Open questions
 
 Deferrals only (design is settled):

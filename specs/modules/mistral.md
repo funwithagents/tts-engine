@@ -146,6 +146,14 @@ Confirmed from the package and live calls on 2026-10-26:
 - `pcm` = float32 LE mono 24 kHz; deltas of 38400 bytes (0.4 s) then 153600 bytes (2 s); time to first audio ~0.4–0.5 s; closing the stream mid-utterance returns at once.
 - No `model` → 422 `invalid_model`; no voice → 400; unknown voice → 404 `invalid_voice`; `expressiveness < 1` → 422. `voxtral-mini-tts-latest` with a `voice_id` → 400 ("voice is not supported for speech v1"), so the default names the dated model, not the alias.
 
+## Voice listing
+
+`list_voices(config)` returns every voice of `Mistral(api_key[, server_url]).audio.voices.search(page_size=100)`, following `next_page_token` until there is none, then leaves the client's context. The list holds the presets and the account's custom voices. It uses `search` because the offset-based `list` is deprecated. It reads only `api_key` / `api_key_env`, `server_url` and `timeout` (as `timeout_ms`); `voice_id` is not needed.
+
+- **Selector:** `{"voice_id": <id>}`.
+- **Metadata:** `gender`; `age` (an integer number of years when set, given as a string); `languages` (`en_us`, `en_GB`, …); `tags` (the emotion variants' moods); `description`.
+- **Errors:** a failure is a `TTSError`.
+
 ## Open questions
 
 Deferrals only (design is settled):

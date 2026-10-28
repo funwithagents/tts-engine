@@ -10,7 +10,7 @@ import re
 import threading
 import time
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator, Callable, Iterable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar, Literal, TypeVar, cast, overload
@@ -29,6 +29,55 @@ class TTSError(Exception):
 @dataclass
 class TTSOptions:
     pass
+
+
+Gender = Literal["male", "female", "neutral"]
+
+_GENDER_WORDS: dict[str, Gender] = {
+    "male": "male",
+    "masculine": "male",
+    "m": "male",
+    "man": "male",
+    "female": "female",
+    "feminine": "female",
+    "f": "female",
+    "woman": "female",
+    "neutral": "neutral",
+    "gender_neutral": "neutral",
+    "gender-neutral": "neutral",
+    "non-binary": "neutral",
+    "nonbinary": "neutral",
+    "non_binary": "neutral",
+    "androgynous": "neutral",
+}
+
+
+def normalize_gender(value: object) -> Gender | None:
+    """A backend's gender wording as a `Gender`, or None when it is not one."""
+    if not isinstance(value, str):
+        return None
+    return _GENDER_WORDS.get(value.strip().lower())
+
+
+@dataclass(frozen=True)
+class VoiceInfo:
+    """One voice of a backend's catalog (see `TTSModule.list_voices`)."""
+
+    id: str
+    name: str
+    # The `engine.module` fields that select this voice, to merge into a config.
+    config: Mapping[str, Any]
+    languages: tuple[str, ...] = ()
+    gender: Gender | None = None
+    # The backend's own wording ("young", "Adult", "30"): the scales differ.
+    age: str | None = None
+    description: str | None = None
+    tags: tuple[str, ...] = ()
+
+
+class VoiceListingUnsupported(Exception):
+    """The backend has no catalog the module can read; the message says where
+    its voices are documented."""
 
 
 # Where a module's synthesis runs: on a provider's servers (`hosted`), in this
@@ -112,6 +161,22 @@ class TTSModule(ABC):
         hold nothing of the module's and are not waited for. The default
         releases nothing: a fixture module has nothing to release.
         """
+
+    @classmethod
+    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+        """The voices this backend offers, read from its own catalog.
+
+        Takes the `engine.module` block but reads only what listing needs
+        (credentials, endpoint, the fields that change which voices exist), so
+        a config without a voice is enough; constructs no module. Blocking:
+        it does network or file I/O on the calling thread. Raises `ConfigError`
+        for a missing extra or an invalid field, `TTSError` when the provider
+        or a download fails, and `VoiceListingUnsupported` when the backend
+        has no catalog to read. Every module overrides this default.
+        """
+        raise VoiceListingUnsupported(
+            f"The {config.get('type', cls.__name__)!r} module cannot list its voices"
+        )
 
 
 async def run_cancellable_worker(

@@ -8,6 +8,7 @@ and `huggingface_hub` are imported lazily inside `__init__` so
 missing extra becomes a clear `ConfigError`.
 """
 
+import json
 import logging
 import threading
 from collections.abc import AsyncIterator, Callable, Iterable, Iterator
@@ -18,6 +19,7 @@ from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    VoiceInfo,
     feed_with_lookahead,
     finite_number,
     optional_str,
@@ -210,6 +212,60 @@ class PiperModule(TTSModule):
     def close(self) -> None:
         # Drop the voice so its ONNX session can be collected; the module is done.
         vars(self).pop("_voice", None)
+
+    @classmethod
+    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+        """The catalog's `voices.json` at the pinned commit: one entry per
+        voice, or per speaker of a multi-speaker voice (`speaker` added to its
+        config). The catalog has no gender field."""
+        try:
+            from huggingface_hub import hf_hub_download
+        except ImportError as exc:
+            raise ConfigError(
+                "The 'piper' module requires the piper extra: pip install tts-engine[piper]"
+            ) from exc
+        try:
+            path = hf_hub_download(
+                _VOICES_REPO, "voices.json", revision=_VOICES_REVISION
+            )
+            with open(path, encoding="utf-8") as file:
+                catalog = json.load(file)
+        except Exception as exc:
+            raise TTSError(f"{_LABEL}: voice listing failed: {exc}") from exc
+
+        voices: list[VoiceInfo] = []
+        for key, entry in catalog.items():
+            language = entry.get("language") or {}
+            code = language.get("code")
+            place = ", ".join(
+                part
+                for part in (
+                    language.get("name_english"),
+                    language.get("country_english"),
+                )
+                if part
+            )
+            common = {
+                "languages": (code,) if code else (),
+                "description": place or None,
+                "tags": tuple(tag for tag in (entry.get("quality"),) if tag),
+            }
+            speakers = entry.get("speaker_id_map") or {}
+            if entry.get("num_speakers", 1) <= 1 or not speakers:
+                voices.append(
+                    VoiceInfo(id=key, name=key, config={"voice": key}, **common)
+                )
+                continue
+            for speaker in sorted(speakers, key=speakers.__getitem__):
+                voices.append(
+                    VoiceInfo(
+                        id=f"{key}/{speaker}",
+                        name=f"{key} / {speaker}",
+                        config={"voice": key, "speaker": speaker},
+                        **common,
+                    )
+                )
+        return voices
 
     @property
     def sample_rate(self) -> int:

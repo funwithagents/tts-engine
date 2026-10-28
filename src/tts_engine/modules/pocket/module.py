@@ -15,6 +15,8 @@ from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    VoiceInfo,
+    VoiceListingUnsupported,
     finite_number,
     float_to_int16_pcm,
     optional_str,
@@ -131,6 +133,35 @@ class PocketModule(TTSModule):
         # collected; the module is done.
         vars(self).pop("_model", None)
         vars(self).pop("_voice_state", None)
+
+    @classmethod
+    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+        """The preset names of pocket-tts's built-in voice table, with the
+        recording each was made from as its description. The table is private
+        (`pocket_tts.utils.utils._ORIGINS_OF_PREDEFINED_VOICES`), so a version
+        without it is reported as unsupported rather than guessed at."""
+        try:
+            from pocket_tts.utils import utils as pocket_utils
+        except ImportError as exc:
+            raise ConfigError(
+                "The 'pocket' module requires the pocket extra: pip install tts-engine[pocket]"
+            ) from exc
+        presets = getattr(pocket_utils, "_ORIGINS_OF_PREDEFINED_VOICES", None)
+        if not isinstance(presets, dict):
+            raise VoiceListingUnsupported(
+                "Pocket module: this pocket-tts version exposes no preset table; "
+                "the preset voices are listed in the pocket-tts README "
+                "(https://github.com/kyutai-labs/pocket-tts), and any .wav can be cloned"
+            )
+        return [
+            VoiceInfo(
+                id=name,
+                name=name,
+                config={"voice": name},
+                description=str(source) if source else None,
+            )
+            for name, source in presets.items()
+        ]
 
     @property
     def sample_rate(self) -> int:

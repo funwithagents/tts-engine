@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from tts_engine.config import ConfigError
-from tts_engine.modules.base import TTSError, TTSOptions
+from tts_engine.modules.base import TTSError, TTSOptions, VoiceListingUnsupported
 from tts_engine.modules.openai_compatible import OpenAICompatibleModule
 
 _BASE = {"type": "openai-compatible", "api_key": "k", "voice": "v"}
@@ -336,3 +336,22 @@ async def test_text_stream_requests_per_sentence_as_the_source_arrives(fake):
 def test_close_closes_the_sdk_client(fake):
     OpenAICompatibleModule(_BASE).close()
     assert fake.client_closed
+
+
+# --- voice listing -----------------------------------------------------------
+
+
+def test_list_voices_is_unsupported_and_points_to_the_documentation():
+    with pytest.raises(
+        VoiceListingUnsupported, match=r"https://platform\.openai\.com/"
+    ):
+        OpenAICompatibleModule.list_voices({"type": "openai-compatible"})
+
+
+def test_list_voices_another_server_documents_its_own_voices():
+    with pytest.raises(
+        VoiceListingUnsupported, match=r"server at http://localhost:8880/v1"
+    ):
+        OpenAICompatibleModule.list_voices(
+            {"type": "openai-compatible", "base_url": "http://localhost:8880/v1"}
+        )

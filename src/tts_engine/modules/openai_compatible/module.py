@@ -23,6 +23,8 @@ from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    VoiceInfo,
+    VoiceListingUnsupported,
     cleanup,
     finite_number,
     optional_str,
@@ -120,6 +122,21 @@ class OpenAICompatibleModule(TTSModule):
     def close(self) -> None:
         # Closes the SDK's pooled HTTP connections; the module is done.
         self._client.close()
+
+    @classmethod
+    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+        """`/v1/audio/speech` has no voice-listing endpoint; a server other
+        than OpenAI's documents its own voices."""
+        base_url = optional_str(config, "base_url", label=_LABEL)
+        where = (
+            f"the server at {base_url} documents its own voices"
+            if base_url is not None
+            else "OpenAI's built-in voices (marin, cedar, alloy, ...) are listed at "
+            "https://platform.openai.com/docs/guides/text-to-speech"
+        )
+        raise VoiceListingUnsupported(
+            f"OpenAI-compatible module: the speech API has no voice-listing endpoint; {where}"
+        )
 
     @property
     def sample_rate(self) -> int:

@@ -338,3 +338,45 @@ def test_close_drops_the_runtime(fake):
     module.close()
     gc.collect()
     assert runtime() is None
+
+
+# --- voice listing -----------------------------------------------------------
+
+
+def _fake_catalog(monkeypatch, catalog_voices) -> None:
+    module = types.ModuleType("ptts")
+    module.catalog_voices = catalog_voices  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "ptts", module)
+
+
+def test_list_voices_reads_the_pinned_catalog(monkeypatch):
+    entries = [
+        {
+            "name": "Micah",
+            "voice_id": "40Qr",
+            "language": "en",
+            "description": "Buoyant",
+        },
+        {"name": "Élise", "voice_id": "x", "language": "fr", "description": None},
+        {"name": None, "voice_id": "y", "language": "en", "description": None},
+    ]
+    _fake_catalog(monkeypatch, lambda: entries)
+
+    micah, elise = PhononModule.list_voices({"type": "phonon"})
+
+    assert micah.config == {"voice": "Micah"}
+    assert (micah.languages, micah.description, micah.gender) == (
+        ("en",),
+        "Buoyant",
+        None,
+    )
+    assert (elise.id, elise.languages, elise.description) == ("Élise", ("fr",), None)
+
+
+def test_list_voices_catalog_failure_is_a_tts_error(monkeypatch):
+    def offline():
+        raise OSError("no network")
+
+    _fake_catalog(monkeypatch, offline)
+    with pytest.raises(TTSError, match="voice listing failed: no network"):
+        PhononModule.list_voices({"type": "phonon"})

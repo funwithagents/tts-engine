@@ -306,3 +306,80 @@ async def test_text_stream_requests_per_sentence_as_the_source_arrives(fake):
 def test_close_closes_the_sdk_client(fake):
     MistralModule(_BASE).close()
     assert fake.client_closed
+
+
+# --- voice listing -----------------------------------------------------------
+
+
+def _mistral_voice(voice_id, **fields):
+    return types.SimpleNamespace(id=voice_id, **fields)
+
+
+def test_list_voices_follows_every_page_then_closes_the_client(monkeypatch):
+    pages = {
+        None: (
+            [_mistral_voice("a", name="James", gender="male", languages=["en_us"])],
+            "t2",
+        ),
+        "t2": (
+            [
+                _mistral_voice(
+                    "b",
+                    name="Paul - Happy",
+                    gender="male",
+                    age=30,
+                    languages=["en_us"],
+                    tags=["sunny", "happy"],
+                    description=None,
+                )
+            ],
+            None,
+        ),
+    }
+    calls: dict = {"searches": [], "closed": False}
+
+    def search(**kwargs):
+        calls["searches"].append(kwargs)
+        data, token = pages[kwargs.get("page_token")]
+        return types.SimpleNamespace(
+            result=types.SimpleNamespace(data=data, next_page_token=token)
+        )
+
+    class Mistral:
+        def __init__(self, **kwargs) -> None:
+            calls["client"] = kwargs
+            self.audio = types.SimpleNamespace(
+                voices=types.SimpleNamespace(search=search)
+            )
+
+        def __exit__(self, *_exc) -> None:
+            calls["closed"] = True
+
+    package = types.ModuleType("mistralai")
+    client = types.ModuleType("mistralai.client")
+    client.Mistral = Mistral  # type: ignore[attr-defined]
+    package.client = client  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "mistralai", package)
+    monkeypatch.setitem(sys.modules, "mistralai.client", client)
+
+    james, paul = MistralModule.list_voices(
+        {"type": "mistral", "api_key": "k", "server_url": "https://x", "timeout": 1.5}
+    )
+
+    assert calls["client"] == {"api_key": "k", "server_url": "https://x"}
+    assert calls["searches"] == [
+        {"page_size": 100, "timeout_ms": 1500},
+        {"page_size": 100, "timeout_ms": 1500, "page_token": "t2"},
+    ]
+    assert calls["closed"]
+    assert (james.config, james.gender, james.age, james.languages) == (
+        {"voice_id": "a"},
+        "male",
+        None,
+        ("en_us",),
+    )
+    assert (paul.name, paul.age, paul.tags) == (
+        "Paul - Happy",
+        "30",
+        ("sunny", "happy"),
+    )

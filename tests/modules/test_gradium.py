@@ -549,3 +549,91 @@ async def test_text_stream_cancel_mid_audio_stops_callbacks_before_raising(
         await asyncio.wait_for(task, timeout=5)
     assert fake_gradium.tts.closed is True
     assert fake_gradium.tts.eos is False  # dropped, not finished
+
+
+# --- voice listing -----------------------------------------------------------
+
+
+def _fake_voice_sdk(monkeypatch, entries) -> dict:
+    calls: dict = {}
+
+    class GradiumClient:
+        def __init__(self, **kwargs) -> None:
+            calls["client"] = kwargs
+
+        async def voice_get(self, voice_uid=None, include_catalog=False):
+            calls["include_catalog"] = include_catalog
+            return entries
+
+    package = types.ModuleType("gradium")
+    package.GradiumClient = GradiumClient  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "gradium", package)
+    return calls
+
+
+_GRADIUM_ENTRIES = [
+    {
+        "uid": "40QrMVgAxFiUnP9f",
+        "name": "Micah",
+        "gender": "Male",
+        "age": "Young",
+        "locale": "en-us",
+        "language": "en",
+        "description": "Buoyant",
+        "is_catalog": True,
+        "tags": [
+            {"category": "gender", "value": "male"},
+            {"category": "age", "value": "Young"},
+            {"category": "emotion", "value": "happy"},
+        ],
+    },
+    {
+        "uid": "custom1",
+        "name": None,
+        "language": "fr",
+        "is_catalog": False,
+        "tags": None,
+    },
+    {"name": "no uid"},
+]
+
+
+def test_list_voices_includes_the_catalog_and_maps_each_voice(monkeypatch):
+    calls = _fake_voice_sdk(monkeypatch, _GRADIUM_ENTRIES)
+    micah, custom = GradiumModule.list_voices(
+        {"type": "gradium", "api_key": "k", "base_url": "https://eu.example/api/"}
+    )
+
+    assert calls == {
+        "client": {"api_key": "k", "base_url": "https://eu.example/api/"},
+        "include_catalog": True,
+    }
+    assert micah.config == {"voice_id": "40QrMVgAxFiUnP9f"}
+    assert (micah.name, micah.gender, micah.age, micah.languages) == (
+        "Micah",
+        "male",
+        "Young",
+        ("en-us",),
+    )
+    assert (micah.description, micah.tags) == ("Buoyant", ("happy",))
+    assert (custom.name, custom.languages, custom.gender, custom.tags) == (
+        "custom1",
+        ("fr",),
+        None,
+        ("custom",),
+    )
+
+
+def test_list_voices_works_from_a_thread_running_an_event_loop(monkeypatch):
+    _fake_voice_sdk(monkeypatch, _GRADIUM_ENTRIES)
+
+    async def inside_a_loop():
+        return GradiumModule.list_voices({"type": "gradium", "api_key": "k"})
+
+    assert len(asyncio.run(inside_a_loop())) == 2
+
+
+def test_list_voices_unexpected_response_is_a_tts_error(monkeypatch):
+    _fake_voice_sdk(monkeypatch, {"error": "nope"})
+    with pytest.raises(TTSError, match="unexpected response"):
+        GradiumModule.list_voices({"type": "gradium", "api_key": "k"})

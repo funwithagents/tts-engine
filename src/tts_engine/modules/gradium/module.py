@@ -15,16 +15,20 @@ is a true stream-to-stream pass over one connection.
 """
 
 import asyncio
+import concurrent.futures
 import logging
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator
+from typing import Any
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    VoiceInfo,
     finite_number,
+    normalize_gender,
     optional_str,
     resolve_api_key,
     run_cancellable_worker,
@@ -113,6 +117,75 @@ class GradiumModule(TTSModule):
             self._client = GradiumClient(api_key=api_key)
         else:
             self._client = GradiumClient(api_key=api_key, base_url=base_url)
+
+    @classmethod
+    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+        """The public catalog and the account's own voices, from
+        `voice_get(include_catalog=True)`. The SDK is async, so the call runs
+        on a private event loop in a helper thread, which also works when the
+        caller's thread runs a loop of its own."""
+        try:
+            from gradium import GradiumClient
+        except ImportError as exc:
+            raise ConfigError(
+                "The 'gradium' module requires the gradium extra: "
+                "pip install tts-engine[gradium]"
+            ) from exc
+        api_key = resolve_api_key(config, label=_LABEL)
+        timeout = finite_number(
+            config,
+            "timeout",
+            label=_LABEL,
+            default=_DEFAULT_TIMEOUT,
+            exclusive_minimum=0,
+        )
+        base_url = optional_str(config, "base_url", label=_LABEL)
+        if base_url is None:
+            client = GradiumClient(api_key=api_key)
+        else:
+            client = GradiumClient(api_key=api_key, base_url=base_url)
+
+        async def fetch() -> Any:
+            return await asyncio.wait_for(
+                client.voice_get(include_catalog=True), timeout
+            )
+
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                entries = pool.submit(asyncio.run, fetch()).result()
+        except Exception as exc:
+            raise TTSError(f"{_LABEL}: voice listing failed: {exc!r}") from exc
+        if not isinstance(entries, list):
+            raise TTSError(
+                f"{_LABEL}: voice listing failed: unexpected response {entries!r}"
+            )
+
+        voices: list[VoiceInfo] = []
+        for entry in entries:
+            uid = entry.get("uid")
+            if not uid:
+                continue
+            language = entry.get("locale") or entry.get("language")
+            tags = [
+                tag.get("value")
+                for tag in entry.get("tags") or ()
+                if tag.get("category") not in ("gender", "age") and tag.get("value")
+            ]
+            if not entry.get("is_catalog", True):
+                tags.append("custom")
+            voices.append(
+                VoiceInfo(
+                    id=uid,
+                    name=entry.get("name") or uid,
+                    config={"voice_id": uid},
+                    languages=(language,) if language else (),
+                    gender=normalize_gender(entry.get("gender")),
+                    age=entry.get("age") or None,
+                    description=entry.get("description") or None,
+                    tags=tuple(tags),
+                )
+            )
+        return voices
 
     @property
     def sample_rate(self) -> int:
