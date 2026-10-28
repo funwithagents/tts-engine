@@ -125,6 +125,16 @@ Start at [docs/index.md](docs/index.md), the documentation by task. The pages us
 | [docs/choosing-a-backend-and-voice.md](docs/choosing-a-backend-and-voice.md) | Where each backend runs, how fast it answers, its voices, and how to audition them |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | No audio, a missing extra, and each backend's own errors |
 
+## Examples, benchmark and tools
+
+Next to the documentation, the repository holds material to start from, measure with, and choose with:
+
+| | |
+|---|---|
+| [examples/](examples/) | One complete, runnable config per module (`config.<type>.json`, plus a variant for ElevenLabs v4 and Deepgram Flux), in the MCP server's format; its `engine` block is what a library config takes. No secrets: keys are read from the variable named in `api_key_env`. |
+| [benchmarks/latency/](benchmarks/latency/README.md) | How long each module and model makes you wait before the first sound, measured through `TTSEngine`: the numbers in [the Mac result's summary](benchmarks/latency/results/20261027-1453_mac-m5-pro/summary.md) (local backends, then hosted ones), what they mean in [RESULTS.md](benchmarks/latency/RESULTS.md), and how to run it on your own machine. |
+| [tools/voice-audition/](tools/voice-audition/README.md) | Hear candidate voices from any backends say the same sentence, with their time to first audio on your machine, and mark the ones you like. Runs from a checkout. |
+
 ## Feedback and contributions
 
 Bug reports, questions, reports from a platform or a provider account the author does not test on, and requests for a backend are welcome at [the issue tracker](https://github.com/funwithagents/tts-engine/issues). The project is maintained by one person and is not taking external pull requests for now; [CONTRIBUTING.md](CONTRIBUTING.md) says why and how to help anyway.
@@ -136,7 +146,7 @@ Bug reports, questions, reports from a platform or a provider account the author
 - **Specs first.** Each concept has one spec under [specs/](specs/), the normative design with its rationale and open questions, indexed by [specs/_index.md](specs/_index.md); each backend has its own under [specs/modules/](specs/modules/). An implementation plan under [plans/](plans/) turns a settled spec into code. Each spec names the code and tests it governs, and a test keeps that map, the statuses and the documentation's links honest.
 - **Two test tiers.** `tests/` is fast and deterministic: no network, no credentials, no audio hardware, every provider SDK faked. `tests-e2e/` drives the real providers and the machine's audio output, and skips a provider whose key or extra is missing ([specs/testing.md](specs/testing.md)).
 - **CI on every change.** The static gate, the fast tier on Linux (x86_64 and arm64), macOS and Windows, and the live tier on Linux ([specs/ci.md](specs/ci.md)).
-- **Measured, not assumed.** The [latency benchmark](benchmarks/latency/RESULTS.md) times every module and model through the public API, and the decisions it fed are recorded in the module specs. The [voice audition tool](tools/voice-audition/README.md) renders candidate voices side by side.
+- **Measured, not assumed.** Design choices that depend on speed (a module's default model, holding a socket open) come from the latency benchmark, and the module specs cite the result they rest on.
 - **[AGENTS.md](AGENTS.md) is the operating manual** for anyone, or any coding agent, working in the repository: the project map, the commands, how to add a module, how the specs and statuses are kept in step with the code.
 
 The same checks, locally:

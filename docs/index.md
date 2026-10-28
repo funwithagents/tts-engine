@@ -16,6 +16,7 @@ The documentation of `tts-engine`, by what you want to do. The [README](../READM
 Beyond the user documentation:
 
 - [specs/](../specs/_index.md) is the normative design: every guarantee, with its rationale, one spec per concept and per backend.
+- [examples/](../examples/) has one complete, runnable config per module, in the MCP server's format.
 - [benchmarks/latency/](../benchmarks/latency/RESULTS.md) holds the latency measurements and what was concluded from them.
 - [tools/voice-audition/](../tools/voice-audition/README.md) is the voice audition tool.
 - [AGENTS.md](../AGENTS.md) is the operating manual for working in the repository.
