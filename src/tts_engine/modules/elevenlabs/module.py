@@ -104,6 +104,8 @@ def _make_chunk_source_class(miniaudio_mod):
 
 
 class ElevenLabsModule(TTSModule):
+    kind = "hosted"
+
     def __init__(self, config: dict) -> None:
         try:
             import miniaudio

@@ -78,6 +78,8 @@ def _model_ref(config: dict, value: str) -> _FileRef:
 
 
 class PiperModule(TTSModule):
+    kind = "local"
+
     def __init__(self, config: dict) -> None:
         voice_key = optional_str(config, "voice", label=_LABEL)
         model = optional_str(config, "model", label=_LABEL)

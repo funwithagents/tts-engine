@@ -36,6 +36,31 @@ def _fast_poll(monkeypatch):
     monkeypatch.setattr(base, "_POLL_SECONDS", 0.005)
 
 
+# The family of every registered module, as specs/tts-module-interface.md
+# ("Module kinds") lists them: a new module is added to both.
+_KINDS = {
+    "elevenlabs": "hosted",
+    "gradium": "hosted",
+    "mistral": "hosted",
+    "deepgram": "hosted",
+    "gemini": "hosted",
+    "cartesia": "hosted",
+    "openai": "hosted",
+    "openai-compatible": "hosted",
+    "pocket": "local",
+    "phonon": "local",
+    "qwen3": "local",
+    "kokoro": "local",
+    "piper": "local",
+    "tone": "fixture",
+    "audiofile": "fixture",
+}
+
+
+def test_every_registered_module_declares_its_kind():
+    assert {name: cls.kind for name, cls in REGISTRY.items()} == _KINDS
+
+
 def test_load_module_unknown_type_raises():
     with pytest.raises(ConfigError):
         load_module({"type": "nonexistent_xyz"})

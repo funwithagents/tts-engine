@@ -23,6 +23,8 @@ _LABEL = "Tone module"
 
 
 class ToneModule(TTSModule):
+    kind = "fixture"
+
     def __init__(self, config: dict) -> None:
         sample_rate = config.get("sample_rate", 24000)
         if (

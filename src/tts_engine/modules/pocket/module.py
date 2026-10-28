@@ -33,6 +33,8 @@ _LABEL = "Pocket module"
 
 
 class PocketModule(TTSModule):
+    kind = "local"
+
     def __init__(self, config: dict) -> None:
         voice = config.get("voice")
         if "voice" in config and (not isinstance(voice, str) or not voice):

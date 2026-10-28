@@ -45,6 +45,8 @@ _WAV_MAGIC = b"RIFF"
 
 
 class OpenAICompatibleModule(TTSModule):
+    kind = "hosted"
+
     def __init__(self, config: dict) -> None:
         try:
             from openai import OpenAI

@@ -34,6 +34,8 @@ def _non_empty_str(value: object) -> bool:
 
 
 class AudioFileModule(TTSModule):
+    kind = "fixture"
+
     def __init__(self, config: dict) -> None:
         files = config.get("files", [])
         if not isinstance(files, list):

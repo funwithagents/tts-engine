@@ -128,13 +128,18 @@ def test_cli_subcommands_parse():
 # --- runs, merging and results -----------------------------------------------
 
 
+# Fake module types of these tests: `m` is a hosted provider, `l` a local one.
+_KIND = {"m": "hosted", "l": "local", "tone": "fixture"}
+
+
 def _run_record(entry: str, mode: str, ttfa: float, seq: int = 1) -> dict:
     """A run record as the worker writes it: the raw timeline plus the derived
     metrics appended. seq 0 is the warm-up (the first call after construction)."""
     record = {
         "entry": entry,
         "type": entry.split("/")[0],
-        "kind": "run",
+        "kind": _KIND[entry.split("/")[0]],
+        "record": "run",
         "mode": mode,
         "text": "short",
         "phase": "warmup" if seq == 0 else "measured",
@@ -156,7 +161,8 @@ def _load(entry: str) -> dict:
     return {
         "entry": entry,
         "type": entry.split("/")[0],
-        "kind": "load",
+        "kind": _KIND[entry.split("/")[0]],
+        "record": "load",
         "ok": True,
         "load_s": 0.5,
         "sample_rate": 24000,
@@ -164,14 +170,21 @@ def _load(entry: str) -> dict:
 
 
 def _done(entry: str) -> dict:
-    return {"entry": entry, "type": entry.split("/")[0], "kind": "done", "seconds": 1.0}
+    return {
+        "entry": entry,
+        "type": entry.split("/")[0],
+        "kind": _KIND[entry.split("/")[0]],
+        "record": "done",
+        "seconds": 1.0,
+    }
 
 
 def _skip(entry: str) -> dict:
     return {
         "entry": entry,
         "type": entry.split("/")[0],
-        "kind": "skip",
+        "kind": _KIND[entry.split("/")[0]],
+        "record": "skip",
         "reason": "KEY not set",
     }
 
@@ -213,7 +226,13 @@ def test_merge_runs_latest_completed_run_wins_and_aborts_never_shadow():
             [
                 _load("m/a"),
                 _run_record("m/a", "say", 30.0),
-                {"entry": "m/a", "type": "m", "kind": "abort", "reason": "interrupted"},
+                {
+                    "entry": "m/a",
+                    "type": "m",
+                    "kind": "hosted",
+                    "record": "abort",
+                    "reason": "interrupted",
+                },
             ],
         ),
         (
@@ -230,7 +249,7 @@ def test_merge_runs_latest_completed_run_wins_and_aborts_never_shadow():
         "m/b": "r2",
     }  # a: latest *completed*; b: latest attempt
     assert {r["run"] for r in merged} == {"r2"}
-    assert [r["ttfa_ms"] for r in merged if r["kind"] == "run"] == [20.0]
+    assert [r["ttfa_ms"] for r in merged if r["record"] == "run"] == [20.0]
 
 
 def test_merge_into_builds_a_result_then_a_newer_run_overrides(tmp_path: Path):
@@ -269,6 +288,9 @@ def test_merge_into_builds_a_result_then_a_newer_run_overrides(tmp_path: Path):
             _load("tone"),
             _run_record("tone", "say", 0.5),
             _done("tone"),
+            _load("l/x"),
+            _run_record("l/x", "say", 5.0),
+            _done("l/x"),
         ],
     )
     bench.merge_into(result, [r2])
@@ -279,7 +301,7 @@ def test_merge_into_builds_a_result_then_a_newer_run_overrides(tmp_path: Path):
     manifest = json.loads((result / "runs.json").read_text())
     assert {r["run"]: r["supplies"] for r in manifest["runs"]} == {
         "20261028-100000": ["m/c"],
-        "20261028-110000": ["m/a", "m/b", "tone"],
+        "20261028-110000": ["l/x", "m/a", "m/b", "tone"],
     }
     with gzip.open(result / "raw.jsonl.gz", "rt") as f:
         packed = [json.loads(line) for line in f]
@@ -288,6 +310,7 @@ def test_merge_into_builds_a_result_then_a_newer_run_overrides(tmp_path: Path):
         ("m/b", "20261028-110000"),
         ("m/c", "20261028-100000"),
         ("tone", "20261028-110000"),
+        ("l/x", "20261028-110000"),
     }
 
     md = (result / "summary.md").read_text()
@@ -304,10 +327,16 @@ def test_merge_into_builds_a_result_then_a_newer_run_overrides(tmp_path: Path):
     assert float(rows[("m/a", "say")]["first_call_ttfa_ms"]) == 20.0
     assert rows[("m/c", "stream")]["run"] == "20261028-100000"
     compact = {r["entry"]: r for r in csv.DictReader((result / "summary.csv").open())}
-    assert list(compact) == [
-        "m/a",
-        "m/c",
-    ]  # by module, then TTFA p50, no headline cell last
+    # local first; by module, then TTFA p50, an entry with no headline cell last
+    assert list(compact) == ["l/x", "m/a", "m/c"]
+    assert compact["l/x"]["kind"] == "local" and compact["m/a"]["kind"] == "hosted"
+    assert rows[("m/a", "say")]["kind"] == "hosted"  # results.csv carries it too
+    assert (
+        md.index("## Local")
+        < md.index("| l/x |")
+        < md.index("## Hosted")
+        < md.index("| m/a |")
+    )
     assert float(compact["m/a"]["ttfa_p50_ms"]) == 22.0
     assert compact["m/a"]["ttfa_stream_p50_ms"] == ""  # no stream cell for m/a
     assert (

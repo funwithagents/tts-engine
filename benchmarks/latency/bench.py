@@ -18,7 +18,9 @@ Two trees:
   (every run merged so far and its environment), ``raw.jsonl.gz`` (the winning
   records, each tagged with its run), ``results.csv`` (every statistic of every
   metric per entry × mode × text) and the compact ``summary.md`` / ``summary.csv``
-  (one row per entry).
+  (one row per entry, a Local and a Hosted table). Every record names its
+  module's ``kind`` (hosted, local, fixture) and its ``record`` type (load, run,
+  skip, abort, done).
   Committed. Merging a newer run overrides an entry's older measurement: for
   each entry the latest run that completed it wins.
 
@@ -59,6 +61,8 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+from tts_engine.modules import REGISTRY
 
 log = logging.getLogger("bench")
 
@@ -124,10 +128,16 @@ DISTRIBUTIONS = (
     "onnxruntime",
 )
 
-# Fixture modules: the harness-overhead floor and the smoke-test target. They
-# are measured like any entry (results.csv) but kept out of the compact summary,
-# which compares real backends.
-FIXTURE_TYPES = {"tone", "audiofile"}
+# The order of the summary's tables: local backends first (the ones a robot
+# can run on its own), then hosted; fixtures (the harness floor) are kept out
+# of the compact summary and appear in results.csv only.
+KIND_ORDER = ("local", "hosted", "fixture")
+
+
+def module_kind(module_type: str) -> str:
+    """Where a module's synthesis runs, from the library's registry."""
+    return REGISTRY[module_type].kind
+
 
 # A chunk counts as "voiced" once a sample exceeds this amplitude (~ -36 dBFS):
 # separates the first chunk (which may be leading silence) from the first
@@ -279,7 +289,12 @@ async def run_entry(entry: dict, settings: dict, out_path: Path) -> None:
     from tts_engine.config import TTSEngineConfig
 
     def emit(record: dict) -> None:
-        record = {"entry": entry["id"], "type": entry["type"], **record}
+        record = {
+            "entry": entry["id"],
+            "type": entry["type"],
+            "kind": module_kind(entry["type"]),
+            **record,
+        }
         with out_path.open("a") as f:
             f.write(json.dumps(record) + "\n")
 
@@ -295,11 +310,11 @@ async def run_entry(entry: dict, settings: dict, out_path: Path) -> None:
         )
         engine = TTSEngine(cfg, sink=sink)
     except Exception as exc:
-        emit({"kind": "load", "ok": False, "error": f"{type(exc).__name__}: {exc}"})
+        emit({"record": "load", "ok": False, "error": f"{type(exc).__name__}: {exc}"})
         raise
     emit(
         {
-            "kind": "load",
+            "record": "load",
             "ok": True,
             "load_s": time.perf_counter() - t0,
             "sample_rate": engine.sample_rate,
@@ -316,7 +331,7 @@ async def run_entry(entry: dict, settings: dict, out_path: Path) -> None:
                 for i in range(settings["warmup"] + settings["runs"]):
                     phase = "warmup" if i < settings["warmup"] else "measured"
                     base = {
-                        "kind": "run",
+                        "record": "run",
                         "mode": mode,
                         "text": text_id,
                         "phase": phase,
@@ -438,11 +453,17 @@ def environment_info() -> dict:
 STOP_FILE = "STOP"
 
 
-def _record(raw: Path, entry: dict, kind: str, **fields: Any) -> None:
+def _record(raw: Path, entry: dict, record: str, **fields: Any) -> None:
     with raw.open("a") as f:
         f.write(
             json.dumps(
-                {"entry": entry["id"], "type": entry["type"], "kind": kind, **fields}
+                {
+                    "entry": entry["id"],
+                    "type": entry["type"],
+                    "kind": module_kind(entry["type"]),
+                    "record": record,
+                    **fields,
+                }
             )
             + "\n"
         )
@@ -464,7 +485,7 @@ def read_records(directory: Path) -> list[dict]:
 
 def _completed_entries(run_dir: Path) -> set[str]:
     """Ids whose worker ran to the end (a `done` record) in a previous session."""
-    return {r["entry"] for r in read_records(run_dir) if r["kind"] == "done"}
+    return {r["entry"] for r in read_records(run_dir) if r["record"] == "done"}
 
 
 def _drop_entries(raw: Path, ids: set[str]) -> None:
@@ -660,7 +681,7 @@ def merge_runs(runs: list[Run]) -> tuple[list[dict], dict[str, str]]:
     for run_id, _env, records in ordered:
         for r in records:
             attempted[r["entry"]] = run_id
-            if r["kind"] == "done":
+            if r["record"] == "done":
                 completed[r["entry"]] = run_id
     source = {**attempted, **completed}
     merged = [
@@ -891,6 +912,7 @@ def summarize(target: Path) -> None:
     runs = load_result(target) if (target / MANIFEST).exists() else [load_run(target)]
     records, source = merge_runs(runs)
     load: dict[str, dict] = {}
+    kinds: dict[str, str] = {}
     status: dict[str, str] = {}
     first_call: dict[str, dict] = {}
     groups: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
@@ -900,16 +922,17 @@ def summarize(target: Path) -> None:
     for r in records:
         eid = r["entry"]
         types[eid] = r["type"]
-        kind = r["kind"]
-        if kind == "skip":
+        kinds[eid] = r["kind"]
+        record = r["record"]
+        if record == "skip":
             status[eid] = f"skipped: {r['reason']}"
-        elif kind == "abort":
+        elif record == "abort":
             status.setdefault(eid, f"aborted: {r['reason']}")
-        elif kind == "load":
+        elif record == "load":
             load[eid] = r
             if not r["ok"]:
                 status[eid] = f"load failed: {r['error']}"
-        elif kind == "run":
+        elif record == "run":
             key = (eid, r["mode"], r["text"])
             if r.get("seq") == 0 and r["ok"]:
                 first_call[eid] = r
@@ -928,6 +951,7 @@ def summarize(target: Path) -> None:
         row: dict[str, Any] = {
             "entry": eid,
             "type": types[eid],
+            "kind": kinds[eid],
             "mode": mode,
             "text": text,
             "run": source.get(eid),
@@ -946,13 +970,14 @@ def summarize(target: Path) -> None:
     # summary.csv: one row per entry.
     summary: list[dict[str, Any]] = []
     for eid in sorted({e for e, _, _ in cells}):
-        if types[eid] in FIXTURE_TYPES:
+        if kinds[eid] == "fixture":
             continue
         own = [c for k, c in cells.items() if k[0] == eid]
         headline = cells.get((eid, "say", "short"))
         row = {
             "entry": eid,
             "type": types[eid],
+            "kind": kinds[eid],
             "n": headline["n"] if headline else 0,
             "errors": sum(c["errors"] for c in own),
         }
@@ -963,9 +988,14 @@ def summarize(target: Path) -> None:
             row[column] = _rounded(own[0][column], digits)
         row["run"] = source.get(eid)
         summary.append(row)
-    # Grouped by module, fastest first within a module.
+    # Local first, then hosted; grouped by module, fastest first within a module.
     summary.sort(
-        key=lambda r: (r["type"], r["ttfa_p50_ms"] is None, r["ttfa_p50_ms"] or 0)
+        key=lambda r: (
+            KIND_ORDER.index(r["kind"]),
+            r["type"],
+            r["ttfa_p50_ms"] is None,
+            r["ttfa_p50_ms"] or 0,
+        )
     )
     _write_csv(target / "summary.csv", summary)
 
@@ -976,7 +1006,8 @@ def summarize(target: Path) -> None:
         "",
         (
             "Generated by `bench.py`; what was benchmarked and on what is in "
-            f"`{DESCRIPTION}`. One row per entry, grouped by module and fastest first "
+            f"`{DESCRIPTION}`. One row per entry, local backends then hosted ones, "
+            "grouped by module and fastest first "
             "within a module; the fixture modules (tone, audiofile) are left out, "
             "see `results.csv`; times in ms, "
             "statistics over the measured (warm) runs; `n` = measured runs behind "
@@ -986,21 +1017,31 @@ def summarize(target: Path) -> None:
             f"the per-chunk timeline of every run is in `{RAW_GZ}`."
         ),
         "",
-        "| entry | n | err | " + " | ".join(labels) + " | run |",
-        "|---|---:|---:|" + "---:|" * len(labels) + "---|",
     ]
-    for r in summary:
-        values = [
-            _cell(r[column], digits)
-            for column, _label, _mode, _text, _key, digits, _desc in SUMMARY_COLUMNS
-        ] + [
-            _cell(r[column], digits) for column, _label, digits, _desc in SUMMARY_FIXED
+    for kind in KIND_ORDER:
+        section = [r for r in summary if r["kind"] == kind]
+        if not section:
+            continue
+        lines += [
+            "",
+            f"## {kind.capitalize()}",
+            "",
+            "| entry | n | err | " + " | ".join(labels) + " | run |",
+            "|---|---:|---:|" + "---:|" * len(labels) + "---|",
         ]
-        lines.append(
-            f"| {r['entry']} | {r['n']} | {r['errors']} | "
-            + " | ".join(values)
-            + f" | {r['run']} |"
-        )
+        for r in section:
+            values = [
+                _cell(r[column], digits)
+                for column, _label, _mode, _text, _key, digits, _desc in SUMMARY_COLUMNS
+            ] + [
+                _cell(r[column], digits)
+                for column, _label, digits, _desc in SUMMARY_FIXED
+            ]
+            lines.append(
+                f"| {r['entry']} | {r['n']} | {r['errors']} | "
+                + " | ".join(values)
+                + f" | {r['run']} |"
+            )
     lines += ["", "| column | meaning |", "|---|---|"]
     lines += [
         f"| {label} | {desc} |" for _c, label, _m, _t, _k, _d, desc in SUMMARY_COLUMNS

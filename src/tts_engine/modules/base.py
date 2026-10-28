@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TypeVar, cast, overload
+from typing import Any, ClassVar, Literal, TypeVar, cast, overload
 
 import numpy as np
 
@@ -31,7 +31,17 @@ class TTSOptions:
     pass
 
 
+# Where a module's synthesis runs: on a provider's servers (`hosted`), in this
+# process (`local`), or nowhere — deterministic audio for tests (`fixture`).
+ModuleKind = Literal["hosted", "local", "fixture"]
+
+
 class TTSModule(ABC):
+    # Declared by every module (a class attribute, no default): what an
+    # embedder needs to know before trying it — does it need a key and a
+    # network, or weights on disk — and how the benchmark groups its results.
+    kind: ClassVar[ModuleKind]
+
     def __init__(self, config: dict) -> None:
         """Construct the module from its `engine.module` block (the full dict,
         including `type`). Subclasses validate and extract the fields they

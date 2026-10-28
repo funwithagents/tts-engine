@@ -243,6 +243,8 @@ class _Socket:
 
 
 class DeepgramModule(TTSModule):
+    kind = "hosted"
+
     def __init__(self, config: dict) -> None:
         # Read first (unvalidated) only to pick the SDK type to import; it is
         # validated below with the other fields.

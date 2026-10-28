@@ -52,6 +52,8 @@ def _to_int16_pcm(data: bytes) -> bytes:
 
 
 class MistralModule(TTSModule):
+    kind = "hosted"
+
     def __init__(self, config: dict) -> None:
         try:
             from mistralai.client import Mistral
