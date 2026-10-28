@@ -87,7 +87,7 @@ qwen3 = [
 ]
 ```
 
-and added to `all`. The upper bound is deliberate: the bindings pin one native qwentts.cpp revision (`QWENTTS_NATIVE_REVISION`, ABI v5) and refuse any other, the package is alpha, and the module's calls are validated against 0.5.0 only. The marker keeps `uv sync --dev` (whose `all` includes `qwen3`) working on Linux and Windows, where it installs nothing.
+and added to `all-modules`. The upper bound is deliberate: the bindings pin one native qwentts.cpp revision (`QWENTTS_NATIVE_REVISION`, ABI v5) and refuse any other, the package is alpha, and the module's calls are validated against 0.5.0 only. The marker keeps `uv sync --dev` (whose `all` includes `qwen3`) working on Linux and Windows, where it installs nothing.
 
 **Linux with an NVIDIA GPU.** Install the CUDA 12.8 wheel next to the base package: `pip install tts-engine "qwentts-cpp-python>=0.5,<0.6"` on a glibc ≥ 2.39 system with the CUDA 12.8 runtime and cuBLAS present. The module needs nothing else. This path is documented but not verified by this project (no GPU machine); see "Open questions".
 

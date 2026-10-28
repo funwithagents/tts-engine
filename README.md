@@ -31,12 +31,15 @@ The base installation contains the engine, tools, audio player, and the `tone`/`
 ```bash
 uv sync --no-dev --extra pocket            # one provider (every extra: docs/modules/index.md)
 uv sync --no-dev --extra pocket --extra mcp   # a provider and the MCP server
+uv sync --no-dev --extra hosted-modules    # every hosted provider
+uv sync --no-dev --extra all-modules       # every provider, local and hosted
 uv sync --no-dev --all-extras              # every extra
 
 # For an installed package:
 pip install "tts-engine[pocket]"
 pip install "tts-engine[mcp,pocket]"
-pip install "tts-engine[all]"
+pip install "tts-engine[all-modules]"   # every provider
+pip install "tts-engine[all]"           # every extra
 ```
 
 Selecting a provider whose extra is not installed fails at engine construction with a `ConfigError` naming the `pip install` command.

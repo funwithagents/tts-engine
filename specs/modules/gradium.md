@@ -122,7 +122,7 @@ The receive loop races the sender task (`asyncio.wait(..., FIRST_COMPLETED)` on 
 
 ### Dependencies and lazy import
 
-Requires the `gradium` extra: `pip install tts-engine[gradium]` / `uv sync --extra gradium`, declared in `[project.optional-dependencies]` as `gradium = ["gradium>=0.6"]` and added to the `all` aggregate (which reaches the `dev` group for free — [project.md](../project.md), "Key dependencies"). The SDK is pure Python and pulls in only `aiohttp` (plus `numpy`, already a base dependency): a light extra, the same order as ElevenLabs's.
+Requires the `gradium` extra: `pip install tts-engine[gradium]` / `uv sync --extra gradium`, declared in `[project.optional-dependencies]` as `gradium = ["gradium>=0.6"]` and added to the `all-modules` aggregate (which reaches the `dev` group for free — [project.md](../project.md), "Key dependencies"). The SDK is pure Python and pulls in only `aiohttp` (plus `numpy`, already a base dependency): a light extra, the same order as ElevenLabs's.
 
 `modules/__init__.py` imports every module *class* eagerly to build `REGISTRY`, so `gradium/module.py` must **not** import `gradium` at file top. The import happens inside `__init__`, turning a missing extra into an actionable `ConfigError`:
 

@@ -15,10 +15,11 @@ dependencies = [
 [project.scripts]
 tts-engine-mcp = "tts_engine.mcp_server_cli:main"
 
-# One extra per TTS provider and one per transport. The base install is the
-# engine only — no default provider, no server stack — plus the tone/audiofile
-# fixture modules (see specs/project.md, "Dependency strategy for TTS backends"
-# and "Dependency strategy for transports"). A missing extra surfaces as a
+# One extra per TTS provider and one per transport, plus three bundles:
+# `hosted-modules`, `all-modules` and `all`. The base install is the engine only —
+# no default provider, no server stack — plus the tone/audiofile fixture modules
+# (see specs/project.md, "Dependency strategy for TTS backends" and "Dependency
+# strategy for transports"). A missing extra surfaces as a
 # "pip install tts-engine[<name>]" hint.
 [project.optional-dependencies]
 # The official SDK plus miniaudio for the streaming MP3 -> PCM decode. <3: the
@@ -108,8 +109,19 @@ mcp = [
     "mcp<2",
     "uvicorn",
 ]
+# The module bundles, kept equal to the registry by tests/test_extras.py (see
+# specs/project.md, "Dependency strategy for TTS backends"). `hosted-modules`: every
+# hosted provider, one install for every cloud voice, a key picking the one that
+# works. `all-modules`: every provider, local and hosted; no transport. `all`:
+# every extra, providers and transports.
+hosted-modules = [
+    "tts-engine[elevenlabs,gradium,mistral,deepgram,gemini,cartesia,openai,openai-compatible]",
+]
+all-modules = [
+    "tts-engine[hosted-modules,pocket,phonon,qwen3,kokoro,piper]",
+]
 all = [
-    "tts-engine[elevenlabs,pocket,gradium,phonon,mistral,deepgram,gemini,cartesia,openai,openai-compatible,qwen3,kokoro,piper,mcp]",
+    "tts-engine[all-modules,mcp]",
 ]
 
 [dependency-groups]
@@ -119,12 +131,12 @@ dev = [
     "pytest-mock",
     "ruff>=0.8.0",
     "pyright>=1.1.411",
-    # Every extra, via the `all` aggregate rather than a hand-maintained copy of
+    # Every extra, via the `all` bundle rather than a hand-maintained copy of
     # its members: a plain `uv sync --dev` then runs the whole suite — the unit
     # tests that mock a real provider library and every live row in tests-e2e/ —
     # with nothing skipped for a missing extra. Adding a provider extra to
-    # `all` reaches the dev environment for free. The cost is torch in every
-    # dev sync; consumers still install one provider at a time.
+    # `all-modules` reaches the dev environment for free. The cost is torch in
+    # every dev sync; consumers still install one provider at a time.
     "tts-engine[all]",
     # Named here (pocket-tts already brings it) only so the `torch` source below
     # applies: a uv source governs a dependency the project declares itself.

@@ -86,7 +86,7 @@ piper = [
 ]
 ```
 
-and added to `all`. `piper-tts` 1.8.0 (2026-09) depends on `onnxruntime` and `pathvalidate` only and ships abi3 wheels for Linux x86_64/aarch64, macOS arm64/x86_64 and Windows x86_64, with espeak-ng and its data inside. The ceiling is because the module is validated against 1.8.0 only. Like kokoro, the extra does not install on Intel macOS: onnxruntime has no wheel there, even though `piper-tts` does.
+and added to `all-modules`. `piper-tts` 1.8.0 (2026-09) depends on `onnxruntime` and `pathvalidate` only and ships abi3 wheels for Linux x86_64/aarch64, macOS arm64/x86_64 and Windows x86_64, with espeak-ng and its data inside. The ceiling is because the module is validated against 1.8.0 only. Like kokoro, the extra does not install on Intel macOS: onnxruntime has no wheel there, even though `piper-tts` does.
 
 `piper/module.py` must not import `piper` or `huggingface_hub` at file top. Both imports happen inside `__init__`:
 

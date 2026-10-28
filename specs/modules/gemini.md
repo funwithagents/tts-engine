@@ -110,7 +110,7 @@ Measured live on 2026-10-26 (16 calls, Gemini Developer API, Tier 1 key). Both f
 
 ### Dependencies and lazy import
 
-Requires the `gemini` extra: `pip install tts-engine[gemini]` / `uv sync --extra gemini`, declared in `[project.optional-dependencies]` as `gemini = ["google-genai>=2.33,<3"]` and added to the `all` aggregate. `<3`: the SDK is pre-generated from the API surface and moves fast; the module relies on the 2.x `generate_content_stream` and response shapes. Pure Python (`httpx`, `pydantic`, `google-auth`, `websockets`), no codec: a light extra.
+Requires the `gemini` extra: `pip install tts-engine[gemini]` / `uv sync --extra gemini`, declared in `[project.optional-dependencies]` as `gemini = ["google-genai>=2.33,<3"]` and added to the `all-modules` aggregate. `<3`: the SDK is pre-generated from the API surface and moves fast; the module relies on the 2.x `generate_content_stream` and response shapes. Pure Python (`httpx`, `pydantic`, `google-auth`, `websockets`), no codec: a light extra.
 
 `modules/__init__.py` imports every module *class* eagerly to build `REGISTRY`, so `gemini/module.py` must **not** import `google.genai` at file top. The import happens inside `__init__`, before any config field is read:
 

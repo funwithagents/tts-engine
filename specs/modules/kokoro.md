@@ -91,7 +91,7 @@ kokoro = [
 ]
 ```
 
-and added to `all`. The ceiling is because the package is pre-1.0 and the module is validated against 0.6.1 only. `huggingface-hub` is listed because the module imports it directly; `kokoro-onnx` does not depend on it.
+and added to `all-modules`. The ceiling is because the package is pre-1.0 and the module is validated against 0.6.1 only. `huggingface-hub` is listed because the module imports it directly; `kokoro-onnx` does not depend on it.
 
 **Platforms.** `onnxruntime` 1.31 publishes wheels for Linux x86_64/aarch64, macOS arm64 (14+) and Windows x86_64/arm64, for Python 3.11–3.14. It has **no Intel-macOS wheel**, so like `pocket` the extra does not install on an Intel Mac (this settles an item from the candidate analysis's "Unverified" list). `kokoro-onnx` declares `requires-python <3.14`. uv ignores upper bounds on a dependency's `requires-python` when resolving, so the lock still resolves for `>=3.11`; on Python 3.14 the extra would fail to install until kokoro-onnx lifts its cap.
 
