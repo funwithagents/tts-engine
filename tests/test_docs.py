@@ -1,5 +1,6 @@
-"""Documentation drift guards: relative links resolve, and the README's module
-table matches the registry (specs/project.md, "Documentation checks")."""
+"""Documentation drift guards: relative links resolve, the module tables match
+the registry, and each backend page lists its spec's fields (specs/project.md,
+"Documentation checks")."""
 
 import re
 from pathlib import Path
@@ -92,29 +93,45 @@ def test_relative_links_resolve(path: Path):
     assert not _broken_links(path), f"broken links in {path.relative_to(_REPO_ROOT)}"
 
 
-# --- The README's module table -----------------------------------------------
+# --- The module tables -------------------------------------------------------
 
-_MODULE_TABLE = _REPO_ROOT / "README.md"
+# The full table in the module index, and the README's short copy. Both name
+# each module as `type`, plain or linked to its page.
+_MODULE_INDEX = _REPO_ROOT / "docs" / "modules" / "index.md"
+_MODULE_TABLES = [_MODULE_INDEX, _REPO_ROOT / "README.md"]
 _HEADER = re.compile(r"^\| Module \| `kind` \|")
+_NAME = re.compile(r"`([^`]+)`")
 
 
-def _module_rows() -> dict[str, dict[str, str]]:
-    """The module table as {type: {column: cell}}, the backticks stripped."""
-    lines = _MODULE_TABLE.read_text(encoding="utf-8").splitlines()
-    start = next(i for i, line in enumerate(lines) if _HEADER.match(line))
+def _table(path: Path, header: re.Pattern[str]) -> list[dict[str, str]]:
+    """The first table of `path` whose header row matches, as one dict per row."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    start = next(i for i, line in enumerate(lines) if header.match(line))
     columns = [cell.strip().strip("`") for cell in lines[start].strip("|").split("|")]
-    rows: dict[str, dict[str, str]] = {}
+    rows: list[dict[str, str]] = []
     for line in lines[start + 2 :]:
         if not line.startswith("|"):
             break
-        cells = [cell.strip().strip("`") for cell in line.strip("|").split("|")]
-        row = dict(zip(columns, cells, strict=True))
-        rows[row["Module"]] = row
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        rows.append(dict(zip(columns, cells, strict=True)))
     return rows
 
 
-def test_module_table_lists_every_registered_module_with_its_kind():
-    rows = _module_rows()
+def _module_rows(path: Path) -> dict[str, dict[str, str]]:
+    """The module table of `path` as {type: {column: cell}}."""
+    rows: dict[str, dict[str, str]] = {}
+    for row in _table(path, _HEADER):
+        match = _NAME.search(row["Module"])
+        assert match, f"no `type` in the Module cell {row['Module']!r} of {path.name}"
+        rows[match.group(1)] = {key: value.strip("`") for key, value in row.items()}
+    return rows
+
+
+@pytest.mark.parametrize(
+    "path", _MODULE_TABLES, ids=lambda p: str(p.relative_to(_REPO_ROOT))
+)
+def test_module_table_lists_every_registered_module_with_its_kind(path: Path):
+    rows = _module_rows(path)
     assert {name: row["kind"] for name, row in rows.items()} == {
         name: cls.kind for name, cls in REGISTRY.items()
     }
@@ -125,7 +142,7 @@ def test_module_table_voice_listing_cell(name: str):
     # Only the cells that need no network are checked by calling: a `no`
     # backend refuses before reading anything, a fixture lists nothing.
     # A `yes` backend would reach its provider or download a catalog.
-    cell = _module_rows()[name]["Voice listing"]
+    cell = _module_rows(_MODULE_INDEX)[name]["Voice listing"]
     cls = REGISTRY[name]
     assert cell in {"yes", "no", "—"}
     if cell == "no":
@@ -136,3 +153,29 @@ def test_module_table_voice_listing_cell(name: str):
         assert cls.list_voices({"type": name}) == []
     else:
         assert cls.kind != "fixture"
+
+
+# --- Backend pages against their specs ----------------------------------------
+
+# A backend page's option table is the user's copy of its spec's table: the
+# same fields, in user words. `base_dir` is the loaders' reserved key, which
+# every module accepts and the specs list; the pages leave it to
+# docs/configuration.md.
+_FIELD_HEADER = re.compile(r"^\| Field \|")
+_RESERVED_FIELDS = {"base_dir"}
+
+
+def _fields(path: Path) -> set[str]:
+    return {
+        match.group(1)
+        for row in _table(path, _FIELD_HEADER)
+        if (match := _NAME.search(row["Field"]))
+    }
+
+
+@pytest.mark.parametrize("name", sorted(REGISTRY))
+def test_backend_page_lists_the_fields_of_its_spec(name: str):
+    page = _REPO_ROOT / "docs" / "modules" / f"{name}.md"
+    spec = _REPO_ROOT / "specs" / "modules" / f"{name}.md"
+    assert page.exists(), f"no page for the {name!r} module: add docs/modules/{name}.md"
+    assert _fields(page) == _fields(spec) - _RESERVED_FIELDS
