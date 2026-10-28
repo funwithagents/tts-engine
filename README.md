@@ -125,15 +125,21 @@ Start at [docs/index.md](docs/index.md), the documentation by task. The pages us
 | [docs/choosing-a-backend-and-voice.md](docs/choosing-a-backend-and-voice.md) | Where each backend runs, how fast it answers, its voices, and how to audition them |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | No audio, a missing extra, and each backend's own errors |
 
-## Examples, benchmark and tools
+## Examples
 
-Next to the documentation, the repository holds material to start from, measure with, and choose with:
+[examples/](examples/) holds one complete, runnable config per module (`config.<type>.json`), plus a variant for ElevenLabs v4 and one for Deepgram Flux. They are in the MCP server's format (an `engine` block and a `server` block), so with the `mcp` extra installed, `uv run tts-engine-mcp --config examples/config.tone.json` starts a server as is; the `engine` block is what a library config takes. They hold no secrets: a hosted module reads its key from the environment variable named in `api_key_env`.
 
-| | |
-|---|---|
-| [examples/](examples/) | One complete, runnable config per module (`config.<type>.json`, plus a variant for ElevenLabs v4 and Deepgram Flux), in the MCP server's format; its `engine` block is what a library config takes. No secrets: keys are read from the variable named in `api_key_env`. |
-| [benchmarks/latency/](benchmarks/latency/README.md) | How long each module and model makes you wait before the first sound, measured through `TTSEngine`: the numbers in [the Mac result's summary](benchmarks/latency/results/20261027-1453_mac-m5-pro/summary.md) (local backends, then hosted ones), what they mean in [RESULTS.md](benchmarks/latency/RESULTS.md), and how to run it on your own machine. |
-| [tools/voice-audition/](tools/voice-audition/README.md) | Hear candidate voices from any backends say the same sentence, with their time to first audio on your machine, and mark the ones you like. Runs from a checkout. |
+## Latency benchmark
+
+[benchmarks/latency/](benchmarks/latency/README.md) measures how long each module and model makes you wait before the first sound, and whether the audio then keeps up, through the same `TTSEngine` API you use. Where to look:
+
+- [the Mac result's summary](benchmarks/latency/results/20261027-1453_mac-m5-pro/summary.md): the numbers, one row per model, local backends then hosted ones, with the device and network in its `description.md`;
+- [RESULTS.md](benchmarks/latency/RESULTS.md): what stood out, and the decisions it led to;
+- [its README](benchmarks/latency/README.md): what each metric means, and how to run it on your own machine and connection.
+
+## Voice audition
+
+[tools/voice-audition/](tools/voice-audition/README.md) helps pick a voice: it builds a list of candidates from the backends' catalogs, has each one say the same sentence while measuring its time to first audio on your machine, and writes a page to listen to them one by one and mark each Yes, Maybe or No. It runs from a checkout; [its README](tools/voice-audition/README.md) has the commands, and [choosing a backend and a voice](docs/choosing-a-backend-and-voice.md) shows where it fits.
 
 ## Feedback and contributions
 
