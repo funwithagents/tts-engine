@@ -1,6 +1,6 @@
 # Latency benchmark — findings
 
-The human reading of the results under [`results/`](results/). Each result's `summary.md` holds the numbers (one row per entry, every run merged, the latest completed measurement of each entry winning, each row naming its run; `results.csv` has every statistic per mode × text) and its `description.md` says on what device and what it covers; this file says what stood out and which decisions it fed. Updated in the same change as a run that changes a conclusion. Method and options: [README.md](README.md); design: [specs/benchmark.md](../../specs/benchmark.md).
+The human reading of the results under [`results/`](results/). Each result's `summary.md` holds the numbers (one row per entry, every run merged, the latest completed measurement of each entry winning, each row naming its run; `results.csv` has every statistic per mode × text) and its `description.md` says on what device and what it covers; this file says what stood out and which decisions it fed. Updated in the same change as a run that changes a conclusion, and so is the result's hand-written `description.md` whenever a merge changes what the result covers. Method and options: [README.md](README.md); design: [specs/benchmark.md](../../specs/benchmark.md).
 
 ## Result `20261027-1453_mac-m5-pro`
 

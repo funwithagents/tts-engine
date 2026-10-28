@@ -31,7 +31,7 @@ Design choices:
 
 ## Configurations (`matrix.json`)
 
-63 entries, 53 enabled. ○ = opt-in (`--include-disabled`). `default` tag = the module's zero-config/default model; `prev` tag = one version back of a model in the list, kept because a version bump can move latency either way (`--exclude-tags prev` for a quicker pass). A version two or more back, or a snapshot its alias already resolves to, is ○.
+○ = opt-in (`--include-disabled`). `default` tag = the module's zero-config/default model; `prev` tag = one version back of a model in the list, kept because a version bump can move latency either way (`--exclude-tags prev` for a quicker pass). A version two or more back, or a snapshot its alias already resolves to, is ○.
 
 | Module | Entries (model / variant) | Gate | Why these |
 |---|---|---|---|
