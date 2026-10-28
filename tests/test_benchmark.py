@@ -1,0 +1,352 @@
+"""Unit tier for benchmarks/latency/bench.py: the pure parts (metric
+derivation, statistics, matrix selection, run merging, results, summaries).
+No backend, no subprocess, no network."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import gzip
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+_BENCH_PY = Path(__file__).resolve().parents[1] / "benchmarks" / "latency" / "bench.py"
+_spec = importlib.util.spec_from_file_location("latency_bench", _BENCH_PY)
+assert _spec and _spec.loader
+bench = importlib.util.module_from_spec(_spec)
+# Registered before executing: `@dataclass` resolves annotations through
+# `sys.modules[cls.__module__]`, which must exist for a module loaded by path.
+sys.modules["latency_bench"] = bench
+_spec.loader.exec_module(bench)
+
+
+# --- metrics -----------------------------------------------------------------
+
+
+def test_derive_metrics_from_a_chunk_log():
+    run = {
+        "sample_rate": 24000,
+        "end_ms": 320.0,
+        "first_sentence_sent_ms": 40.0,
+        # [arrival ms, bytes, peak]: the first chunk is leading silence.
+        "chunk_log": [[100.0, 4800, 0], [150.0, 4800, 900], [300.0, 4800, 900]],
+    }
+    m = bench.derive_metrics(run)
+    assert m["ttfa_ms"] == 100.0
+    assert m["ttfv_ms"] == 150.0  # first chunk with a sample above VOICE_THRESHOLD
+    assert m["after_first_sentence_ms"] == 60.0
+    assert m["max_gap_ms"] == 150.0
+    assert m["median_gap_ms"] == 100.0
+    assert m["total_ms"] == 320.0
+    assert m["audio_s"] == pytest.approx(0.3)  # 3 × 4800 bytes of s16 at 24 kHz
+    assert m["speed_x"] == pytest.approx(
+        0.3 / 0.2
+    )  # audio over wall time after the first chunk
+
+
+def test_derive_metrics_without_audio_is_all_none():
+    m = bench.derive_metrics({"sample_rate": 24000, "end_ms": 5.0, "chunk_log": []})
+    assert set(m) == set(bench.METRICS)
+    assert all(v is None for v in m.values())
+
+
+def test_stats_p90_and_empty():
+    s = bench._stats([float(v) for v in range(1, 11)])
+    assert (s["n"], s["min"], s["max"], s["median"], s["p90"]) == (10, 1, 10, 5.5, 9)
+    assert bench._stats([]) == {"n": 0}
+
+
+# --- matrix selection --------------------------------------------------------
+
+
+def _args(**overrides) -> argparse.Namespace:
+    base = {"only": None, "exclude": None, "tags": None, "exclude_tags": None}
+    return argparse.Namespace(**{**base, **overrides})
+
+
+_MATRIX = [
+    {"id": "piper/low", "type": "piper", "config": {}, "tags": ["local"]},
+    {"id": "piper/high", "type": "piper", "config": {}, "tags": ["local", "heavy"]},
+    {"id": "tone", "type": "tone", "config": {}, "tags": ["default"]},
+]
+
+
+def test_select_entries_by_glob_and_tags():
+    def ids(ns: argparse.Namespace) -> list[str]:
+        return [e["id"] for e in bench.select_entries(_MATRIX, ns)]
+
+    assert ids(_args(only=["piper/*"])) == ["piper/low", "piper/high"]
+    assert ids(_args(exclude=["piper/*"])) == ["tone"]
+    assert ids(_args(tags=["local"], exclude_tags=["heavy"])) == ["piper/low"]
+
+
+def test_skip_reason(monkeypatch):
+    disabled = {"id": "x", "type": "tone", "config": {}, "enabled": False}
+    assert bench.skip_reason(disabled, include_disabled=False).startswith("disabled")
+    assert bench.skip_reason(disabled, include_disabled=True) is None
+    monkeypatch.delenv("BENCH_TEST_KEY", raising=False)
+    keyed = {"id": "y", "type": "tone", "config": {"api_key_env": "BENCH_TEST_KEY"}}
+    assert bench.skip_reason(keyed, include_disabled=False) == "BENCH_TEST_KEY not set"
+    monkeypatch.setitem(bench.REQUIRED_IMPORT, "tone", "no_such_library_for_bench")
+    assert "not importable" in bench.skip_reason(
+        {"id": "z", "type": "tone", "config": {}}, False
+    )
+
+
+async def test_token_stream_is_verbatim_and_marks_the_first_sentence():
+    marks = bench.StreamMarks()
+    text = "One two. Three four."
+    pieces = [p async for p in bench.token_stream(text, 0.0, marks)]
+    assert "".join(pieces) == text
+    assert marks.first_sentence_sent is not None
+    assert marks.last_piece_sent is not None
+    assert marks.last_piece_sent >= marks.first_sentence_sent
+
+
+def test_cli_subcommands_parse():
+    args = bench.parse_args(
+        ["run", "--only", "tone", "--runs", "2", "--into", "results/x"]
+    )
+    assert (args.command, args.only, args.runs, args.into) == (
+        "run",
+        ["tone"],
+        2,
+        "results/x",
+    )
+    assert bench.parse_args(["merge", "results/x", "runs/a", "runs/b"]).run_dirs == [
+        "runs/a",
+        "runs/b",
+    ]
+    assert bench.parse_args(["new", "pi", "--from-run", "runs/a"]).from_run == "runs/a"
+    assert bench.parse_args(["summarize", "results/x"]).target == "results/x"
+
+
+# --- runs, merging and results -----------------------------------------------
+
+
+def _run_record(entry: str, mode: str, ttfa: float, seq: int = 1) -> dict:
+    """A run record as the worker writes it: the raw timeline plus the derived
+    metrics appended. seq 0 is the warm-up (the first call after construction)."""
+    record = {
+        "entry": entry,
+        "type": entry.split("/")[0],
+        "kind": "run",
+        "mode": mode,
+        "text": "short",
+        "phase": "warmup" if seq == 0 else "measured",
+        "iteration": seq,
+        "seq": seq,
+        "ok": True,
+        "sample_rate": 24000,
+        "end_ms": ttfa + 100,
+        "first_sentence_sent_ms": None,
+        "last_piece_sent_ms": None,
+        "drains": 1,
+        "chunk_log": [[ttfa, 4800, 900], [ttfa + 50, 4800, 900]],
+    }
+    record.update(bench.derive_metrics(record))
+    return record
+
+
+def _load(entry: str) -> dict:
+    return {
+        "entry": entry,
+        "type": entry.split("/")[0],
+        "kind": "load",
+        "ok": True,
+        "load_s": 0.5,
+        "sample_rate": 24000,
+    }
+
+
+def _done(entry: str) -> dict:
+    return {"entry": entry, "type": entry.split("/")[0], "kind": "done", "seconds": 1.0}
+
+
+def _skip(entry: str) -> dict:
+    return {
+        "entry": entry,
+        "type": entry.split("/")[0],
+        "kind": "skip",
+        "reason": "KEY not set",
+    }
+
+
+def _write_run(
+    runs_root: Path,
+    run_id: str,
+    records: list[dict],
+    started: str = "2026-10-28T10:00:00+0100",
+) -> Path:
+    d = runs_root / run_id
+    d.mkdir(parents=True)
+    env = {
+        "run": run_id,
+        "started": started,
+        "platform": "testOS",
+        "machine": "arm64",
+        "python": "3.13",
+        "git_sha": "abc",
+        "settings": {"runs": 1, "warmup": 1, "token_delay_ms": 0},
+        "selection": {},
+        "texts": bench.TEXTS,
+    }
+    (d / "env.json").write_text(json.dumps(env))
+    (d / "raw.jsonl").write_text("".join(json.dumps(r) + "\n" for r in records))
+    return d
+
+
+def test_merge_runs_latest_completed_run_wins_and_aborts_never_shadow():
+    runs = [
+        (
+            "r1",
+            {},
+            [_load("m/a"), _run_record("m/a", "say", 10.0), _done("m/a"), _skip("m/b")],
+        ),
+        (
+            "r3",
+            {},
+            [
+                _load("m/a"),
+                _run_record("m/a", "say", 30.0),
+                {"entry": "m/a", "type": "m", "kind": "abort", "reason": "interrupted"},
+            ],
+        ),
+        (
+            "r2",
+            {},
+            [_load("m/a"), _run_record("m/a", "say", 20.0), _done("m/a"), _skip("m/b")],
+        ),
+    ]
+    merged, source = bench.merge_runs(
+        runs
+    )  # order of the input does not matter: run ids do
+    assert source == {
+        "m/a": "r2",
+        "m/b": "r2",
+    }  # a: latest *completed*; b: latest attempt
+    assert {r["run"] for r in merged} == {"r2"}
+    assert [r["ttfa_ms"] for r in merged if r["kind"] == "run"] == [20.0]
+
+
+def test_merge_into_builds_a_result_then_a_newer_run_overrides(tmp_path: Path):
+    runs_root, result = tmp_path / "runs", tmp_path / "results" / "20261028-1000_test"
+    r1 = _write_run(
+        runs_root,
+        "20261028-100000",
+        [
+            _load("m/a"),
+            _run_record("m/a", "say", 10.0, seq=0),
+            _run_record("m/a", "say", 12.0),
+            _done("m/a"),
+            _load("m/c"),
+            _run_record("m/c", "stream", 40.0),
+            _done("m/c"),
+        ],
+    )
+    bench.merge_into(result, [r1])
+
+    assert (result / "description.md").exists()  # a template to fill in, written once
+    (result / "description.md").write_text("# test\n\nmy notes\n")
+    manifest = json.loads((result / "runs.json").read_text())
+    assert [r["run"] for r in manifest["runs"]] == ["20261028-100000"]
+    assert manifest["runs"][0]["supplies"] == ["m/a", "m/c"]
+    assert "texts" not in manifest["runs"][0]  # the environment, not the whole env.json
+
+    r2 = _write_run(
+        runs_root,
+        "20261028-110000",
+        [
+            _load("m/a"),
+            _run_record("m/a", "say", 20.0, seq=0),
+            _run_record("m/a", "say", 22.0),
+            _done("m/a"),
+            _skip("m/b"),
+            _load("tone"),
+            _run_record("tone", "say", 0.5),
+            _done("tone"),
+        ],
+    )
+    bench.merge_into(result, [r2])
+
+    assert (
+        result / "description.md"
+    ).read_text() == "# test\n\nmy notes\n"  # never overwritten
+    manifest = json.loads((result / "runs.json").read_text())
+    assert {r["run"]: r["supplies"] for r in manifest["runs"]} == {
+        "20261028-100000": ["m/c"],
+        "20261028-110000": ["m/a", "m/b", "tone"],
+    }
+    with gzip.open(result / "raw.jsonl.gz", "rt") as f:
+        packed = [json.loads(line) for line in f]
+    assert {(r["entry"], r["run"]) for r in packed} == {
+        ("m/a", "20261028-110000"),
+        ("m/b", "20261028-110000"),
+        ("m/c", "20261028-100000"),
+        ("tone", "20261028-110000"),
+    }
+
+    md = (result / "summary.md").read_text()
+    assert "| m/a | 1 | 0 |" in md and "| 20261028-110000 |" in md
+    assert "| m/b | skipped: KEY not set | 20261028-110000 |" in md
+    rows = {
+        (r["entry"], r["mode"]): r
+        for r in csv.DictReader((result / "results.csv").open())
+    }
+    assert rows[("m/a", "say")]["run"] == "20261028-110000"
+    assert (
+        float(rows[("m/a", "say")]["ttfa_ms__mean"]) == 22.0
+    )  # the warm-up is not a measured run
+    assert float(rows[("m/a", "say")]["first_call_ttfa_ms"]) == 20.0
+    assert rows[("m/c", "stream")]["run"] == "20261028-100000"
+    compact = {r["entry"]: r for r in csv.DictReader((result / "summary.csv").open())}
+    assert list(compact) == [
+        "m/a",
+        "m/c",
+    ]  # by module, then TTFA p50, no headline cell last
+    assert float(compact["m/a"]["ttfa_p50_ms"]) == 22.0
+    assert compact["m/a"]["ttfa_stream_p50_ms"] == ""  # no stream cell for m/a
+    assert (
+        compact["m/c"]["ttfa_p50_ms"] == ""
+        and compact["m/c"]["run"] == "20261028-100000"
+    )
+    assert "| TTFA p50 |" in md and "| m/c | 0 | 0 | — | — |" in md
+    assert (
+        "tone" not in compact and "| tone |" not in md
+    )  # fixtures stay in results.csv only
+    assert any(r["entry"] == "tone" for r in rows.values())
+
+    # Re-merging the same run replaces its records rather than duplicating them.
+    bench.merge_into(result, [r2])
+    assert len(json.loads((result / "runs.json").read_text())["runs"]) == 2
+    bench.summarize(result)  # rebuilds from the packed state alone
+    assert (result / "summary.md").read_text() == md
+
+
+def test_new_result_is_dated_from_its_first_run(tmp_path: Path):
+    run = _write_run(
+        tmp_path / "runs",
+        "20261027-145315",
+        [_load("m/a"), _done("m/a")],
+        started="2026-10-27T14:53:15+0100",
+    )
+    created = bench.new_result(tmp_path / "results", "mac", run)
+    assert created == tmp_path / "results" / "20261027-1453_mac"
+    text = (created / "description.md").read_text()
+    assert text.startswith("# mac\n") and "testOS (arm64), Python 3.13" in text
+    with pytest.raises(SystemExit):
+        bench.new_result(tmp_path / "results", "mac", run)  # exists already
+
+
+def test_summarize_a_single_run(tmp_path: Path):
+    run = _write_run(
+        tmp_path / "runs",
+        "20261028-120000",
+        [_load("m/a"), _run_record("m/a", "say", 15.0), _done("m/a")],
+    )
+    bench.summarize(run)
+    assert "| m/a | 1 | 0 | 15 |" in (run / "summary.md").read_text()

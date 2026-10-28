@@ -169,7 +169,7 @@ target-version = "py311"  # keep in sync with requires-python
 "tests-e2e/__init__.py" = ["N999"]  # dir name intentionally hyphenated (opt-in tier)
 
 [tool.pyright]
-include = ["src", "tests", "tests-e2e"]  # type-check test code too, not just src
+include = ["src", "tests", "tests-e2e", "benchmarks"]  # type-check test code and the benchmark too, not just src
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.11"

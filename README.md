@@ -896,6 +896,10 @@ A `ConfigError` such as `The 'pocket' module requires the pocket extra` means th
 - `OpenAI-compatible server returned WAV, not raw pcm` means the server behind `base_url` ignores `response_format: "pcm"`. That server cannot be used with this module.
 - If speech from a compatible server sounds too fast, too slow or pitch-shifted, set `sample_rate` to the server's output rate.
 
+## Latency benchmark
+
+`benchmarks/latency/` measures time to first audio, time to first voice, stalls and real-time factor for every module and model through the public `TTSEngine` API, with no audio hardware. The committed result of the development Mac is `benchmarks/latency/results/20261027-1453_mac-m5-pro/` (its `summary.md`), the findings in `benchmarks/latency/RESULTS.md`, and the how-to in its README. It is not run by CI.
+
 ## Development
 
 Install development dependencies and run all default checks:
@@ -903,7 +907,7 @@ Install development dependencies and run all default checks:
 ```bash
 uv sync --dev
 uv run ruff check .
-uv run ruff format --check src tests tests-e2e
+uv run ruff format --check src tests tests-e2e benchmarks
 uv run pyright
 uv run pytest
 ```
