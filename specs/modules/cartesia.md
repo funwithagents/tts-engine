@@ -12,7 +12,7 @@ tests:
 
 # Cartesia Module
 
-**Status:** Updated
+**Status:** Implemented
 
 ## Overview
 

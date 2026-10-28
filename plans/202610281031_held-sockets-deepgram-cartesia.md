@@ -1,6 +1,6 @@
 # Deepgram and Cartesia: one socket held for the module's lifetime
 
-**Status:** In progress
+**Status:** Done
 
 Implements the settled held-socket designs in `specs/modules/deepgram.md` and `specs/modules/cartesia.md`, following the pattern the `openai` module landed in [202610280911_openai-held-socket.md](202610280911_openai-held-socket.md): the socket opens at construction, every utterance runs over it, it is reconnected when dead and replaced before an utterance (never inside one) when it is too idle or too old, events of earlier utterances are filtered out, and a cancel stops the backend's work without closing. Gradium was measured and decided against (last section). It deliberately leaves out reconnecting in the background when a socket drops (the next utterance reconnects instead), application keepalives, and any config knob.
 
@@ -167,6 +167,12 @@ Why: measured 2026-10-28, first audio on a fresh socket is 207–263 ms (handsha
 ## Gradium — decided against holding the connection
 
 We decided not to build this, so this section has no steps. Gradium keeps one WebSocket per utterance. Live measurements on 2026-10-28 (recorded in `specs/modules/gradium.md`, open question 1) show that a held connection still needs its own `setup`, `ready` and a unique `client_req_id` for every utterance. Only the 35–50 ms socket open is saved. Time to first audio fell from 161 ms mean (fresh connection, n=20) to 124 ms mean (held connection, n=20), about 37 ms, or 25–30 ms on the median. That is under the 50 ms bar. Getting even that much would need several new parts: a module-owned long-lived asyncio loop thread (the SDK and its aiohttp session are async and bound to their loop), a reader that never stops receiving (an unread socket is dropped within 90 s because its 20 s pings go unanswered), the deepgram/cartesia unread-audio admission gate (the always-reading reader loses today's TCP backpressure), and direct aiohttp use in place of the SDK's `Tts`. Pre-arming the next request would halve time to first audio (80 ms), but a set-up request with no output is ended after 120 s and holds one of the account's 5 concurrent sessions, so it is ruled out. No code, test, example or other spec changes. `specs/modules/gradium.md` stays `Implemented`, and only open question 1 was edited.
+
+## Deviations found while building
+
+- **Deepgram character budget.** The first benchmark run lost 4 of 48 `aura-asteria-en` syntheses to `1008 DATA-0001` ("too many characters submitted within a recent time window"): about 2400 characters per socket per ~60 s, never reached with a socket per utterance nor at real-time playback (~1000 characters a minute), but reached across utterances by a faster-than-real-time sink on a fast model. The module logs the characters sent on each socket and replaces one holding `_CHAR_BUDGET = 1200` or more within `_CHAR_WINDOW = 60` s before the next utterance, on both APIs; the rerun had none in 96 syntheses. Spec: "Flush and character budgets".
+- **Clock tests** (both modules) move the socket's stamps back instead of patching `time.monotonic`, which is the global `time` module that asyncio's loop clock reads too.
+- **Results.** Deepgram first audio is 180–233 ms mean in every benchmark cell (n=20; before 494–644 ms), Cartesia 87–166 ms (before 203–274 ms). The new `test_module_say_after_cancel` passed on all 17 live rows. 2 of 192 asteria syntheses failed with a sporadic `1011 NET-0000` server error, not reproduced in an 80-utterance probe; the next utterance reconnects.
 
 ## Verification (whole plan)
 

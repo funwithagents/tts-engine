@@ -12,7 +12,7 @@ tests:
 
 # Deepgram Module
 
-**Status:** Updated
+**Status:** Implemented
 
 ## Overview
 
@@ -39,6 +39,7 @@ The two sockets have the same shape — `Speak` text messages, `Flush`, a cancel
 | A flushed segment is fully generated when | `Flushed` arrives (after the segment's audio) | `SpeechMetadata` arrives (after the turn's audio); v2's own `Flushed` arrives when the turn **starts**, before any of its audio |
 | Cancel the text pending and being generated | `send_clear()` → `Cleared` | `send_interrupt()` → `SpeechInterrupted` (v2 has no `Clear`: a raw `{"type": "Clear"}` closes the socket with `1003 MESSAGE-0000`) |
 | `Flush` rate limit | 20 per socket per 60 s, then `Warning EXCESSIVE_FLUSH` and the `Flush` is ignored | none documented, none hit (65 flushes in 40 s) |
+| Character rate limit | about 2400 characters per socket within a recent window (≈ 60 s), then a `1008 DATA-0001` close | not measured; the same budget applies |
 | Idle socket | alive after 600 s, with or without pings (longer not measured, and not relied on: `_IDLE_REPLACE`) | closed after 60 s with no client message (`NET-0004`); a WebSocket Ping counts, and with `websockets`' default pings it was alive after 600 s (longer not measured, and not relied on) |
 | Session cap | none documented (see "Validated against") | 1 hour (`NET-0003`) |
 | Errors | a close code (`1008 DATA-0001`) | an `Error` event (`code`, `description`), then a close |
@@ -120,7 +121,7 @@ Messages from the server are either `bytes` (audio) or typed events, and the mod
 | `SpeechMetadata` | v2 | the turn is complete: every text of it has been spoken | counted as a finished segment; dropped while a cancel is settling |
 | `SpeechInterrupted` | v2 | answer to `Interrupt`: the turn and any unflushed text are gone (it replaces that turn's `SpeechMetadata`) | settles the cancel |
 | `SessionMetadata` | v2 | session totals, after `Close` | ignored |
-| `Warning` | both | e.g. `EXCESSIVE_FLUSH` (v1), `NO_SYNTHESIZABLE_TEXT`, `SYNTHESIS_RETRYING`, `INTERRUPT_IN_PROGRESS`, `NO_AUDIO_GENERATED` (v2) | logged at `WARNING`; `EXCESSIVE_FLUSH` also ends the socket's use (see "Flush budget"); an Interrupt-scoped warning while a cancel is settling settles it (the server ignored the `Interrupt`, nothing is generating) |
+| `Warning` | both | e.g. `EXCESSIVE_FLUSH` (v1), `NO_SYNTHESIZABLE_TEXT`, `SYNTHESIS_RETRYING`, `INTERRUPT_IN_PROGRESS`, `NO_AUDIO_GENERATED` (v2) | logged at `WARNING`; `EXCESSIVE_FLUSH` also ends the socket's use (see "Flush and character budgets"); an Interrupt-scoped warning while a cancel is settling settles it (the server ignored the `Interrupt`, nothing is generating) |
 | `Error` | v2 | `code`, `description` (e.g. `DATA-0002`, `NET-0004`) | `TTSError` during an utterance; logged at DEBUG while idle (a close follows, and the socket is dead) |
 
 ### Output format and sample rate
@@ -143,7 +144,7 @@ The `openai` module ([openai.md](openai.md)) connects in `__init__` because its 
    - **Age.** It is older than **55 minutes** (`_ROTATE_AFTER`), under Flux's documented one-hour session cap (`NET-0003`). The same age applies on v1, where no cap is documented, so that both APIs share one rule. It costs one handshake per hour of use.
    - **Idle.** It has carried no message, sent or received, for more than **540 s** (`_IDLE_REPLACE = 9 * 60.0`). That is inside the 600 s verified alive on both v1 and v2. Deepgram documents no idle limit beyond Flux's ping-reset 60 s window. The module therefore never relies on an unmeasured server idle cutoff: idle beyond 600 s was not measured, and it does not matter, because no socket idle that long is used. This is Cartesia's `_IDLE_REPLACE`, in the same check order: dead → reconnect, then idle too long → replace ([cartesia.md](cartesia.md), "One socket, held for the module's lifetime"). After nine idle minutes one handshake is a negligible price. A half-open socket after a long host sleep is replaced the same way, once the sleep is seen (next point).
    - **The host slept.** The host slept for more than 20 s since the socket's last message. The idle time is measured on both clocks, and the larger is taken. `time.monotonic()` stops while the host sleeps: on macOS it is `mach_absolute_time()`, and on Linux `CLOCK_MONOTONIC` excludes suspend. The wall clock (`time.time()`) keeps running. A wall-clock idle time exceeding the monotonic one by more than 20 s (`_SLEPT`, one ping interval) means a sleep long enough to miss a keepalive ping. Over such a sleep a Flux socket has outlived its 60 s inactivity window on the server, and either socket may be half-open. A backward wall-clock step (NTP) only lowers the wall figure and is outweighed by the monotonic one.
-   - **Flush budget.** On v1, it has spent its flush budget (next section).
+   - **Flush or character budget.** On v1, it has spent its flush budget; on either API, its character budget (next section).
 
 A blank complete text (empty or whitespace only) returns before any check and touches nothing. A text stream runs the checks when its worker starts, before its first piece arrives, so a reconnect overlaps the wait for the source's first token.
 
@@ -165,7 +166,7 @@ A **half-open** socket is the hard case: the host slept, or the network dropped 
 
 Nothing retries within an utterance, as in `openai` and `cartesia`.
 
-### Flush budget (v1)
+### Flush and character budgets
 
 v1 accepts at most **20 `Flush` messages per socket in any 60 s**. This is documented and was measured: the 21st within the window is answered `Warning EXCESSIVE_FLUSH` and ignored, with no `Flushed`, and flushes are accepted again once the first one is 60 s old. Refused flushes and `Clear`s do not count, `Clear` does not reset the count, and a new socket starts with a fresh budget. With a socket per utterance this limit was out of reach, since an utterance flushes once per segment of at least 600 characters. On a held socket, **twenty short `say()` calls in a minute** — an embedder speaking sentence by sentence — would hit it. The utterance whose `Flush` was refused would never see its `Flushed` and would stall for `timeout`.
 
@@ -177,6 +178,15 @@ If `EXCESSIVE_FLUSH` arrives during an utterance anyway (the budget model no lon
 - If a mid-utterance `Flush` was refused, the sender is stuck behind the segment gate with no answer coming. The utterance fails as `TTSError("… flush rate limit exceeded")` and the socket is dropped.
 
 The text of a refused `Flush` that ends a sentence is spoken anyway. Only the acknowledgment is missing.
+
+**Character budget.** A socket also refuses text once about **2400 characters** have been submitted on it within a recent window. Deepgram documents the error as `1008 DATA-0001`, "too many characters submitted within a recent time window", and the server closes the socket. This was measured with back-to-back 212-character utterances on one `aura-asteria-en` socket, each waiting for its `Flushed`:
+- at 73 characters a second, the socket closed after 2544 characters (32 s);
+- at 36 characters a second, it took 12 720 characters over 352 s without an error;
+- a fresh socket opened right after the close worked at once.
+
+Playback paces the text to speech, about 1000 characters a minute, so a module feeding a real-time sink never reaches the limit. A sink faster than real time with a fast model does reach it across utterances: Aura-1 generates at 20–100× real time. The latency benchmark's instant sink lost 4 of 48 `aura-asteria-en` syntheses to `DATA-0001`, which a socket per utterance had never met.
+
+The module therefore also logs the characters it sends on the socket. At an utterance's start, a socket with **1200** or more characters (`_CHAR_BUDGET`) sent in the last 60 s (`_CHAR_WINDOW`) is replaced, on both APIs. That is half the measured limit, which leaves the utterance room for more than one 900-character segment. The limit on Flux was not measured; the budget costs a handshake only under a faster-than-real-time sink, so it is kept there too. With the budget in place, the same benchmark entry ran its 96 syntheses with no `DATA-0001`. A single utterance that alone submits more than the limit within a minute (a long text, a fast model, an instant sink) is not covered. That is the same as with a socket per utterance, and the segment gate paces it to generation.
 
 ### Threads: sender, reader, worker
 
@@ -200,7 +210,7 @@ If `stop` ends `pieces` early, the sender sends nothing more.
 
 ### Pending-text backpressure
 
-The server rejects an utterance once about **2000 characters** of text are waiting to be spoken. Live, it either closes the socket with `1008 DATA-0001` after about 2000 characters of audio, or (with one word per message) stops answering until the keepalive times out. A fast LLM easily outruns synthesis (which runs at about 2× real time), so long answers would fail without flow control. `Flush` is the only acknowledgment the protocol offers, and on v1 it is **rate-limited** to 20 per 60 s (see "Flush budget"). A `Flush` per sentence is therefore not an option.
+The server rejects an utterance once about **2000 characters** of text are waiting to be spoken. Live, it either closes the socket with `1008 DATA-0001` after about 2000 characters of audio, or (with one word per message) stops answering until the keepalive times out. A fast LLM easily outruns synthesis (which runs at about 2× real time), so long answers would fail without flow control. `Flush` is the only acknowledgment the protocol offers, and on v1 it is **rate-limited** to 20 per 60 s (see "Flush and character budgets"). A `Flush` per sentence is therefore not an option.
 
 The module bounds the pending text with **flushed segments, one at a time at the server**:
 
@@ -274,7 +284,7 @@ except ImportError as exc:
 - Exceptions raised by `callback` are downstream playback failures. They propagate unchanged and are not mislabeled as Deepgram request failures, because `callback` is called outside the provider `try`. The utterance is aborted (`Clear` / `Interrupt`) and the socket kept.
 - A text-stream failure (the async source raising) aborts the utterance the same way and propagates unchanged through `run_text_stream_worker`.
 - A **stall** is `TTSError("Deepgram request failed: no answer within … s")` and drops the socket. A stall means a `Flush` sent, its segment not answered as finished, and no message of any kind from the server for `timeout` seconds. A pause in the text stream is not a stall: nothing is pending then. A handshake slower than `timeout` is a `TTSError` too (see "Cancellation").
-- `EXCESSIVE_FLUSH` during an utterance is handled under "Flush budget": `Close` and a normal end, or a `TTSError`.
+- `EXCESSIVE_FLUSH` during an utterance is handled under "Flush and character budgets": `Close` and a normal end, or a `TTSError`.
 - A missing extra surfaces as `ConfigError` at construction, not `TTSError`.
 - Other `Warning` events are logged, not raised.
 
@@ -294,7 +304,7 @@ Registered in `REGISTRY` as `"deepgram"` ([modules/__init__.py](../../src/tts_en
   - config: `ConfigError` on a missing extra, on a missing or empty key, and on each invalid field (parametrized, `timeout` included; a float `sample_rate` (`24000.0`) is among the rejected values); key resolution (`api_key_env`, literal precedence, unset variable); `sample_rate` reflecting the config; the connect kwargs (defaults, and `speed`/`mip_opt_out` only when set);
   - construction: one connect in `__init__`, before any `say`; a handshake rejected with HTTP 400, 401 or 403 as `ConfigError` naming the status; another handshake failure and a handshake slower than `timeout` as `TTSError`;
   - complete text: the order text, `Flush`, with no `Close`; audio reaching the callback unchanged, with `Metadata` skipped and `Warning` logged; the odd-byte carry-over; a long text sent in slices of at most 50 characters that concatenate back to it, cut into flushed segments of at most 900 characters, each ending at a sentence end; an over-long word hard-cut; the sender sending nothing of the next segment until `Flushed` arrives; a blank text sending nothing;
-  - held socket: two utterances over one connect, each ending on its own finished-segment answer; a socket closed by the server while idle reconnected by the next utterance (a second connect), never inside an utterance; a reconnect failure as `TTSError` of that utterance only, the next one trying again; a rotation once the socket is older than 55 minutes, a replacement once it has been idle past 540 s, and one once the wall clock has run more than 20 s ahead of the monotonic clock since its last message (the host slept), each by moving the socket's open and last-message stamps back (no patched clock), and never inside an utterance; the stamps refreshed by both a send and a received message; flushes older than 60 s not counted; a v1 rotation once 16 flushes fall in the last 60 s, and none on v2; a cancel during a reconnect's held handshake surfacing within a second, the late socket closed with nothing sent;
+  - held socket: two utterances over one connect, each ending on its own finished-segment answer; a socket closed by the server while idle reconnected by the next utterance (a second connect), never inside an utterance; a reconnect failure as `TTSError` of that utterance only, the next one trying again; a rotation once the socket is older than 55 minutes, a replacement once it has been idle past 540 s, and one once the wall clock has run more than 20 s ahead of the monotonic clock since its last message (the host slept), each by moving the socket's open and last-message stamps back (no patched clock), and never inside an utterance; the stamps refreshed by both a send and a received message; flushes older than 60 s not counted; a v1 rotation once 16 flushes fall in the last 60 s, and none on v2; a rotation on either API once 1200 characters fall in the last 60 s, older ones not counted, and the text sent counted; a cancel during a reconnect's held handshake surfacing within a second, the late socket closed with nothing sent;
   - cancellation: a cancel mid-audio stopping callbacks before `CancelledError`, sending `Clear` (v1) / `Interrupt` (v2) and **not** closing the socket; stale audio and a stale finished-segment answer arriving before `Cleared` / `SpeechInterrupted` never reaching the next utterance's callback or counters; the next utterance waiting for a held answer, then starting on the same socket; an answer that never comes dropping the socket after `timeout` (the next utterance reconnects); no text sent after the cancel message (the sender racing the cancel); a callback error propagating unchanged with `Clear` sent and the socket kept;
   - flush budget: `EXCESSIVE_FLUSH` on the final `Flush` → `Close` sent, the utterance's audio complete, the next utterance reconnecting; on a mid-utterance `Flush` → `TTSError`, socket dropped;
   - bounded unread audio: with the bound shrunk to one chunk and the callback blocked, the sender stops short of the whole text, then sends the rest once playback resumes; each utterance's unread count starting at zero after an aborted one; a `Flush` left unanswered by a silent server as `TTSError` after `timeout`, the socket dropped;
@@ -334,6 +344,17 @@ Held socket, both APIs, probed on 2026-10-28 from the development Mac with scrat
 - **Abort by closing (the fallback) costs** a new handshake plus first audio: 656–665 ms on v1, against 165 ms after `Clear` on the held socket. The old socket's close took 0.14–0.15 s.
 - **Flush rate, v1** (the documented "20 times every 60 seconds"). Sequential one-word utterances on one socket: 20 succeed in 6 s, and the 21st `Flush` gets `Warning EXCESSIVE_FLUSH` "Rate limit exceeded for flushes", with no `Flushed`. Every `Flush` is refused until 60 s after the first, then accepted again; at one `Flush` per 2.3 s, 20 succeed and the 21st is refused. A new socket opened while the old one was limited accepts its first `Flush`: the limit is per socket. Ten `Clear`s did not count, and a `Clear` did not lift the limit. After a refused final `Flush`, the text (ending a sentence) was spoken anyway, and a `Close` brought the rest of the audio and a clean server close 0.15 s later, with no `Flushed`.
 - **Flush rate, v2.** 40 sequential one-word utterances in 31.5 s and then 25 flushes at once drew no warning.
+- **Character rate, v1** (`aura-asteria-en`, 212-character utterances back to back on one socket, each waiting for `Flushed`). Without pauses, `1008 DATA-0001` came after 2544 characters in 3.9 s. With a 2 s pause between utterances (73 characters a second), it came after 2544 characters in 32 s. With a 5 s pause (36 characters a second), 60 utterances (12 720 characters, 352 s) passed. Aura-2 at its own pace (about 37 characters a second, generation-bound) also passed 60 utterances. A fresh socket opened right after each close was accepted at once.
+- **Through the module** (2026-10-28, after the implementation, `DeepgramModule` directly). The socket was the same one before and after a cancel. A `say` cancelled 0.5 s into its audio surfaced in 19–32 ms. The next `say` had first audio after 406 ms (v1) / 370 ms (v2); that wait includes the cancel's answer. Two more `say`s on the same socket had first audio in 205–210 ms (v1) / 162–164 ms (v2). Construction took 0.38–0.68 s, the handshake included.
+- **Latency benchmark** (`benchmarks/latency/bench.py`, n = 20 per cell, an instant sink, 2026-10-28). The table gives mean TTFA in the cells say/short, say/medium, stream/short and stream/medium, against 494–570 ms (Aura-2) and 577–644 ms (Flux) with a socket per utterance on 2026-10-27:
+
+  | entry | say/short | say/medium | stream/short | stream/medium | `load s` |
+  |---|---|---|---|---|---|
+  | `aura-2-thalia-en` | 182 ms | 210 ms | 233 ms | 213 ms | 0.68 s |
+  | `flux-haley-en` | 219 ms | 230 ms | 223 ms | 230 ms | 0.76 s |
+  | `aura-asteria-en` | 180 ms | 196 ms | 184 ms | 203 ms | 0.67 s |
+
+  The `load s` column now includes the handshake. `aura-asteria-en` lost 4 of 96 runs to `DATA-0001` before the character budget, and none after it (rerun: 157 ms mean in the say/short cell). Over both asteria runs, 2 of 192 syntheses failed with `1011 NET-0000`, a Deepgram "internal server error". An 80-utterance held-socket probe did not reproduce it, so it is read as a sporadic server error. It fails that utterance, and the next one reconnects.
 
 ## Open questions
 
