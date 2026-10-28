@@ -60,6 +60,8 @@ def _reason_name(reason: object) -> str:
 
 
 class GeminiModule(TTSModule):
+    kind = "hosted"
+
     def __init__(self, config: dict) -> None:
         try:
             # Not `from google import genai`: that binds None instead of raising

@@ -36,7 +36,7 @@ from tts_engine.modules.base import (
 log = logging.getLogger(__name__)
 
 _DEFAULT_SAMPLE_RATE = 24000
-_DEFAULT_MODEL = "gpt-4o-mini-tts"
+_DEFAULT_MODEL = "gpt-4o-mini-tts-2025-03-20"
 _DEFAULT_TIMEOUT = 30.0
 _LABEL = "OpenAI-compatible module"
 _MIN_SPEED, _MAX_SPEED = 0.25, 4.0
@@ -45,6 +45,8 @@ _WAV_MAGIC = b"RIFF"
 
 
 class OpenAICompatibleModule(TTSModule):
+    kind = "hosted"
+
     def __init__(self, config: dict) -> None:
         try:
             from openai import OpenAI

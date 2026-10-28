@@ -37,7 +37,17 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Callable
 
 
+ModuleKind = Literal["hosted", "local", "fixture"]
+
+
 class TTSModule(ABC):
+    kind: ClassVar[ModuleKind]
+    """Where the synthesis runs — declared by every module as a class
+    attribute, no default (see "Module kinds"): `hosted` on a provider's
+    servers (a key and a network), `local` in this process (weights on disk),
+    `fixture` nowhere (deterministic audio for tests). What an embedder needs
+    to know before trying a module, and how the benchmark groups results."""
+
     def __init__(self, config: dict) -> None:
         """Construct from the module config block (the `engine.module` dict,
         including `type`). Subclasses validate and extract the fields they
@@ -148,11 +158,13 @@ There is **no default module**. `type` is required, and no module is privileged 
 
 ## Module kinds
 
-| Kind | Modules | Installed by | Purpose |
+Every module declares its family as the class attribute `kind` (`ModuleKind`, one of `"hosted"`, `"local"`, `"fixture"`), with no default on the base class, so a module that forgets it fails the registry test (`tests/modules/test_tts_module_interface.py` holds the expected mapping; a new module is added to both). It is read through the registry (`REGISTRY[type].kind`) by anything that needs to know before construction: an embedder deciding whether a backend works offline, the latency benchmark grouping its results.
+
+| `kind` | Modules | Installed by | Purpose |
 |---|---|---|---|
-| **Provider** (API-backed) | `elevenlabs`, `gradium`, `mistral`, `deepgram`, `gemini`, `cartesia`, `openai-compatible` | the `elevenlabs` / `gradium` / `mistral` / `deepgram` / `gemini` / `cartesia` / `openai-compatible` extra | Real speech from a cloud API |
-| **Provider** (local model) | `pocket`, `phonon`, `qwen3`, `kokoro`, `piper` | the `pocket` / `phonon` / `qwen3` / `kokoro` / `piper` extra | Real speech from an in-process model |
-| **Fixture** | `tone`, `audiofile` | base install | No synthesis; deterministic audio for tests, demos, and downstream integration suites |
+| `hosted` (API-backed provider) | `elevenlabs`, `gradium`, `mistral`, `deepgram`, `gemini`, `cartesia`, `openai`, `openai-compatible` | the `elevenlabs` / `gradium` / `mistral` / `deepgram` / `gemini` / `cartesia` / `openai` / `openai-compatible` extra | Real speech from a cloud API: needs a key and a network |
+| `local` (local-model provider) | `pocket`, `phonon`, `qwen3`, `kokoro`, `piper` | the `pocket` / `phonon` / `qwen3` / `kokoro` / `piper` extra | Real speech from an in-process model: weights on disk, no network after the first download |
+| `fixture` | `tone`, `audiofile` | base install | No synthesis; deterministic audio for tests, demos, and downstream integration suites |
 
 Fixture modules implement the full contract (declared rate, PCM format, cancellation) and are first-class members of the registry, but the documentation must never present them as TTS: users wanting speech install a provider extra. See [tone-module.md](modules/tone.md) and [audiofile-module.md](modules/audiofile.md).
 

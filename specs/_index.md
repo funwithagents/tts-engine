@@ -39,6 +39,7 @@ Read the concept specs in order — each builds on the ones above it. `project.m
 | [tone-module.md](modules/tone.md) | Fixture module: sine tone proportional to text length (a tone per piece for a text stream); no key, no extra, no files; the live tier's default module | Implemented |
 | [audiofile-module.md](modules/audiofile.md) | Fixture module: text → WAV file list with a default file (a file per sentence for a text stream), 16-bit mono WAV validated at construction, paths relative to `base_dir` | Implemented |
 | [audio-player.md](audio-player.md) | `AudioPlayer`, sounddevice integration, stream lifecycle, per-module sample rate | Implemented |
+| [benchmark.md](benchmark.md) | The latency benchmark under `benchmarks/latency/`: every module/model driven through `TTSEngine` with a timing sink, raw chunk timelines with the metrics (TTFA, TTFV, stalls, real-time factor) derived afterwards, a matrix of configurations, ignored runs merged into committed, described results (latest completed measurement of an entry wins), what is committed; findings in `RESULTS.md` | Implemented |
 | [audio-sink.md](audio-sink.md) | `AudioSink` Protocol, constructor sink injection, `TTSEngine.sample_rate`, lazy sounddevice import, one drain per `say`/`say_stream` utterance (on the loop; never hiding the utterance's error), the sink's lifetime left to the embedder | Implemented |
 
 ## Status legend

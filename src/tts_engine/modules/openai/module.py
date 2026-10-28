@@ -175,6 +175,8 @@ def _error_text(error) -> str:
 
 
 class OpenAIModule(TTSModule):
+    kind = "hosted"
+
     def __init__(self, config: dict) -> None:
         try:
             import websockets.sync.client  # noqa: F401  (the SDK's Realtime transport)

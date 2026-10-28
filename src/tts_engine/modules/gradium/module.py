@@ -51,6 +51,8 @@ _VOICE_SETTINGS: dict[str, tuple[float, float]] = {
 
 
 class GradiumModule(TTSModule):
+    kind = "hosted"
+
     def __init__(self, config: dict) -> None:
         try:
             from gradium import GradiumClient

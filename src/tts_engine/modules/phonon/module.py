@@ -34,6 +34,8 @@ _LABEL = "Phonon module"
 
 
 class PhononModule(TTSModule):
+    kind = "local"
+
     def __init__(self, config: dict) -> None:
         language = config.get("language", _DEFAULT_LANGUAGE)
         if not isinstance(language, str) or language not in _LANGUAGES:

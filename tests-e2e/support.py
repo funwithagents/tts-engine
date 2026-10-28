@@ -179,17 +179,18 @@ _OPENAI_REALTIME_CONFIG = {"api_key_env": "OPENAI_API_KEY"}
 
 
 # Config for the `openai-compatible` row of `MODULES` — same shape as the other API rows:
-# `api_key_env` names the variable, never the key. The row pins `tts-1` rather
-# than the module's default `gpt-4o-mini-tts`: that model's latency is erratic
-# on the provider side (up to two minutes for four seconds of audio, raw SDK,
-# no retries — specs/modules/openai-compatible.md, "Open questions"), which once cost the
-# CI live tier 140 s on these five tests; `tts-1` answers in one to three
-# seconds, steadily. "alloy" because `tts-1` rejects the `gpt-4o-mini-tts`-only
-# voices (`marin`, `cedar`).
+# `api_key_env` names the variable, never the key. The row pins the module's
+# default model explicitly, so a later default change cannot silently alter the
+# live tier's timing: the `gpt-4o-mini-tts-2025-03-20` snapshot answered in
+# 0.35–0.50 s over 80 benchmark runs (2026-10-28), where the `gpt-4o-mini-tts`
+# alias stalls at random (once two minutes for four seconds of audio, which cost
+# the CI live tier 140 s) and `tts-1`, the row's previous pin, takes 1.1–1.4 s —
+# specs/modules/openai-compatible.md, "Open questions". `voice` is required by the
+# endpoint; "marin" is one of the two OpenAI recommends for this model.
 _OPENAI_CONFIG = {
     "api_key_env": "OPENAI_API_KEY",
-    "model": "tts-1",
-    "voice": "alloy",
+    "model": "gpt-4o-mini-tts-2025-03-20",
+    "voice": "marin",
 }
 
 

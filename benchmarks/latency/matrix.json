@@ -1,0 +1,1000 @@
+{
+  "_comment": "TTFA benchmark matrix, model ids verified 2026-10-27 against the installed SDKs and the providers' docs (see README.md, 'Model catalog'). One entry per (module, model/variant); the voice is held constant per provider so only the model varies. 'config' is the engine.module block minus 'type'. Optional per-entry keys: modes (subset of say/stream), pause_s (sleep between runs, for rate limits), timeout_s (load/download allowance; the run budget is added automatically), requires_env (extra env vars that gate the entry), enabled (false = opt-in with --include-disabled), tags (filter with --tags / --exclude-tags; `prev` marks a one-version-back model kept for the generation comparison).",
+  "entries": [
+    {
+      "id": "tone",
+      "type": "tone",
+      "config": {},
+      "tags": [
+        "fixture",
+        "baseline",
+        "default"
+      ],
+      "notes": "Harness overhead floor: no network, no model."
+    },
+    {
+      "id": "audiofile",
+      "type": "audiofile",
+      "config": {
+        "base_dir": "tests-e2e/fixtures",
+        "default_file": "default.wav"
+      },
+      "tags": [
+        "fixture",
+        "baseline",
+        "default"
+      ],
+      "notes": "Harness overhead floor with WAV decode."
+    },
+    {
+      "id": "elevenlabs/eleven_flash_v2_5",
+      "type": "elevenlabs",
+      "config": {
+        "api_key_env": "ELEVENLABS_API_KEY",
+        "voice_id": "JBFqnCBsd6RMkjVDRZzb",
+        "model": "eleven_flash_v2_5"
+      },
+      "tags": [
+        "api",
+        "default"
+      ],
+      "notes": "Module default; the model ElevenLabs recommends on the stream-input WebSocket (~75 ms)."
+    },
+    {
+      "id": "elevenlabs/eleven_flash_v2",
+      "type": "elevenlabs",
+      "config": {
+        "api_key_env": "ELEVENLABS_API_KEY",
+        "voice_id": "JBFqnCBsd6RMkjVDRZzb",
+        "model": "eleven_flash_v2"
+      },
+      "enabled": false,
+      "tags": [
+        "api"
+      ],
+      "notes": "English-only Flash (~75 ms). Same ~75 ms claim as v2.5; opt in with --include-disabled."
+    },
+    {
+      "id": "elevenlabs/eleven_turbo_v2_5",
+      "type": "elevenlabs",
+      "config": {
+        "api_key_env": "ELEVENLABS_API_KEY",
+        "voice_id": "JBFqnCBsd6RMkjVDRZzb",
+        "model": "eleven_turbo_v2_5"
+      },
+      "tags": [
+        "api",
+        "deprecated",
+        "prev"
+      ],
+      "notes": "Marked deprecated on the models page (replacement eleven_flash_v2_5); still served."
+    },
+    {
+      "id": "elevenlabs/eleven_turbo_v2",
+      "type": "elevenlabs",
+      "config": {
+        "api_key_env": "ELEVENLABS_API_KEY",
+        "voice_id": "JBFqnCBsd6RMkjVDRZzb",
+        "model": "eleven_turbo_v2"
+      },
+      "enabled": false,
+      "tags": [
+        "api",
+        "deprecated"
+      ],
+      "notes": "Deprecated (replacement eleven_flash_v2); opt in if the generation comparison matters."
+    },
+    {
+      "id": "elevenlabs/eleven_multilingual_v2",
+      "type": "elevenlabs",
+      "config": {
+        "api_key_env": "ELEVENLABS_API_KEY",
+        "voice_id": "JBFqnCBsd6RMkjVDRZzb",
+        "model": "eleven_multilingual_v2"
+      },
+      "tags": [
+        "api"
+      ],
+      "notes": "Quality model; higher latency than Flash per the docs. stream-input support not documented either way."
+    },
+    {
+      "id": "elevenlabs/eleven_v3",
+      "type": "elevenlabs",
+      "config": {
+        "api_key_env": "ELEVENLABS_API_KEY",
+        "voice_id": "JBFqnCBsd6RMkjVDRZzb",
+        "model": "eleven_v3"
+      },
+      "tags": [
+        "api",
+        "prev"
+      ],
+      "notes": "say over HTTP text_to_speech; stream over the text-to-dialogue socket (the module picks it from the eleven_v3/eleven_v4 prefix). Dialogue sockets draw on a separate, smaller concurrency pool."
+    },
+    {
+      "id": "elevenlabs/eleven_v3_conversational",
+      "type": "elevenlabs",
+      "config": {
+        "api_key_env": "ELEVENLABS_API_KEY",
+        "voice_id": "JBFqnCBsd6RMkjVDRZzb",
+        "model": "eleven_v3_conversational"
+      },
+      "tags": [
+        "api",
+        "prev"
+      ],
+      "notes": "~280 ms per the models page; dialogue socket for the stream."
+    },
+    {
+      "id": "elevenlabs/eleven_v4",
+      "type": "elevenlabs",
+      "config": {
+        "api_key_env": "ELEVENLABS_API_KEY",
+        "voice_id": "JBFqnCBsd6RMkjVDRZzb",
+        "model": "eleven_v4"
+      },
+      "tags": [
+        "api"
+      ],
+      "notes": "Current flagship (quality); dialogue socket for the stream."
+    },
+    {
+      "id": "elevenlabs/eleven_v4_turbo",
+      "type": "elevenlabs",
+      "config": {
+        "api_key_env": "ELEVENLABS_API_KEY",
+        "voice_id": "JBFqnCBsd6RMkjVDRZzb",
+        "model": "eleven_v4_turbo"
+      },
+      "tags": [
+        "api"
+      ],
+      "notes": "Flagship real-time model, ~100 ms median per ElevenLabs; the live tier's elevenlabs-v4 row."
+    },
+    {
+      "id": "gradium/default",
+      "type": "gradium",
+      "config": {
+        "api_key_env": "GRADIUM_API_KEY",
+        "voice_id": "91EdXxJDbWICDBgz",
+        "model": "default"
+      },
+      "tags": [
+        "api",
+        "default"
+      ]
+    },
+    {
+      "id": "gradium/gradium-tts-beta",
+      "type": "gradium",
+      "config": {
+        "api_key_env": "GRADIUM_API_KEY",
+        "voice_id": "91EdXxJDbWICDBgz",
+        "model": "gradium-tts-beta"
+      },
+      "tags": [
+        "api"
+      ],
+      "notes": "Per the docs this alias currently routes to the same model as 'default' (it moves on the next beta); expect equal numbers."
+    },
+    {
+      "id": "mistral/voxtral-mini-tts-3-0",
+      "type": "mistral",
+      "config": {
+        "api_key_env": "MISTRAL_API_KEY",
+        "voice_id": "01a14675-dc30-778a-8d01-b5dead5a522a",
+        "model": "voxtral-mini-tts-3-0"
+      },
+      "tags": [
+        "api",
+        "default"
+      ],
+      "notes": "Voxtral TTS 3 (Oct 20 2026, Premier, public preview). Module default."
+    },
+    {
+      "id": "mistral/voxtral-mini-tts-2603",
+      "type": "mistral",
+      "config": {
+        "api_key_env": "MISTRAL_API_KEY",
+        "voice_id": "01a14675-dc30-778a-8d01-b5dead5a522a",
+        "model": "voxtral-mini-tts-2603"
+      },
+      "tags": [
+        "api",
+        "prev"
+      ],
+      "notes": "Voxtral TTS 26.03 (Mar 23 2026). Not measurable through tts-engine: the API answers 400 'voice is not supported for speech v1' when voice_id is sent with this model, and the module requires voice_id (confirmed in run 20261027-145315).",
+      "enabled": false
+    },
+    {
+      "id": "deepgram/aura-2-thalia-en",
+      "type": "deepgram",
+      "config": {
+        "api_key_env": "DEEPGRAM_API_KEY",
+        "model": "aura-2-thalia-en"
+      },
+      "tags": [
+        "api",
+        "default"
+      ],
+      "notes": "Aura-2 (model is the voice). Module default."
+    },
+    {
+      "id": "deepgram/aura-asteria-en",
+      "type": "deepgram",
+      "config": {
+        "api_key_env": "DEEPGRAM_API_KEY",
+        "model": "aura-asteria-en"
+      },
+      "tags": [
+        "api",
+        "prev"
+      ],
+      "notes": "First-generation Aura, still listed on /v1/speak; LiveKit marks it retired, so it may be refused."
+    },
+    {
+      "id": "deepgram/flux-haley-en",
+      "type": "deepgram",
+      "config": {
+        "api_key_env": "DEEPGRAM_API_KEY",
+        "model": "flux-haley-en"
+      },
+      "tags": [
+        "api"
+      ],
+      "notes": "Flux TTS on the speak v2 socket (GA 2026-08-12, Deepgram's recommendation for new builds), picked by the flux- prefix. Native text stream, turn-based. The SDK lists ~30 flux-<voice>-en voices plus flux-general-en / flux-general-multi."
+    },
+    {
+      "id": "gemini/gemini-3.8-flash-tts",
+      "type": "gemini",
+      "config": {
+        "api_key_env": "GEMINI_API_KEY",
+        "voice": "Kore",
+        "model": "gemini-3.8-flash-tts"
+      },
+      "pause_s": 20,
+      "tags": [
+        "api",
+        "default",
+        "rate-limited"
+      ],
+      "notes": "10 requests/min/model on Tier 1. The medium text is 3 requests per run (one per sentence), so a 20 s pause keeps it near 8 req/min; use --texts short to go faster. Quota: 10 requests/min and, on this key's tier, 100 requests per model per day (GenerateRequestsPerDayPerProjectPerModel, measured 2026-10-28); an entry costs warmup+runs times 8 requests (the medium text is 3 per run), so --runs 10 (88 requests) is the most one day allows per model."
+    },
+    {
+      "id": "gemini/gemini-3.8-flash-lite-tts",
+      "type": "gemini",
+      "config": {
+        "api_key_env": "GEMINI_API_KEY",
+        "voice": "Kore",
+        "model": "gemini-3.8-flash-lite-tts"
+      },
+      "pause_s": 20,
+      "tags": [
+        "api",
+        "rate-limited"
+      ],
+      "notes": "Documented replacement for gemini-3.1-flash-tts-preview. Quota: 10 requests/min and, on this key's tier, 100 requests per model per day (GenerateRequestsPerDayPerProjectPerModel, measured 2026-10-28); an entry costs warmup+runs times 8 requests (the medium text is 3 per run), so --runs 10 (88 requests) is the most one day allows per model."
+    },
+    {
+      "id": "gemini/gemini-3.1-flash-tts-preview",
+      "type": "gemini",
+      "config": {
+        "api_key_env": "GEMINI_API_KEY",
+        "voice": "Kore",
+        "model": "gemini-3.1-flash-tts-preview"
+      },
+      "pause_s": 20,
+      "tags": [
+        "api",
+        "rate-limited",
+        "prev"
+      ],
+      "notes": "Still in the docs' model table. Quota: 10 requests/min and, on this key's tier, 100 requests per model per day (GenerateRequestsPerDayPerProjectPerModel, measured 2026-10-28); an entry costs warmup+runs times 8 requests (the medium text is 3 per run), so --runs 10 (88 requests) is the most one day allows per model."
+    },
+    {
+      "id": "gemini/gemini-2.5-pro-preview-tts",
+      "type": "gemini",
+      "config": {
+        "api_key_env": "GEMINI_API_KEY",
+        "voice": "Kore",
+        "model": "gemini-2.5-pro-preview-tts"
+      },
+      "pause_s": 20,
+      "tags": [
+        "api",
+        "rate-limited",
+        "prev"
+      ],
+      "notes": "Quota: 10 requests/min and, on this key's tier, 100 requests per model per day (GenerateRequestsPerDayPerProjectPerModel, measured 2026-10-28); an entry costs warmup+runs times 8 requests (the medium text is 3 per run), so --runs 10 (88 requests) is the most one day allows per model."
+    },
+    {
+      "id": "gemini/gemini-2.5-flash-preview-tts",
+      "type": "gemini",
+      "config": {
+        "api_key_env": "GEMINI_API_KEY",
+        "voice": "Kore",
+        "model": "gemini-2.5-flash-preview-tts"
+      },
+      "pause_s": 20,
+      "enabled": false,
+      "tags": [
+        "api",
+        "rate-limited"
+      ],
+      "notes": "Only in the SDK's literals, no longer in the docs' table; opt in to check whether it still answers. Quota: 10 requests/min and, on this key's tier, 100 requests per model per day (GenerateRequestsPerDayPerProjectPerModel, measured 2026-10-28); an entry costs warmup+runs times 8 requests (the medium text is 3 per run), so --runs 10 (88 requests) is the most one day allows per model."
+    },
+    {
+      "id": "cartesia/sonic-3.6",
+      "type": "cartesia",
+      "config": {
+        "api_key_env": "CARTESIA_API_KEY",
+        "voice_id": "6ccbfb76-1fc6-48f7-b71d-91ac6298247b",
+        "model": "sonic-3.6"
+      },
+      "tags": [
+        "api",
+        "default"
+      ],
+      "notes": "Alias of the latest stable snapshot (sonic-3.6-2026-08-27 today). sonic-latest is deprecated and not listed."
+    },
+    {
+      "id": "cartesia/sonic-3.5",
+      "type": "cartesia",
+      "config": {
+        "api_key_env": "CARTESIA_API_KEY",
+        "voice_id": "6ccbfb76-1fc6-48f7-b71d-91ac6298247b",
+        "model": "sonic-3.5"
+      },
+      "tags": [
+        "api",
+        "prev"
+      ],
+      "notes": "= sonic-3.5-2026-05-04."
+    },
+    {
+      "id": "cartesia/sonic-3",
+      "type": "cartesia",
+      "config": {
+        "api_key_env": "CARTESIA_API_KEY",
+        "voice_id": "6ccbfb76-1fc6-48f7-b71d-91ac6298247b",
+        "model": "sonic-3"
+      },
+      "enabled": false,
+      "tags": [
+        "api"
+      ],
+      "notes": "= sonic-3-2026-01-12 (the 2025-10-27 snapshot sunset on Oct 20 2026). Two generations back; opt in with --include-disabled."
+    },
+    {
+      "id": "cartesia/sonic-preview",
+      "type": "cartesia",
+      "config": {
+        "api_key_env": "CARTESIA_API_KEY",
+        "voice_id": "6ccbfb76-1fc6-48f7-b71d-91ac6298247b",
+        "model": "sonic-preview"
+      },
+      "tags": [
+        "api",
+        "beta"
+      ],
+      "notes": "Beta alias for upcoming changes; not for production."
+    },
+    {
+      "id": "openai-compatible/gpt-4o-mini-tts-2025-03-20",
+      "type": "openai-compatible",
+      "config": {
+        "api_key_env": "OPENAI_API_KEY",
+        "voice": "marin",
+        "model": "gpt-4o-mini-tts-2025-03-20"
+      },
+      "tags": [
+        "api",
+        "default",
+        "deprecated"
+      ],
+      "notes": "Module default since c362ca3 (2026-10-28): the March 2025 snapshot answers steadily (0.33-0.70 s to first byte measured with the raw SDK) where the alias stalls; keeps `instructions` and every voice. Shuts down with the rest of /v1/audio/speech on 2027-01-06."
+    },
+    {
+      "id": "openai-compatible/gpt-4o-mini-tts",
+      "type": "openai-compatible",
+      "config": {
+        "api_key_env": "OPENAI_API_KEY",
+        "voice": "marin",
+        "model": "gpt-4o-mini-tts"
+      },
+      "tags": [
+        "api",
+        "deprecated"
+      ],
+      "notes": "The `gpt-4o-mini-tts` alias (resolves to the 2025-12-15 snapshot). No longer the module default since c362ca3: its latency is erratic (1 s to 30 s to first byte, provider-side). Kept to document that behaviour."
+    },
+    {
+      "id": "openai-compatible/gpt-4o-mini-tts-2025-12-15",
+      "type": "openai-compatible",
+      "config": {
+        "api_key_env": "OPENAI_API_KEY",
+        "voice": "marin",
+        "model": "gpt-4o-mini-tts-2025-12-15"
+      },
+      "enabled": false,
+      "tags": [
+        "api",
+        "deprecated"
+      ],
+      "notes": "Dated snapshot (the alias may resolve to 2025-03-20 or this one). Same shutdown. The alias almost certainly resolves to this snapshot; opt in to check."
+    },
+    {
+      "id": "openai-compatible/tts-1",
+      "type": "openai-compatible",
+      "config": {
+        "api_key_env": "OPENAI_API_KEY",
+        "voice": "alloy",
+        "model": "tts-1"
+      },
+      "tags": [
+        "api",
+        "deprecated"
+      ],
+      "notes": "alloy: tts-1 rejects marin/cedar. Deprecated, shutdown Jan 6 2027."
+    },
+    {
+      "id": "openai-compatible/tts-1-hd",
+      "type": "openai-compatible",
+      "config": {
+        "api_key_env": "OPENAI_API_KEY",
+        "voice": "alloy",
+        "model": "tts-1-hd"
+      },
+      "tags": [
+        "api",
+        "deprecated"
+      ],
+      "notes": "Deprecated, shutdown Jan 6 2027."
+    },
+    {
+      "id": "openai/gpt-realtime-2.1-mini",
+      "type": "openai",
+      "config": {
+        "api_key_env": "OPENAI_API_KEY",
+        "model": "gpt-realtime-2.1-mini",
+        "voice": "marin"
+      },
+      "tags": [
+        "api",
+        "default"
+      ],
+      "notes": "OpenAI's Realtime API (the successor of /v1/audio/speech). One socket per utterance: TTFA includes the ~1.2 s session handshake (spec, open question 1). Sentence-grouped text stream. Billed per token (~$20 / 1M audio tokens)."
+    },
+    {
+      "id": "openai/gpt-realtime-2.1",
+      "type": "openai",
+      "config": {
+        "api_key_env": "OPENAI_API_KEY",
+        "model": "gpt-realtime-2.1",
+        "voice": "marin"
+      },
+      "tags": [
+        "api"
+      ],
+      "notes": "Full-size Realtime model."
+    },
+    {
+      "id": "openai/gpt-realtime-2",
+      "type": "openai",
+      "config": {
+        "api_key_env": "OPENAI_API_KEY",
+        "model": "gpt-realtime-2",
+        "voice": "marin"
+      },
+      "enabled": false,
+      "tags": [
+        "api"
+      ],
+      "notes": "Previous Realtime generation, still listed by the spec. (gpt-realtime-mini, pre-2.1, shuts down 2027-01-20 and is not listed.) Opt in with --include-disabled."
+    },
+    {
+      "id": "pocket/english_2026-10",
+      "type": "pocket",
+      "config": {
+        "voice": "alba",
+        "language": "english_2026-10",
+        "device": "auto"
+      },
+      "tags": [
+        "local",
+        "default"
+      ],
+      "notes": "What the 'english' alias resolves to today (pinned so a library update cannot move it). ~100M params, auto = cpu on a Mac."
+    },
+    {
+      "id": "pocket/english_2026-10+quantize",
+      "type": "pocket",
+      "config": {
+        "voice": "alba",
+        "language": "english_2026-10",
+        "device": "cpu",
+        "quantize": true
+      },
+      "tags": [
+        "local"
+      ],
+      "notes": "int8 dynamic quantization (CPU only)."
+    },
+    {
+      "id": "pocket/english_2026-09_24l",
+      "type": "pocket",
+      "config": {
+        "voice": "alba",
+        "language": "english_2026-09_24l",
+        "device": "auto"
+      },
+      "tags": [
+        "local"
+      ],
+      "notes": "24-layer variant (newest 24l checkpoint in pocket-tts 4.0.1 is english_2026-09_24l; there is no english_24l). Higher quality, slower."
+    },
+    {
+      "id": "pocket/english_18m_2026-10",
+      "type": "pocket",
+      "config": {
+        "voice": "alba",
+        "language": "english_18m_2026-10",
+        "device": "auto"
+      },
+      "tags": [
+        "local"
+      ],
+      "notes": "18.2M params. The *_refl_* siblings are the same size (reward fine-tuned) so are not listed."
+    },
+    {
+      "id": "pocket/english_18m_2026-10+quantize",
+      "type": "pocket",
+      "config": {
+        "voice": "alba",
+        "language": "english_18m_2026-10",
+        "device": "cpu",
+        "quantize": true
+      },
+      "tags": [
+        "local"
+      ],
+      "notes": "int8 dynamic quantization of the 18.2M model (CPU only). Slower than fp32 on the M5 for the 100M; kept for ARM CPUs (Raspberry Pi), where int8 is the point."
+    },
+    {
+      "id": "pocket/english_7m_2026-10",
+      "type": "pocket",
+      "config": {
+        "voice": "alba",
+        "language": "english_7m_2026-10",
+        "device": "auto"
+      },
+      "tags": [
+        "local"
+      ],
+      "notes": "6.9M params."
+    },
+    {
+      "id": "pocket/english_7m_2026-10+quantize",
+      "type": "pocket",
+      "config": {
+        "voice": "alba",
+        "language": "english_7m_2026-10",
+        "device": "cpu",
+        "quantize": true
+      },
+      "tags": [
+        "local"
+      ],
+      "notes": "int8 dynamic quantization of the 6.9M model (CPU only). Slower than fp32 on the M5 for the 100M; kept for ARM CPUs (Raspberry Pi), where int8 is the point."
+    },
+    {
+      "id": "pocket/english_2m_2026-10",
+      "type": "pocket",
+      "config": {
+        "voice": "alba",
+        "language": "english_2m_2026-10",
+        "device": "auto"
+      },
+      "tags": [
+        "local"
+      ],
+      "notes": "1.9M params."
+    },
+    {
+      "id": "pocket/english_2m_2026-10+quantize",
+      "type": "pocket",
+      "config": {
+        "voice": "alba",
+        "language": "english_2m_2026-10",
+        "device": "cpu",
+        "quantize": true
+      },
+      "tags": [
+        "local"
+      ],
+      "notes": "int8 dynamic quantization of the 1.9M model (CPU only). Slower than fp32 on the M5 for the 100M; kept for ARM CPUs (Raspberry Pi), where int8 is the point."
+    },
+    {
+      "id": "pocket/english_2026-10@mps",
+      "type": "pocket",
+      "config": {
+        "voice": "alba",
+        "language": "english_2026-10",
+        "device": "mps"
+      },
+      "enabled": false,
+      "tags": [
+        "local",
+        "experimental"
+      ],
+      "notes": "mps is experimental per the spec; opt in with --include-disabled."
+    },
+    {
+      "id": "phonon/31m-en@auto",
+      "type": "phonon",
+      "config": {
+        "device": "auto"
+      },
+      "tags": [
+        "local",
+        "default"
+      ],
+      "notes": "Default checkpoint gradium/phonon-31m-en (Apache-2.0); auto = Metal on Apple silicon."
+    },
+    {
+      "id": "phonon/31m-en@cpu",
+      "type": "phonon",
+      "config": {
+        "device": "cpu"
+      },
+      "tags": [
+        "local"
+      ]
+    },
+    {
+      "id": "phonon/31m-en@cpu+q8_0",
+      "type": "phonon",
+      "config": {
+        "device": "cpu",
+        "quant": "q8_0"
+      },
+      "tags": [
+        "local"
+      ],
+      "notes": "ptts quants: f32, q8_0, q8_1, q8k, q6k, q5_0, q5_1, q5k, q4_0, q4_1, q4k (CPU only)."
+    },
+    {
+      "id": "phonon/31m-en@cpu+q4k",
+      "type": "phonon",
+      "config": {
+        "device": "cpu",
+        "quant": "q4k"
+      },
+      "tags": [
+        "local"
+      ]
+    },
+    {
+      "id": "phonon/40m-en@auto",
+      "type": "phonon",
+      "config": {
+        "model": "hf://gradium/phonon-40m-en",
+        "device": "auto"
+      },
+      "requires_env": [
+        "HF_TOKEN"
+      ],
+      "tags": [
+        "local",
+        "gated"
+      ],
+      "notes": "Gated CC BY-NC 4.0 checkpoint: needs HF_TOKEN with access granted."
+    },
+    {
+      "id": "phonon/40m-en@cpu",
+      "type": "phonon",
+      "config": {
+        "model": "hf://gradium/phonon-40m-en",
+        "device": "cpu"
+      },
+      "requires_env": [
+        "HF_TOKEN"
+      ],
+      "tags": [
+        "local",
+        "gated"
+      ],
+      "notes": "CPU fp32, the 40M counterpart of 31m-en@cpu."
+    },
+    {
+      "id": "phonon/40m-en@cpu+q8_0",
+      "type": "phonon",
+      "config": {
+        "model": "hf://gradium/phonon-40m-en",
+        "device": "cpu",
+        "quant": "q8_0"
+      },
+      "requires_env": [
+        "HF_TOKEN"
+      ],
+      "tags": [
+        "local",
+        "gated"
+      ]
+    },
+    {
+      "id": "phonon/40m-en@cpu+q4k",
+      "type": "phonon",
+      "config": {
+        "model": "hf://gradium/phonon-40m-en",
+        "device": "cpu",
+        "quant": "q4k"
+      },
+      "requires_env": [
+        "HF_TOKEN"
+      ],
+      "tags": [
+        "local",
+        "gated"
+      ]
+    },
+    {
+      "id": "phonon/40m-multilingual@auto",
+      "type": "phonon",
+      "config": {
+        "model": "hf://gradium/phonon-40m-multilingual",
+        "device": "auto"
+      },
+      "requires_env": [
+        "HF_TOKEN"
+      ],
+      "tags": [
+        "local",
+        "gated"
+      ],
+      "notes": "Gated CC BY-NC 4.0; en/fr/de/es/pt in one checkpoint."
+    },
+    {
+      "id": "phonon/40m-multilingual@cpu",
+      "type": "phonon",
+      "config": {
+        "model": "hf://gradium/phonon-40m-multilingual",
+        "device": "cpu"
+      },
+      "requires_env": [
+        "HF_TOKEN"
+      ],
+      "tags": [
+        "local",
+        "gated"
+      ],
+      "notes": "CPU fp32, the 40M counterpart of 31m-en@cpu."
+    },
+    {
+      "id": "phonon/40m-multilingual@cpu+q8_0",
+      "type": "phonon",
+      "config": {
+        "model": "hf://gradium/phonon-40m-multilingual",
+        "device": "cpu",
+        "quant": "q8_0"
+      },
+      "requires_env": [
+        "HF_TOKEN"
+      ],
+      "tags": [
+        "local",
+        "gated"
+      ]
+    },
+    {
+      "id": "phonon/40m-multilingual@cpu+q4k",
+      "type": "phonon",
+      "config": {
+        "model": "hf://gradium/phonon-40m-multilingual",
+        "device": "cpu",
+        "quant": "q4k"
+      },
+      "requires_env": [
+        "HF_TOKEN"
+      ],
+      "tags": [
+        "local",
+        "gated"
+      ]
+    },
+    {
+      "id": "qwen3/0.6B-CustomVoice-Q8_0",
+      "type": "qwen3",
+      "config": {
+        "model": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+        "quant": "Q8_0",
+        "voice": "ryan",
+        "language": "english"
+      },
+      "tags": [
+        "local",
+        "default"
+      ],
+      "notes": "Module default (~1.26 GB download)."
+    },
+    {
+      "id": "qwen3/0.6B-CustomVoice-Q4_K_M",
+      "type": "qwen3",
+      "config": {
+        "model": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+        "quant": "Q4_K_M",
+        "voice": "ryan",
+        "language": "english"
+      },
+      "tags": [
+        "local"
+      ]
+    },
+    {
+      "id": "qwen3/0.6B-CustomVoice-BF16",
+      "type": "qwen3",
+      "config": {
+        "model": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+        "quant": "BF16",
+        "voice": "ryan",
+        "language": "english"
+      },
+      "tags": [
+        "local",
+        "heavy"
+      ]
+    },
+    {
+      "id": "qwen3/1.7B-CustomVoice-Q8_0",
+      "type": "qwen3",
+      "config": {
+        "model": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+        "quant": "Q8_0",
+        "voice": "ryan",
+        "language": "english"
+      },
+      "tags": [
+        "local",
+        "heavy"
+      ],
+      "notes": "~2.3 GB download."
+    },
+    {
+      "id": "qwen3/1.7B-CustomVoice-Q4_K_M",
+      "type": "qwen3",
+      "config": {
+        "model": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+        "quant": "Q4_K_M",
+        "voice": "ryan",
+        "language": "english"
+      },
+      "tags": [
+        "local",
+        "heavy"
+      ]
+    },
+    {
+      "id": "qwen3/1.7B-CustomVoice-BF16",
+      "type": "qwen3",
+      "config": {
+        "model": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+        "quant": "BF16",
+        "voice": "ryan",
+        "language": "english"
+      },
+      "tags": [
+        "local",
+        "heavy"
+      ]
+    },
+    {
+      "id": "qwen3/1.7B-VoiceDesign-Q8_0",
+      "type": "qwen3",
+      "config": {
+        "model": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+        "quant": "Q8_0",
+        "instruct": "A calm, warm male narrator.",
+        "language": "english"
+      },
+      "tags": [
+        "local",
+        "heavy"
+      ],
+      "notes": "VoiceDesign exists at 1.7B only. The -Base (cloning) models are rejected by the module."
+    },
+    {
+      "id": "kokoro/v1.0-fp32",
+      "type": "kokoro",
+      "config": {
+        "voice": "af_heart"
+      },
+      "tags": [
+        "local",
+        "default"
+      ],
+      "notes": "Pinned fastrtc/kokoro-onnx files (kokoro-v1.0.onnx 325 MB fp32 + voices-v1.0.bin)."
+    },
+    {
+      "id": "kokoro/v1.0-int8",
+      "type": "kokoro",
+      "config": {
+        "voice": "af_heart",
+        "model": "benchmarks/latency/models/kokoro-v1.0.int8.onnx"
+      },
+      "enabled": false,
+      "tags": [
+        "local",
+        "manual-download"
+      ],
+      "notes": "Download kokoro-v1.0.int8.onnx (114 MB) from the thewh1teagle/kokoro-onnx GitHub release 'model-files-v1.1' into models/ first."
+    },
+    {
+      "id": "kokoro/v1.0-fp16",
+      "type": "kokoro",
+      "config": {
+        "voice": "af_heart",
+        "model": "benchmarks/latency/models/kokoro-v1.0.fp16.onnx"
+      },
+      "enabled": false,
+      "tags": [
+        "local",
+        "manual-download"
+      ],
+      "notes": "Download kokoro-v1.0.fp16.onnx (164 MB) from the same release into models/ first."
+    },
+    {
+      "id": "piper/en_US-ljspeech-medium",
+      "type": "piper",
+      "config": {
+        "voice": "en_US-ljspeech-medium"
+      },
+      "tags": [
+        "local",
+        "default"
+      ],
+      "notes": "Module default (public domain)."
+    },
+    {
+      "id": "piper/en_US-ljspeech-high",
+      "type": "piper",
+      "config": {
+        "voice": "en_US-ljspeech-high"
+      },
+      "tags": [
+        "local"
+      ],
+      "notes": "Same speaker as the default, high tier."
+    },
+    {
+      "id": "piper/en_US-lessac-low",
+      "type": "piper",
+      "config": {
+        "voice": "en_US-lessac-low"
+      },
+      "tags": [
+        "local"
+      ],
+      "notes": "lessac low/medium/high: same speaker, quality tier is the only variable (16 kHz for low, 22.05 kHz otherwise)."
+    },
+    {
+      "id": "piper/en_US-lessac-medium",
+      "type": "piper",
+      "config": {
+        "voice": "en_US-lessac-medium"
+      },
+      "tags": [
+        "local"
+      ]
+    },
+    {
+      "id": "piper/en_US-lessac-high",
+      "type": "piper",
+      "config": {
+        "voice": "en_US-lessac-high"
+      },
+      "tags": [
+        "local"
+      ]
+    }
+  ]
+}

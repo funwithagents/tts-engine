@@ -4,3 +4,10 @@
 *.pyd
 config.json
 .DS_Store
+
+# Latency benchmark (benchmarks/latency): results/ (merged, described) is
+# committed; runs/ (every run as it happened, with worker logs), hand-placed
+# models and the stdout logs of unattended passes are not.
+benchmarks/**/runs/
+benchmarks/**/models/
+benchmarks/**/*.log

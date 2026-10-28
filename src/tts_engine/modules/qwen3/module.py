@@ -51,6 +51,8 @@ def _match(value: str, choices: Iterable[str], field: str) -> str:
 
 
 class Qwen3Module(TTSModule):
+    kind = "local"
+
     def __init__(self, config: dict) -> None:
         model = optional_str(config, "model", label=_LABEL) or _DEFAULT_MODEL
         quant = optional_str(config, "quant", label=_LABEL) or _DEFAULT_QUANT

@@ -272,6 +272,8 @@ def _read(socket: _Socket) -> None:
 
 
 class CartesiaModule(TTSModule):
+    kind = "hosted"
+
     def __init__(self, config: dict) -> None:
         try:
             import websockets.sync.client  # noqa: F401  (the SDK's [websockets] extra)

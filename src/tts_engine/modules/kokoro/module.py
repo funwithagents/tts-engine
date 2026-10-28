@@ -74,6 +74,8 @@ def _file_ref(config: dict, key: str, value: str) -> _FileRef:
 
 
 class KokoroModule(TTSModule):
+    kind = "local"
+
     def __init__(self, config: dict) -> None:
         voice = optional_str(config, "voice", label=_LABEL) or _DEFAULT_VOICE
         language = optional_str(config, "language", label=_LABEL)
