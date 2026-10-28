@@ -29,7 +29,7 @@ pip install "tts-engine[openai]"
 | `speed` | no | API default (1.0) | Speaking-rate multiplier, `0.25`–`1.5`. |
 | `timeout` | no | `30` | Seconds to wait for the provider before a stalled request fails. |
 
-The module emits mono PCM at 24,000 Hz. The Realtime API is a conversation model, so the module asks it to read each text aloud word for word. In testing it did, including for questions and instructions inside the text, but nothing guarantees it. Each utterance uses one connection: a long text is sent in parts, and a text stream is spoken one sentence at a time. In testing, the first audio arrived after 1.2–1.7 s, and each later sentence 0.5–1.2 s after the previous one. Billing is per audio token, about $0.025 per minute of speech with `gpt-realtime-2.1-mini`.
+The module emits mono PCM at 24,000 Hz. The Realtime API is a conversation model, so the module asks it to read each text aloud word for word. In testing it did, including for questions and instructions inside the text, but nothing guarantees it. The module opens one connection when it is constructed and keeps it for its lifetime, so the handshake is paid once, not on every `say()`. A long text is sent in parts, and a text stream is spoken one sentence at a time. In the latency benchmark's result [`20261027-1453_mac-m5-pro`](../../benchmarks/latency/results/20261027-1453_mac-m5-pro/summary.md), the first audio of one short sentence comes after 450 ms (median) with `gpt-realtime-2.1-mini` and 942 ms with `gpt-realtime-2.1`. Billing is per audio token, about $0.025 per minute of speech with `gpt-realtime-2.1-mini`.
 
 ## See also
 

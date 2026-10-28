@@ -2,7 +2,7 @@
 
 **Kind:** `local` · **Synthesis:** In-process model · **Install:** `tts-engine[phonon]` · **Credentials:** None · **Voice listing:** yes
 
-The phonon module runs Gradium's open-weight [Phonon](https://gradium.ai/phonon) models in process through the [`ptts`](https://github.com/gradium-ai/xn-ptts) runtime. It needs no API key and no PyTorch, installs from wheels on Linux, macOS (Apple Silicon and Intel) and Windows, and runs much faster than real time on a CPU. The first use downloads the model (about 160 MB) and any catalog voice into the Hugging Face cache.
+The phonon module runs Gradium's open-weight [Phonon](https://gradium.ai/phonon) models in process through the [`ptts`](https://github.com/gradium-ai/xn-ptts) runtime. It needs no API key and no PyTorch, installs from wheels on Linux, macOS (Apple Silicon and Intel) and Windows, and runs much faster than real time, on a CPU too. In the latency benchmark's result [`20261027-1453_mac-m5-pro`](../../benchmarks/latency/results/20261027-1453_mac-m5-pro/summary.md) (an Apple M5 Pro), the default model's first audio comes after 13 ms (median) on Metal and 18 ms on the CPU. The first use downloads the model (about 160 MB) and any catalog voice into the Hugging Face cache.
 
 Install the optional dependencies:
 
