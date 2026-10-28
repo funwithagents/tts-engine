@@ -55,13 +55,6 @@
       },
       "supplies": [
         "audiofile",
-        "cartesia/sonic-3",
-        "cartesia/sonic-3.5",
-        "cartesia/sonic-3.6",
-        "cartesia/sonic-preview",
-        "deepgram/aura-2-thalia-en",
-        "deepgram/aura-asteria-en",
-        "deepgram/flux-haley-en",
         "gradium/default",
         "gradium/gradium-tts-beta",
         "kokoro/v1.0-fp16",
@@ -386,6 +379,68 @@
       "supplies": [
         "openai-compatible/gpt-4o-mini-tts-2025-03-20",
         "openai-compatible/gpt-4o-mini-tts-2025-12-15"
+      ]
+    },
+    {
+      "run": "20261028-114337",
+      "started": "2026-10-28T11:43:37+0100",
+      "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+      "machine": "arm64",
+      "processor": "arm",
+      "python": "3.13.14",
+      "git_sha": "5e326fa",
+      "versions": {
+        "tts-engine": "0.1.0",
+        "elevenlabs": "2.74.1",
+        "pocket-tts": "4.0.1",
+        "torch": "2.14.0",
+        "gradium": "0.6.4",
+        "ptts": "0.5.0",
+        "mistralai": "3.5.0",
+        "deepgram-sdk": "7.15.0",
+        "google-genai": "2.33.0",
+        "cartesia": "4.2.0",
+        "openai": "3.37.0",
+        "qwentts-cpp-python": "0.5.0",
+        "kokoro-onnx": "0.6.1",
+        "piper-tts": "1.8.0",
+        "onnxruntime": "1.31.0"
+      },
+      "settings": {
+        "runs": 20,
+        "warmup": 1,
+        "modes": [
+          "say",
+          "stream"
+        ],
+        "texts": [
+          "short",
+          "medium"
+        ],
+        "token_delay_ms": 0.0,
+        "pause_s": 0.5,
+        "run_timeout_s": 120.0,
+        "entry_timeout_s": 600.0,
+        "max_consecutive_failures": 3
+      },
+      "selection": {
+        "only": [
+          "deepgram/*",
+          "cartesia/*"
+        ],
+        "exclude": null,
+        "tags": null,
+        "exclude_tags": null,
+        "include_disabled": false
+      },
+      "supplies": [
+        "cartesia/sonic-3",
+        "cartesia/sonic-3.5",
+        "cartesia/sonic-3.6",
+        "cartesia/sonic-preview",
+        "deepgram/aura-2-thalia-en",
+        "deepgram/aura-asteria-en",
+        "deepgram/flux-haley-en"
       ]
     }
   ]

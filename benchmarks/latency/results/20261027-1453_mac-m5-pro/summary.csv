@@ -1,10 +1,10 @@
 entry,type,n,errors,ttfa_p50_ms,ttfa_p90_ms,ttfa_stream_p50_ms,ttfa_long_text_p50_ms,max_gap_ms,speed_x,load_s,first_call_ttfa_ms,run
-cartesia/sonic-3.5,cartesia,20,0,203,215,240,209,94,9.6,0.17,271,20261027-145315
-cartesia/sonic-preview,cartesia,20,0,203,218,264,203,90,10.2,0.09,230,20261027-145315
-cartesia/sonic-3.6,cartesia,20,0,206,221,269,202,95,9.2,0.18,265,20261027-145315
-deepgram/aura-asteria-en,deepgram,20,0,394,615,605,509,99,26.3,0.15,688,20261027-145315
-deepgram/aura-2-thalia-en,deepgram,20,0,423,674,418,516,74,2.2,0.11,513,20261027-145315
-deepgram/flux-haley-en,deepgram,20,0,516,723,691,680,109,1.5,0.14,507,20261027-145315
+cartesia/sonic-preview,cartesia,20,0,83,91,101,84,90,11.1,0.33,91,20261028-114337
+cartesia/sonic-3.6,cartesia,20,0,85,96,90,88,107,8.6,0.36,82,20261028-114337
+cartesia/sonic-3.5,cartesia,20,0,86,103,169,90,108,5.2,0.33,89,20261028-114337
+deepgram/flux-haley-en,deepgram,20,0,174,219,175,174,110,1.5,0.48,167,20261028-114337
+deepgram/aura-asteria-en,deepgram,20,0,211,266,109,161,70,44.7,0.71,203,20261028-114337
+deepgram/aura-2-thalia-en,deepgram,20,0,213,264,211,214,72,2.2,0.61,207,20261028-114337
 elevenlabs/eleven_v3_conversational,elevenlabs,20,0,112,143,166,136,455,6.0,0.25,139,20261027-171640
 elevenlabs/eleven_flash_v2_5,elevenlabs,20,0,125,188,174,139,166,15.4,0.32,607,20261027-171640
 elevenlabs/eleven_v4_turbo,elevenlabs,20,0,136,154,153,153,125,10.1,0.25,164,20261027-171640
