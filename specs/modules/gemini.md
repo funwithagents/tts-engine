@@ -158,6 +158,10 @@ Confirmed from the package and live calls on 2026-10-26:
 - `generator.close()` after two chunks returns in under 1 ms, and the client's `httpx` connection pool is empty afterwards.
 - `GenerateContentConfig(response_format=[...])` → pydantic `extra_forbidden`: no output-rate option.
 
+## Voice listing
+
+`list_voices` raises `VoiceListingUnsupported`: the Gemini API has no endpoint that lists voices. The message points to https://ai.google.dev/gemini-api/docs/speech-generation, where the prebuilt voices (Kore, Puck, Charon, …) and their styles are listed; a voice is selected with `voice`.
+
 ## Open questions
 
 Deferrals only (design is settled):

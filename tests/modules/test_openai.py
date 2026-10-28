@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 
 from tts_engine.config import ConfigError
-from tts_engine.modules.base import TTSError, TTSOptions
+from tts_engine.modules.base import TTSError, TTSOptions, VoiceListingUnsupported
 from tts_engine.modules.openai import OpenAIModule
 from tts_engine.modules.openai.module import _VERBATIM
 
@@ -546,3 +546,11 @@ def test_close_after_a_reader_failure_closes_the_client(fake):
         _say(module)
     module.close()
     assert fake.client_closed
+
+
+# --- voice listing -----------------------------------------------------------
+
+
+def test_list_voices_is_unsupported_and_points_to_the_documentation():
+    with pytest.raises(VoiceListingUnsupported, match=r"https://platform.openai.com/"):
+        OpenAIModule.list_voices({"type": "openai"})

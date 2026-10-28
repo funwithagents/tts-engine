@@ -266,6 +266,14 @@ Confirmed from the package and from live calls on 2026-10-26 (API version `2026-
   - **Close.** Closing a held socket after use: 38 ms in most cases, 1.03 s after cancels and errors on it.
   - **Through the module** (the held-socket implementation, `TTSEngine` with a sink recording arrivals): construction 289 ms with its one handshake; eight `say`s in a row on that socket, first audio 92–132 ms (median 108 ms after the first), one connect in all; a cancel mid-audio, then three `say`s at once on the same socket, first audio 97–120 ms; a fresh engine per `say`, construction to first audio 196–265 ms (median 235 ms); a `say` after 305 s idle reconnected once and had first audio in 241 ms. The latency benchmark (`benchmarks/latency`, run `20261028-104645`, 20 runs per cell, `sonic-3.6`) gave mean TTFA 92 / 87 ms for `say` short / medium and 150 / 166 ms for `stream` short / medium, against 210 / 203 / 274 / 266 ms with a socket per utterance (run `20261027-145315`); `load s` rose from 0.18 to 0.29 s, now including the handshake.
 
+## Voice listing
+
+`list_voices(config)` returns every voice of `Cartesia(api_key, timeout).voices.list(limit=100)`, iterated across its pages (the SDK's cursor page does this), then closes the client. The list holds the public library and the account's own voices. It reads only `api_key` / `api_key_env` and `timeout`; `voice_id` is not needed, and no socket is opened.
+
+- **Selector:** `{"voice_id": <id>}`.
+- **Metadata:** `language`; `gender` (`masculine` / `feminine` / `gender_neutral`, normalized); `description`; accent and country as tags. Cartesia gives no age, though descriptions often say "young adult".
+- **Errors:** a failure is a `TTSError`.
+
 ## Open questions
 
 Deferrals only (design is settled). The socket held across utterances, once question 1 ("Connection reuse"), was measured (handshake 120 ms warm, 377 ms cold, more than half the 207–263 ms first audio of a fresh socket; 100–107 ms first audio on a held one) and is now the design above.

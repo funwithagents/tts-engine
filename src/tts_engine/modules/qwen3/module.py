@@ -17,6 +17,8 @@ from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    VoiceInfo,
+    VoiceListingUnsupported,
     cleanup,
     finite_number,
     float_to_int16_pcm,
@@ -141,6 +143,48 @@ class Qwen3Module(TTSModule):
         tts = vars(self).pop("_tts", None)
         if tts is not None:
             tts.close()
+
+    @classmethod
+    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+        """The preset speakers of the configured CustomVoice model (`model`
+        and `quant`, defaulted as for construction), read from the loaded
+        model, which is closed again: this downloads and loads the weights. A
+        VoiceDesign model has no presets, its voice is the `instruct` text."""
+        model = optional_str(config, "model", label=_LABEL) or _DEFAULT_MODEL
+        quant = optional_str(config, "quant", label=_LABEL) or _DEFAULT_QUANT
+        if model.endswith("-Base"):
+            raise ConfigError(
+                "Qwen3 module 'model': the -Base models need voice cloning, which "
+                "is not supported; use a -CustomVoice or -VoiceDesign model"
+            )
+        if model.endswith("-VoiceDesign"):
+            raise VoiceListingUnsupported(
+                f"Qwen3 module: {model} has no preset voices; describe the voice "
+                "in 'instruct' (e.g. \"A calm, warm male narrator.\")"
+            )
+        try:
+            import qwentts_cpp  # pyright: ignore[reportMissingImports]
+        except ImportError as exc:
+            raise ConfigError(
+                "The 'qwen3' module requires the qwen3 extra: "
+                "pip install tts-engine[qwen3] (Apple-silicon macOS; on Linux "
+                "with CUDA 12.8, pip install qwentts-cpp-python)"
+            ) from exc
+        try:
+            tts = qwentts_cpp.QwenTTS.from_pretrained(
+                model, quant=quant, log_level="warning"
+            )
+        except ValueError as exc:
+            raise ConfigError(f"Qwen3 module: {exc}") from exc
+        except Exception as exc:
+            raise TTSError(f"qwen3 model load failed: {exc}") from exc
+        try:
+            names = tts.speaker_names()
+        except Exception as exc:
+            raise TTSError(f"{_LABEL}: voice listing failed: {exc}") from exc
+        finally:
+            tts.close()
+        return [VoiceInfo(id=name, name=name, config={"voice": name}) for name in names]
 
     @property
     def sample_rate(self) -> int:

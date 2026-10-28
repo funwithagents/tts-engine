@@ -8,6 +8,7 @@ Config-validation tests need no fake — validation runs before the lazy import.
 import asyncio
 import enum
 import gc
+import json
 import sys
 import time
 import types
@@ -20,6 +21,7 @@ import pytest
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import TTSError, TTSOptions
 from tts_engine.modules.piper import PiperModule
+from tts_engine.modules.piper import module as piper_module
 
 _REVISION = "5041a7a49ae5b3a0f30e6837769eb03fdbb231bd"
 
@@ -432,3 +434,60 @@ def test_close_drops_the_voice(fakes):
     module.close()
     gc.collect()
     assert voice() is None
+
+
+# --- voice listing -----------------------------------------------------------
+
+
+def test_list_voices_has_one_entry_per_voice_or_speaker(monkeypatch, tmp_path):
+    catalog = {
+        "en_US-ryan-medium": {
+            "language": {
+                "code": "en_US",
+                "name_english": "English",
+                "country_english": "United States",
+            },
+            "quality": "medium",
+            "num_speakers": 1,
+            "speaker_id_map": {},
+        },
+        "en_US-arctic-medium": {
+            "language": {
+                "code": "en_US",
+                "name_english": "English",
+                "country_english": "United States",
+            },
+            "quality": "medium",
+            "num_speakers": 2,
+            "speaker_id_map": {"rms": 1, "bdl": 0},
+        },
+    }
+    path = tmp_path / "voices.json"
+    path.write_text(json.dumps(catalog))
+    downloads: list[tuple] = []
+
+    def hf_hub_download(repo_id, filename, revision=None):
+        downloads.append((repo_id, filename, revision))
+        return str(path)
+
+    hub = types.ModuleType("huggingface_hub")
+    hub.hf_hub_download = hf_hub_download  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
+
+    ryan, bdl, rms = PiperModule.list_voices({"type": "piper"})
+
+    assert downloads == [
+        ("rhasspy/piper-voices", "voices.json", piper_module._VOICES_REVISION)
+    ]
+    assert ryan.config == {"voice": "en_US-ryan-medium"}
+    assert (ryan.languages, ryan.description, ryan.tags) == (
+        ("en_US",),
+        "English, United States",
+        ("medium",),
+    )
+    # speakers in id order, each selected with `speaker`
+    assert (bdl.id, bdl.config) == (
+        "en_US-arctic-medium/bdl",
+        {"voice": "en_US-arctic-medium", "speaker": "bdl"},
+    )
+    assert rms.config == {"voice": "en_US-arctic-medium", "speaker": "rms"}

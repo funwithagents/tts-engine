@@ -42,8 +42,10 @@ from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    VoiceInfo,
     cut_at_boundary,
     finite_number,
+    normalize_gender,
     open_cancellable,
     optional_str,
     resolve_api_key,
@@ -400,6 +402,50 @@ class CartesiaModule(TTSModule):
         if socket is not None:
             socket.close_in_background()
         self._client.close()
+
+    @classmethod
+    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+        """Every voice `voices.list()` returns, across its pages: the public
+        library and the account's own."""
+        try:
+            from cartesia import Cartesia
+        except ImportError as exc:
+            raise ConfigError(
+                "The 'cartesia' module requires the cartesia extra: "
+                "pip install tts-engine[cartesia]"
+            ) from exc
+        api_key = resolve_api_key(config, label=_LABEL)
+        timeout = finite_number(
+            config,
+            "timeout",
+            label=_LABEL,
+            default=_DEFAULT_TIMEOUT,
+            exclusive_minimum=0,
+        )
+        client = Cartesia(api_key=api_key, timeout=timeout)
+        try:
+            entries = list(client.voices.list(limit=100))
+        except Exception as exc:
+            raise TTSError(f"{_LABEL}: voice listing failed: {exc}") from exc
+        finally:
+            client.close()
+
+        voices: list[VoiceInfo] = []
+        for voice in entries:
+            accent = getattr(voice, "accent", None)
+            country = getattr(voice, "country", None)
+            voices.append(
+                VoiceInfo(
+                    id=voice.id,
+                    name=voice.name or voice.id,
+                    config={"voice_id": voice.id},
+                    languages=(voice.language,) if voice.language else (),
+                    gender=normalize_gender(getattr(voice, "gender", None)),
+                    description=voice.description or None,
+                    tags=tuple(str(tag) for tag in (accent, country) if tag),
+                )
+            )
+        return voices
 
     @property
     def sample_rate(self) -> int:

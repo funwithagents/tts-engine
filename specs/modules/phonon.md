@@ -204,6 +204,14 @@ What 0.5.0 changed, per its release notes, and why none of it reaches the module
 
 Not verified on Linux or Windows: the device list of those wheels (assumed `["cpu"]`) and the timings.
 
+## Voice listing
+
+`list_voices(config)` returns `ptts.catalog_voices()`: the voice catalog `ptts` pins (102 voices across en, fr, de, es, pt), downloading only its index, no voice and no model. It reads no config field: the catalog is shared by every checkpoint. A voice in a language the checkpoint was not trained for is listed but will not speak that language well.
+
+- **Selector:** `{"voice": <name>}`.
+- **Metadata:** the `language` and `description`. The catalog has no gender or age field; [gradium.md](gradium.md)'s listing carries both for 90 of these 102 voices, under the same id.
+- **Errors:** a failure is a `TTSError`.
+
 ## Open questions
 
 Deferrals only (design is settled):

@@ -393,3 +393,41 @@ def test_close_drops_the_runtime(fakes):
     module.close()
     gc.collect()
     assert runtime() is None
+
+
+# --- voice listing -----------------------------------------------------------
+
+
+def _fake_hub_without_downloads(monkeypatch) -> None:
+    def hf_hub_download(*_args, **_kwargs):
+        raise AssertionError("a local voices file needs no download")
+
+    hub = types.ModuleType("huggingface_hub")
+    hub.hf_hub_download = hf_hub_download  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
+
+
+def test_list_voices_reads_names_language_and_gender_from_the_voices_file(
+    monkeypatch, tmp_path
+):
+    _fake_hub_without_downloads(monkeypatch)
+    voices_file = tmp_path / "voices.npz"
+    style = np.zeros((2, 4), dtype=np.float32)
+    np.savez(voices_file, am_puck=style, bf_emma=style, xx_custom=style)
+
+    puck, emma, custom = KokoroModule.list_voices(
+        {"type": "kokoro", "voices": "voices.npz", "base_dir": str(tmp_path)}
+    )
+
+    assert puck.config == {"voice": "am_puck"}
+    assert (puck.languages, puck.gender) == (("en-us",), "male")
+    assert (emma.languages, emma.gender) == (("en-gb",), "female")
+    assert (custom.languages, custom.gender) == ((), None)
+
+
+def test_list_voices_missing_voices_file_is_a_config_error(monkeypatch, tmp_path):
+    _fake_hub_without_downloads(monkeypatch)
+    with pytest.raises(ConfigError, match="'voices' file not found"):
+        KokoroModule.list_voices(
+            {"type": "kokoro", "voices": str(tmp_path / "none.bin")}
+        )

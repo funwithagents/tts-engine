@@ -4,6 +4,7 @@ code:
   - src/tts_engine/modules/__init__.py
 tests:
   - tests/modules/test_tts_module_interface.py
+  - tests-e2e/test_voices.py
 ---
 
 # TTS Module Interface
@@ -113,6 +114,13 @@ class TTSModule(ABC):
         its SDK client, a local model drops its weights. Called once, by
         `TTSEngine.close()`, with no utterance in flight; the module must not
         be used afterwards. The default releases nothing."""
+
+    @classmethod
+    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+        """The voices this backend offers, from its own catalog (see "Voice
+        listing"). A classmethod: it constructs no module. Raises
+        `VoiceListingUnsupported` when the backend has no catalog to read,
+        with a message saying where its voices are documented."""
 ```
 
 Both methods are abstract: every module implements both. A backend whose API accepts text incrementally (a WebSocket that takes repeated text messages before an end-of-stream marker — Gradium, ElevenLabs, Deepgram, Cartesia) implements `synthesize_text_stream` as a true stream-to-stream pass: pieces go to the backend as they arrive and audio comes back while more text is still being received. A backend that needs a complete prompt before it can produce any audio (a local model conditioned on the whole text — pocket; a request/response API — mistral, gemini, openai-compatible; a fixture matching whole sentences — audiofile) **groups the pieces into sentences** and synthesizes each sentence as soon as it is complete, so audio for sentence one plays while the stream is still delivering sentence two. The grouping is the module's own concern, done with the shared `segment_sentences` helper (below) — the engine never cuts text. Which shape a module uses is stated in its own spec.
@@ -167,6 +175,77 @@ Every module declares its family as the class attribute `kind` (`ModuleKind`, on
 | `fixture` | `tone`, `audiofile` | base install | No synthesis; deterministic audio for tests, demos, and downstream integration suites |
 
 Fixture modules implement the full contract (declared rate, PCM format, cancellation) and are first-class members of the registry, but the documentation must never present them as TTS: users wanting speech install a provider extra. See [tone-module.md](modules/tone.md) and [audiofile-module.md](modules/audiofile.md).
+
+## Voice listing
+
+Choosing a voice means knowing which ones exist, and every backend keeps that list somewhere different: an API endpoint, a catalog file on the Hub, a table inside the model library, the loaded model itself, or only a documentation page. `list_voices` puts it behind one call, so an embedder, a voice-picking tool or an agent can browse voices without knowing the backend.
+
+```python
+Gender = Literal["male", "female", "neutral"]
+
+
+@dataclass(frozen=True)
+class VoiceInfo:
+    id: str
+    """The backend's identifier for the voice (a voice id, a preset name, a
+    model name)."""
+    name: str
+    """Human-readable name; the id itself when the backend has none."""
+    config: Mapping[str, Any]
+    """The `engine.module` fields that select this voice, to merge into a
+    module config: `{"voice_id": ...}`, `{"voice": ...}`, `{"model": ...}`
+    (Deepgram, where the model is the voice), `{"voice": ..., "speaker": ...}`
+    (a Piper multi-speaker voice)."""
+    languages: tuple[str, ...] = ()
+    """Language or locale codes as the backend gives them (`en`, `en_US`,
+    `en-us`); empty when it does not say."""
+    gender: Gender | None = None
+    """Normalized from the backend's wording (`masculine`, `Male`, `m` →
+    `male`; `gender_neutral`, `non-binary` → `neutral`); None when it does
+    not say."""
+    age: str | None = None
+    """The backend's own wording (`young`, `Adult`, `Middle-age`, `30`),
+    not normalized: the scales differ."""
+    description: str | None = None
+    tags: tuple[str, ...] = ()
+    """Other descriptors the backend gives (accent, use case, style, quality)."""
+
+
+class VoiceListingUnsupported(Exception):
+    """The backend has no catalog this module can read; the message says
+    where its voices are documented."""
+
+
+def list_voices(module_config: dict) -> list[VoiceInfo]:
+    """REGISTRY[module_config["type"]].list_voices(module_config)."""
+```
+
+**A classmethod over the module config.** Listing must not need what synthesis needs: Cartesia and ElevenLabs cannot be constructed without the `voice_id` you are trying to choose, and constructing a module opens sockets (deepgram, cartesia, openai) or loads weights (the local models). `list_voices(config)` therefore takes the same `engine.module` block as the constructor but reads only what listing needs: the credentials (`api_key` / `api_key_env`, through `resolve_api_key`), the endpoint (`base_url` / `server_url`, `timeout`) and the fields that change which voices exist (qwen3's `model`, kokoro's `voices` file). Voice fields are ignored, so `{"type": "cartesia", "api_key_env": "CARTESIA_API_KEY"}` is enough. `modules/__init__.py` exposes `list_voices(module_config)`, which looks the type up in `REGISTRY` like `load_module` (unknown type → `ConfigError`), and the package re-exports it with `VoiceInfo` and `VoiceListingUnsupported`.
+
+**The whole catalog, unfiltered, in the backend's order.** No language or gender filter: the backends' metadata are too uneven for a filter to mean the same thing everywhere, and the caller filters the returned list in one line. The list includes the account's own voices where the provider lists them with the public ones (ElevenLabs, Cartesia, Gradium, Mistral).
+
+**Blocking.** The call does network or file I/O (and qwen3 loads a model) on the calling thread; async code runs it with `asyncio.to_thread`. Like construction, it may download: a catalog file (piper), a voices file (kokoro), weights (qwen3).
+
+**Errors** follow the constructor's split: a missing extra or an invalid field is a `ConfigError` (same messages as construction); a provider or download failure is a `TTSError` naming the backend; a backend with nothing to read raises `VoiceListingUnsupported`, never an empty list. An empty list means a catalog that is empty, which only the fixtures return: they have no voice to choose.
+
+**Where each backend's list comes from:**
+
+| Module | Source | Gender / age |
+|---|---|---|
+| `elevenlabs` | `voices.get_all()`: the premade voices and the account's own (needs the key's `voices_read` permission) | from the voice's labels |
+| `cartesia` | `voices.list()`, every page | `masculine` / `feminine` / `gender_neutral`; no age |
+| `deepgram` | `GET /v1/models`, its `tts` entries; the model is the voice | from the metadata tags; age as given |
+| `gradium` | `voice_get(include_catalog=True)`: the public catalog and the account's voices | gender, age as given |
+| `mistral` | `audio.voices.list()`, every page: presets and custom voices | gender; age in years when set |
+| `phonon` | `ptts.catalog_voices()`, the catalog `ptts` pins | none (the catalog has no gender field) |
+| `pocket` | pocket-tts's built-in preset table (a private name, see [pocket.md](modules/pocket.md)) | none |
+| `piper` | `voices.json` of `rhasspy/piper-voices` at the pinned commit; one entry per speaker of a multi-speaker voice | none |
+| `kokoro` | the names in the voices file; language and gender from the name's two-letter prefix | from the prefix |
+| `qwen3` | `speaker_names()` of the configured CustomVoice model, loaded then closed | none |
+| `gemini`, `openai`, `openai-compatible` | no listing endpoint: `VoiceListingUnsupported` pointing to the provider's voice documentation | — |
+| `tone`, `audiofile` | fixtures: `[]` | — |
+
+Each module's spec has a "Voice listing" section with the details. A module that cannot list keeps its hint current there, since the hint is the only thing it returns.
 
 ## Path resolution
 

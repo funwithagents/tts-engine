@@ -219,6 +219,14 @@ Confirmed on macOS 26 arm64 (Apple M5 Pro), from the wheel's source and by runni
 
 Not verified: the Linux CUDA wheel (no GPU machine), and whether it loads at all without the CUDA runtime.
 
+## Voice listing
+
+`list_voices(config)` returns the preset speakers of the configured CustomVoice model (`model` and `quant`, defaulted as for construction): the model is loaded through `QwenTTS.from_pretrained`, its `speaker_names()` read, and the model closed again. Listing therefore downloads and loads the weights; it is the one backend whose voices exist only inside the model.
+
+- **Selector:** `{"voice": <name>}`.
+- **Metadata:** none: the model gives only names.
+- **Model kinds:** a VoiceDesign model raises `VoiceListingUnsupported` before loading anything, since its voice is the `instruct` text. A `-Base` model is a `ConfigError`, as for construction.
+
 ## Open questions
 
 Deferrals only (design is settled):

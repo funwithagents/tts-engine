@@ -16,6 +16,7 @@ import logging
 import math
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator
+from typing import Any
 
 import numpy as np
 
@@ -25,9 +26,11 @@ from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    VoiceInfo,
     cleanup,
     finite_number,
     float_to_int16_pcm,
+    normalize_gender,
     optional_str,
     resolve_api_key,
     run_cancellable_worker,
@@ -107,6 +110,73 @@ class MistralModule(TTSModule):
         # The speakeasy SDK closes its HTTP client on context exit; there is
         # no separate close method. The module is done.
         self._client.__exit__(None, None, None)
+
+    @classmethod
+    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+        """The presets and the account's custom voices, from
+        `audio.voices.search()` followed page by page. Gender is given; age is
+        in years when set."""
+        try:
+            from mistralai.client import Mistral
+        except ImportError as exc:
+            raise ConfigError(
+                "The 'mistral' module requires the mistral extra: "
+                "pip install tts-engine[mistral]"
+            ) from exc
+        api_key = resolve_api_key(config, label=_LABEL)
+        timeout = finite_number(
+            config,
+            "timeout",
+            label=_LABEL,
+            default=_DEFAULT_TIMEOUT,
+            exclusive_minimum=0,
+        )
+        client_kwargs: dict = {"api_key": api_key}
+        server_url = optional_str(config, "server_url", label=_LABEL)
+        if server_url is not None:
+            client_kwargs["server_url"] = server_url
+        client = Mistral(**client_kwargs)
+
+        entries: list[Any] = []
+        try:
+            token: str | None = None
+            while True:
+                request: dict = {
+                    "page_size": 100,
+                    "timeout_ms": math.ceil(timeout * 1000),
+                }
+                if token is not None:
+                    request["page_token"] = token
+                page = client.audio.voices.search(**request)
+                if page is None:
+                    break
+                entries.extend(page.result.data)
+                next_token = page.result.next_page_token
+                if (
+                    not isinstance(next_token, str)
+                    or not next_token
+                    or next_token == token
+                ):
+                    break
+                token = next_token
+        except Exception as exc:
+            raise TTSError(f"{_LABEL}: voice listing failed: {exc}") from exc
+        finally:
+            client.__exit__(None, None, None)
+
+        return [
+            VoiceInfo(
+                id=voice.id,
+                name=voice.name or voice.id,
+                config={"voice_id": voice.id},
+                languages=tuple(getattr(voice, "languages", None) or ()),
+                gender=normalize_gender(getattr(voice, "gender", None)),
+                age=None if getattr(voice, "age", None) is None else str(voice.age),
+                description=getattr(voice, "description", None) or None,
+                tags=tuple(getattr(voice, "tags", None) or ()),
+            )
+            for voice in entries
+        ]
 
     @property
     def sample_rate(self) -> int:

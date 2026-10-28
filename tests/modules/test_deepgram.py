@@ -1104,3 +1104,70 @@ def test_close_closes_the_held_socket_off_the_calling_thread(fake):
     fake.exit_gate.set()
     assert fake.socket.closed.wait(1)
     assert module._socket is None
+
+
+# --- voice listing -----------------------------------------------------------
+
+
+def _fake_models_sdk(monkeypatch, tts_models) -> dict:
+    calls: dict = {}
+
+    class Models:
+        def list(self, **kwargs):
+            calls["list"] = kwargs
+            return types.SimpleNamespace(stt=[object()], tts=tts_models)
+
+    class DeepgramClient:
+        def __init__(self, **kwargs) -> None:
+            calls["client"] = kwargs
+            self.manage = types.SimpleNamespace(
+                v1=types.SimpleNamespace(models=Models())
+            )
+
+    package = types.ModuleType("deepgram")
+    package.DeepgramClient = DeepgramClient  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "deepgram", package)
+    return calls
+
+
+def test_list_voices_selects_each_voice_by_its_model(monkeypatch):
+    apollo = types.SimpleNamespace(
+        canonical_name="aura-2-apollo-en",
+        name="apollo",
+        languages=["en", "en-US"],
+        metadata=types.SimpleNamespace(
+            accent="American",
+            age="Adult",
+            tags=["masculine", "confident", "casual"],
+            use_cases=["casual chat"],
+        ),
+    )
+    bare = types.SimpleNamespace(
+        canonical_name="aura-x", name=None, languages=None, metadata=None
+    )
+    nameless = types.SimpleNamespace(
+        canonical_name=None, name="?", languages=None, metadata=None
+    )
+    calls = _fake_models_sdk(monkeypatch, [apollo, bare, nameless])
+
+    voices = DeepgramModule.list_voices(
+        {"type": "deepgram", "api_key": "k", "timeout": 10}
+    )
+
+    assert calls["client"] == {"api_key": "k"}
+    assert calls["list"] == {"request_options": {"timeout_in_seconds": 10}}
+    first, second = voices  # the entry with no canonical name is skipped
+    assert first.config == {"model": "aura-2-apollo-en"}
+    assert (first.name, first.languages, first.gender, first.age) == (
+        "apollo",
+        ("en", "en-US"),
+        "male",
+        "Adult",
+    )
+    assert first.tags == ("American", "confident", "casual", "casual chat")
+    assert (second.id, second.name, second.gender, second.tags) == (
+        "aura-x",
+        "aura-x",
+        None,
+        (),
+    )

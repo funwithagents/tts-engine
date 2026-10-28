@@ -165,6 +165,15 @@ Built in `__init__`, released by `TTSModule.close()` when the engine closes ([tt
 
 Registered in `REGISTRY` as `"elevenlabs"`.
 
+## Voice listing
+
+`list_voices(config)` returns the voices of `ElevenLabs(api_key).voices.get_all()`: the premade voices and the account's own, not the shared Voice Library. It reads only `api_key` / `api_key_env` and `timeout` (passed as `timeout_in_seconds`, rounded up); `voice_id` and `model` are not needed.
+
+- **Selector:** `{"voice_id": <voice_id>}`.
+- **Metadata:** from the voice's `labels`, `gender` (normalized) and `age` (`young`, `middle_aged`, …, as given); the other labels (accent, use case, descriptive) become tags.
+- **Languages:** the locales of `verified_languages` (the language when there is no locale), else the `language` label. The description is the voice's own.
+- **Permission:** the key needs the `voices_read` permission; without it the API answers 401. Any SDK failure is a `TTSError`; an API error shows as `HTTP <status>: <the API's message>`, since the SDK's own string starts with every response header.
+
 ## Open questions
 
 Deferrals only (design is settled):

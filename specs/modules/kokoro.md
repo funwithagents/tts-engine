@@ -214,6 +214,14 @@ Confirmed on macOS 26 arm64 (Apple M5 Pro), Python 3.13, `onnxruntime` 1.31.0, `
 - `huggingface_hub` 1.30: a missing file raises `RemoteEntryNotFoundError`, an unknown repository `RepositoryNotFoundError` (HTTP 401 when unauthenticated), an unknown revision `RevisionNotFoundError`. `LocalEntryNotFoundError` subclasses both `EntryNotFoundError` and `FileNotFoundError`.
 - Timings as in "Synthesis"; `tokenizer.phonemize` on a fresh instance took 0.58 s (espeak-ng initialization).
 
+## Voice listing
+
+`list_voices(config)` returns the voice names in the voices file: the configured `voices` (an `hf://` reference or a local path, resolved as for construction), else the pinned default. The file is read with `numpy.load` and the model is not loaded.
+
+- **Selector:** `{"voice": <name>}`.
+- **Metadata:** the language comes from the name's first letter (the default-language table) and the gender from its second (`f` / `m`). A custom voices file whose names do not follow the convention lists voices with neither.
+- **Errors:** a missing local file is a `ConfigError`; a failed download or an unreadable file is a `TTSError`.
+
 ## Open questions
 
 Deferrals only (design is settled):

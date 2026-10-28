@@ -13,6 +13,7 @@ from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
     TTSModule,
     TTSOptions,
+    VoiceInfo,
     finite_number,
     run_cancellable_worker,
     run_text_stream_worker,
@@ -48,6 +49,11 @@ class ToneModule(TTSModule):
             exclusive_minimum=0,
             maximum=1.0,
         )
+
+    @classmethod
+    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+        """A fixture has no voice to choose."""
+        return []
 
     @property
     def sample_rate(self) -> int:

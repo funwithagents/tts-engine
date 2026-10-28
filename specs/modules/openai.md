@@ -206,6 +206,10 @@ Confirmed from the installed package (`openai/resources/realtime/realtime.py`, `
 - Bad key → `error` `invalid_api_key`; unknown model → `error` `invalid_model`; unknown voice → `error` `invalid_value` (`param: session.audio.output.voice`) after `session.created`. None of them fails the handshake.
 - `speed: 1.2` shortened a 3.6 s sentence to about 3.0 s. A bare `response.cancel` on an out-of-band response → `error` `response_cancel_not_active`; with its `response_id` → `response.done` `cancelled` (`reason: client_cancelled`) in 0.15 s, the socket still usable for the next response.
 
+## Voice listing
+
+`list_voices` raises `VoiceListingUnsupported`: the Realtime API has no endpoint that lists voices. The message points to https://platform.openai.com/docs/guides/realtime-conversations, where the built-in voices (marin, cedar, alloy, …) are listed; a voice is selected with `voice`.
+
 ## Open questions
 
 Deferrals only (design is settled). The socket held across utterances, once question 1, was measured (the handshake was 40–60 % of time to first audio) and is now the design above.

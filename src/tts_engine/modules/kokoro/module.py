@@ -12,14 +12,18 @@ import threading
 from collections.abc import AsyncIterator, Callable, Iterable, Iterator
 from pathlib import Path
 
+import numpy as np
+
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    VoiceInfo,
     feed_with_lookahead,
     finite_number,
     float_to_int16_pcm,
+    normalize_gender,
     optional_str,
     resolve_path,
     run_cancellable_worker,
@@ -175,6 +179,57 @@ class KokoroModule(TTSModule):
     def close(self) -> None:
         # Drop the runtime so its ONNX session can be collected; the module is done.
         vars(self).pop("_kokoro", None)
+
+    @classmethod
+    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+        """The voice names in the voices file (the configured `voices`, else
+        the pinned default), read without loading the model. A name's first
+        letter is its language (the default-language table), its second its
+        gender (`f` / `m`)."""
+        voices_ref = _file_ref(
+            config,
+            "voices",
+            optional_str(config, "voices", label=_LABEL) or _DEFAULT_VOICES,
+        )
+        try:
+            from huggingface_hub import hf_hub_download
+        except ImportError as exc:
+            raise ConfigError(
+                "The 'kokoro' module requires the kokoro extra: pip install tts-engine[kokoro]"
+            ) from exc
+        if isinstance(voices_ref, Path):
+            if not voices_ref.is_file():
+                raise ConfigError(
+                    f"Kokoro module 'voices' file not found: {voices_ref}"
+                )
+            path = str(voices_ref)
+        else:
+            repo_id, filename, revision = voices_ref
+            try:
+                path = hf_hub_download(repo_id, filename, revision=revision)
+            except Exception as exc:
+                raise TTSError(f"{_LABEL}: voice listing failed: {exc}") from exc
+        try:
+            with np.load(path) as archive:
+                names = sorted(archive.files)
+        except Exception as exc:
+            raise TTSError(
+                f"{_LABEL}: cannot read the voices file {path}: {exc}"
+            ) from exc
+
+        voices: list[VoiceInfo] = []
+        for name in names:
+            language = _LANGUAGE_BY_PREFIX.get(name[:1])
+            voices.append(
+                VoiceInfo(
+                    id=name,
+                    name=name,
+                    config={"voice": name},
+                    languages=(language,) if language else (),
+                    gender=normalize_gender(name[1:2]),
+                )
+            )
+        return voices
 
     @property
     def sample_rate(self) -> int:

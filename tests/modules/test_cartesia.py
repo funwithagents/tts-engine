@@ -1039,3 +1039,60 @@ def test_no_reader_outlives_a_closed_module(fake):
     module.close()
     readers[0].join(1)
     assert not readers[0].is_alive()
+
+
+# --- voice listing -----------------------------------------------------------
+
+
+def _fake_voice_sdk(monkeypatch, *, voices=(), error: Exception | None = None) -> dict:
+    calls: dict = {"closed": False}
+
+    class Voices:
+        def list(self, **kwargs):
+            calls["list"] = kwargs
+            if error is not None:
+                raise error
+            return iter(voices)  # the SDK's page iterates across pages
+
+    class Cartesia:
+        def __init__(self, **kwargs) -> None:
+            calls["client"] = kwargs
+            self.voices = Voices()
+
+        def close(self) -> None:
+            calls["closed"] = True
+
+    package = types.ModuleType("cartesia")
+    package.Cartesia = Cartesia  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "cartesia", package)
+    return calls
+
+
+def test_list_voices_maps_every_voice_and_closes_the_client(monkeypatch):
+    voice = types.SimpleNamespace(
+        id="uuid-1",
+        name="Eden",
+        description="Young clean delivery",
+        language="en",
+        gender="gender_neutral",
+        accent="american",
+        country="US",
+    )
+    calls = _fake_voice_sdk(monkeypatch, voices=[voice])
+    (eden,) = CartesiaModule.list_voices(
+        {"type": "cartesia", "api_key": "k", "timeout": 5}
+    )
+
+    assert calls["client"] == {"api_key": "k", "timeout": 5.0}
+    assert calls["list"] == {"limit": 100}
+    assert calls["closed"]
+    assert eden.config == {"voice_id": "uuid-1"}
+    assert (eden.name, eden.languages, eden.gender) == ("Eden", ("en",), "neutral")
+    assert (eden.description, eden.tags) == ("Young clean delivery", ("american", "US"))
+
+
+def test_list_voices_failure_is_a_tts_error_and_closes_the_client(monkeypatch):
+    calls = _fake_voice_sdk(monkeypatch, error=RuntimeError("boom"))
+    with pytest.raises(TTSError, match="voice listing failed: boom"):
+        CartesiaModule.list_voices({"type": "cartesia", "api_key": "k"})
+    assert calls["closed"]

@@ -168,6 +168,16 @@ The SDK surface this spec relies on, confirmed from the pinned package:
 - TTS `output_format` values and rates: `pcm` (48000), `pcm_8000`, `pcm_16000`, `pcm_24000`, `pcm_44100`, `pcm_48000`; all 16-bit signed mono, 80 ms chunks.
 - `json_config` voice settings: `temp` (0–1.4, default 0.7), `cfg_coef` (1–4, default 2.0), `padding_bonus` (−4–4, default 0.0), `rewrite_rules` (string).
 
+## Voice listing
+
+`list_voices(config)` returns `GradiumClient(api_key[, base_url]).voice_get(include_catalog=True)`: the public catalog (about 1400 voices across languages) and the account's custom voices. Without `include_catalog` the API returns only the custom ones. It reads only `api_key` / `api_key_env`, `base_url` and `timeout` (bounding the request).
+
+- **Threading:** the SDK is async, so the call runs on a private event loop in a helper thread, which also works when the caller's own thread runs a loop.
+- **Selector:** `{"voice_id": <uid>}`.
+- **Metadata:** `gender` (normalized from `Male` / `Female`); `age` as given (`Young`, `Middle-age`, …); the `locale` (else `language`); `description`; the values of the other tags (emotion, use case, region). A custom voice is tagged `custom`.
+- **Errors:** a failure or a response that is not a list is a `TTSError`.
+- **Phonon:** the catalog overlaps phonon's: 90 of the 102 voices in `ptts`'s pinned catalog have an entry here under the same id (checked 2026-10-28), with the gender and age phonon's own catalog lacks.
+
 ## Open questions
 
 Deferrals only (design is settled):

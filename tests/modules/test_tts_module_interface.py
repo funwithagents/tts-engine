@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from tts_engine.config import ConfigError
-from tts_engine.modules import REGISTRY, base, load_module
+from tts_engine.modules import REGISTRY, base, list_voices, load_module
 from tts_engine.modules.base import (
     PCMFeeder,
     TTSError,
@@ -17,6 +17,7 @@ from tts_engine.modules.base import (
     feed_with_lookahead,
     finite_number,
     float_to_int16_pcm,
+    normalize_gender,
     open_cancellable,
     optional_str,
     resolve_api_key,
@@ -800,3 +801,41 @@ def test_pcm_feeder_stops_between_slices_and_feeds_nothing_after():
     assert fed == [b"\x00\x01"]
     assert feeder.feed(b"\x06\x07") is False
     assert fed == [b"\x00\x01"]
+
+
+# --- voice listing -----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("word", "expected"),
+    [
+        ("male", "male"),
+        ("Masculine", "male"),
+        (" M ", "male"),
+        ("Female", "female"),
+        ("feminine", "female"),
+        ("gender_neutral", "neutral"),
+        ("non-binary", "neutral"),
+        ("Androgynous", "neutral"),
+        ("young", None),
+        ("", None),
+        (None, None),
+        (1, None),
+    ],
+)
+def test_normalize_gender(word, expected):
+    assert normalize_gender(word) == expected
+
+
+def test_every_registered_module_implements_voice_listing():
+    # The base default only says "cannot list": each module either lists its
+    # catalog or explains where its voices are documented.
+    for name, cls in REGISTRY.items():
+        assert cls.list_voices.__func__ is not TTSModule.list_voices.__func__, name  # type: ignore[attr-defined]
+
+
+def test_list_voices_dispatches_through_the_registry():
+    assert list_voices({"type": "tone"}) == []
+    assert list_voices({"type": "audiofile"}) == []
+    with pytest.raises(ConfigError, match="Unknown TTS module type"):
+        list_voices({"type": "nope"})

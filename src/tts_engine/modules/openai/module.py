@@ -29,6 +29,8 @@ from tts_engine.modules.base import (
     TTSError,
     TTSModule,
     TTSOptions,
+    VoiceInfo,
+    VoiceListingUnsupported,
     finite_number,
     open_cancellable,
     optional_str,
@@ -242,6 +244,15 @@ class OpenAIModule(TTSModule):
         if socket is not None:
             socket.close_in_background()
         self._client.close()
+
+    @classmethod
+    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+        """The Realtime API has no voice-listing endpoint."""
+        raise VoiceListingUnsupported(
+            "OpenAI module: the Realtime API has no voice-listing endpoint; its "
+            "built-in voices (marin, cedar, alloy, ...) are listed at "
+            "https://platform.openai.com/docs/guides/realtime-conversations"
+        )
 
     @property
     def sample_rate(self) -> int:

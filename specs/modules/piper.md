@@ -207,6 +207,14 @@ Confirmed on macOS 26 arm64 (Apple M5 Pro), Python 3.13, `onnxruntime` 1.31.0, b
 - Through the module: `zh_CN-huayan-*` load (espeak, `cmn`), `zh_CN-chaowen-medium` and `zh_CN-xiao_ya-medium` are rejected as `pinyin`; an unknown voice key (`en_US-nope-medium`) is a `ConfigError` from the Hub's 404; against a real-time blocking sink, first audio after 65 ms, no wait between sentence feeds, cancellation returning in 8 ms.
 - The `voice` key → path rule (`<lang>/<locale>/<name>/<quality>/<key>.onnx`) holds for all 178 entries of `voices.json` at the pinned commit.
 
+## Voice listing
+
+`list_voices(config)` returns the catalog's `voices.json`, downloaded from `rhasspy/piper-voices` at the pinned commit like the voices themselves. It reads no config field. The catalog has no gender or age field.
+
+- **Selector:** a single-speaker voice is one entry, `{"voice": <key>}`. A multi-speaker voice is one entry per speaker, in speaker-id order, with id `<key>/<speaker>` and `{"voice": <key>, "speaker": <speaker name>}`. That makes about 4100 entries, 2306 of them `en_US-libritts_r-medium`'s numbered speakers.
+- **Metadata:** the language code (`en_US`); the language and country in English as the description; the quality (`low`, `medium`, `high`) as a tag.
+- **Errors:** a failed download is a `TTSError`.
+
 ## Open questions
 
 Deferrals only (design is settled):

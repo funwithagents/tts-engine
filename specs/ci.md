@@ -67,6 +67,7 @@ The job used to run a PulseAudio null sink behind ALSA's `pulse` plugin. That ne
 | every `test_modules.py` scenario's `[cartesia]` row | only when the `CARTESIA_API_KEY` secret is absent (or on a fork's pull request) |
 | every `test_modules.py` scenario's `[openai]` and `[openai-compatible]` rows | only when the `OPENAI_API_KEY` secret is absent (or on a fork's pull request) |
 | every `test_modules.py` scenario's `[qwen3]` row | always: the `qwen3` extra installs only on Apple-silicon macOS, so `qwentts_cpp` is absent on the Linux runner ([modules/qwen3.md](modules/qwen3.md)) |
+| `test_voices.py`'s rows | under the same conditions as that row's `test_modules.py` scenarios; and the `[elevenlabs]` / `[elevenlabs-v4]` rows when the key lacks the `voices_read` permission ([testing.md](testing.md)) |
 
 `pocket`, `phonon`, `kokoro`, `piper`, `tone`, `audiofile` and the MCP test never skip in CI: their extras come with the `dev` group and they need no key.
 

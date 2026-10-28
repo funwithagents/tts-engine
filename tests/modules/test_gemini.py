@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 
 from tts_engine.config import ConfigError
-from tts_engine.modules.base import TTSError, TTSOptions
+from tts_engine.modules.base import TTSError, TTSOptions, VoiceListingUnsupported
 from tts_engine.modules.gemini import GeminiModule
 
 _BASE = {"type": "gemini", "api_key": "k"}
@@ -341,3 +341,11 @@ async def test_text_stream_requests_per_sentence_as_the_source_arrives(fake):
 def test_close_closes_the_sdk_client(fake):
     GeminiModule(_BASE).close()
     assert fake.client_closed
+
+
+# --- voice listing -----------------------------------------------------------
+
+
+def test_list_voices_is_unsupported_and_points_to_the_documentation():
+    with pytest.raises(VoiceListingUnsupported, match=r"https://ai.google.dev/"):
+        GeminiModule.list_voices({"type": "gemini"})

@@ -26,6 +26,7 @@ playback (see specs/modules/deepgram.md).
 """
 
 import logging
+import math
 import queue
 import re
 import threading
@@ -35,12 +36,15 @@ from collections.abc import AsyncIterator, Callable, Iterator
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
+    Gender,
     PCMFeeder,
     TTSError,
     TTSModule,
     TTSOptions,
+    VoiceInfo,
     cut_at_boundary,
     finite_number,
+    normalize_gender,
     open_cancellable,
     optional_str,
     resolve_api_key,
@@ -353,6 +357,59 @@ class DeepgramModule(TTSModule):
                     f"{_LABEL}: handshake rejected: HTTP {status}"
                 ) from exc
             raise TTSError(f"Deepgram request failed: {exc}") from exc
+
+    @classmethod
+    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+        """The `tts` entries of `GET /v1/models`. The model is the voice, so
+        each entry selects it with `model`; its gender is one of the metadata
+        tags (`masculine` / `feminine`), the other tags, the accent and the
+        use cases become tags."""
+        try:
+            from deepgram import DeepgramClient
+        except ImportError as exc:
+            raise ConfigError(
+                "The 'deepgram' module requires the deepgram extra: "
+                "pip install tts-engine[deepgram]"
+            ) from exc
+        api_key = resolve_api_key(config, label=_LABEL)
+        timeout = finite_number(
+            config,
+            "timeout",
+            label=_LABEL,
+            default=_DEFAULT_TIMEOUT,
+            exclusive_minimum=0,
+        )
+        try:
+            response = DeepgramClient(api_key=api_key).manage.v1.models.list(
+                request_options={"timeout_in_seconds": math.ceil(timeout)}
+            )
+        except Exception as exc:
+            raise TTSError(f"{_LABEL}: voice listing failed: {exc}") from exc
+
+        voices: list[VoiceInfo] = []
+        for model in response.tts or ():
+            if not model.canonical_name:
+                continue
+            metadata = model.metadata
+            words = list(metadata.tags or ()) if metadata else []
+            genders: list[Gender | None] = [normalize_gender(word) for word in words]
+            gender: Gender | None = next((g for g in genders if g is not None), None)
+            tags = [word for word, g in zip(words, genders, strict=True) if g is None]
+            if metadata:
+                tags = ([metadata.accent] if metadata.accent else []) + tags
+                tags += list(metadata.use_cases or ())
+            voices.append(
+                VoiceInfo(
+                    id=model.canonical_name,
+                    name=model.name or model.canonical_name,
+                    config={"model": model.canonical_name},
+                    languages=tuple(model.languages or ()),
+                    gender=gender,
+                    age=(metadata.age if metadata else None) or None,
+                    tags=tuple(tags),
+                )
+            )
+        return voices
 
     @property
     def sample_rate(self) -> int:

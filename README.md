@@ -184,6 +184,22 @@ A module is a swappable synthesis backend. Its `type` selects an entry from the 
 
 Providers produce real speech. Fixture modules exist for tests and demos and are never a substitute for a provider.
 
+### Finding a voice
+
+`list_voices` returns the voices a backend offers, read from its own catalog. It takes the same `module` block as the engine but needs no voice, so the credentials are enough:
+
+```python
+from tts_engine import list_voices
+
+voices = list_voices({"type": "cartesia", "api_key_env": "CARTESIA_API_KEY"})
+men = [v for v in voices if v.gender == "male" and "en" in v.languages]
+config = {"type": "cartesia", "api_key_env": "CARTESIA_API_KEY", **men[0].config}
+```
+
+Each `VoiceInfo` carries an `id`, a `name`, and `config`, the module fields that select it (`{"voice_id": ...}`, `{"voice": ...}`, `{"model": ...}` for Deepgram, `{"voice": ..., "speaker": ...}` for a multi-speaker Piper voice). It also has `languages`, a `gender` normalized to `male` / `female` / `neutral` when the backend gives one, the backend's own `age` wording, a `description` and `tags`.
+
+The call blocks while it reaches the provider or downloads a catalog (qwen3 loads its model), so async code runs it with `asyncio.to_thread`. Gemini, OpenAI Realtime and `/v1/audio/speech` have no listing endpoint: for them it raises `VoiceListingUnsupported`, whose message links to the page that lists their voices. The fixtures list none.
+
 ### `pocket`
 
 The pocket module runs [kyutai-labs/pocket-tts](https://github.com/kyutai-labs/pocket-tts) in process. It needs no API key and makes no network request during synthesis after its model weights are available. The first use may download weights into the Hugging Face cache.
@@ -686,7 +702,7 @@ Paths are absolute or relative to `base_dir` (the config file's directory when l
 To add another synthesis backend:
 
 1. Create a package `src/tts_engine/modules/<name>/` (one folder per backend) with the class extending `TTSModule` from [`src/tts_engine/modules/base.py`](src/tts_engine/modules/base.py) in `module.py`, re-exported from its `__init__.py`. A provider with third-party dependencies should put them behind its own packaging extra and import them inside `__init__`, raising `ConfigError` when they are missing. Resolve file-path fields with `resolve_path(config, value)`.
-2. Implement `sample_rate`, `async synthesize_text(text, options, callback)` and `async synthesize_text_stream(text_stream, options, callback)`. The callback receives signed 16-bit little-endian mono PCM chunks. For the text stream, a backend with an incremental API forwards the pieces as they arrive; one that needs a whole prompt groups them into sentences with `segment_sentences` and synthesizes each sentence as soon as it is complete (see `tone`, `audiofile` and `pocket` for the shapes, and `run_text_stream_worker` in `base.py` for the async-source-to-worker-thread bridge).
+2. Implement `sample_rate`, `async synthesize_text(text, options, callback)`, `async synthesize_text_stream(text_stream, options, callback)` and the `list_voices(config)` classmethod (the backend's voices as `VoiceInfo`, or `VoiceListingUnsupported` naming where they are documented). The callback receives signed 16-bit little-endian mono PCM chunks. For the text stream, a backend with an incremental API forwards the pieces as they arrive; one that needs a whole prompt groups them into sentences with `segment_sentences` and synthesizes each sentence as soon as it is complete (see `tone`, `audiofile` and `pocket` for the shapes, and `run_text_stream_worker` in `base.py` for the async-source-to-worker-thread bridge).
 3. Register the class under a type name in [`src/tts_engine/modules/__init__.py`](src/tts_engine/modules/__init__.py).
 4. Select it with `{"module": {"type": "your-module", ...}}` in the engine configuration.
 

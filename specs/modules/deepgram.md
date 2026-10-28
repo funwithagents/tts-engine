@@ -356,6 +356,16 @@ Held socket, both APIs, probed on 2026-10-28 from the development Mac with scrat
 
   The `load s` column now includes the handshake. `aura-asteria-en` lost 4 of 96 runs to `DATA-0001` before the character budget, and none after it (rerun: 157 ms mean in the say/short cell). Over both asteria runs, 2 of 192 syntheses failed with `1011 NET-0000`, a Deepgram "internal server error". An 80-utterance held-socket probe did not reproduce it, so it is read as a sporadic server error. It fails that utterance, and the next one reconnects.
 
+## Voice listing
+
+`list_voices(config)` returns the `tts` entries of `GET /v1/models` (`DeepgramClient(api_key).manage.v1.models.list()`). It reads only `api_key` / `api_key_env` and `timeout`, and opens no socket.
+
+- **Selector:** Deepgram has no separate voice parameter, so each entry selects its voice with `{"model": <canonical_name>}`.
+- **Metadata:** the gender is the `masculine` / `feminine` word among the metadata tags; the other tags, the accent and the use cases become tags; the age is given as is (`Young Adult`, `Adult`, `Mature`).
+- **Languages:** the model's `languages`.
+- **Coverage:** entries without a canonical name are skipped. The endpoint lists the Aura voices and the Flux models it publishes there.
+- **Errors:** a failure is a `TTSError`.
+
 ## Open questions
 
 Deferrals only (design is settled):
