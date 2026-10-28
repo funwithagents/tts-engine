@@ -155,7 +155,7 @@ Per token, not per character: `gpt-realtime-2.1-mini` costs $20 per 1M output au
 
 ### Dependencies and lazy import
 
-Requires the `openai` extra: `pip install tts-engine[openai]` / `uv sync --extra openai`, declared as `openai = ["openai[realtime]>=3.37,<4"]` and added to the `all` aggregate. It is the SDK `openai-compatible` uses; the `realtime` extra adds `websockets` (`>=13,<16`), which the SDK's sync Realtime client needs. `<4`: the 3.x `realtime.connect` surface and the GA event types the module reads.
+Requires the `openai` extra: `pip install tts-engine[openai]` / `uv sync --extra openai`, declared as `openai = ["openai[realtime]>=3.37,<4"]` and added to the `all-modules` aggregate. It is the SDK `openai-compatible` uses; the `realtime` extra adds `websockets` (`>=13,<16`), which the SDK's sync Realtime client needs. `<4`: the 3.x `realtime.connect` surface and the GA event types the module reads.
 
 `modules/__init__.py` imports every module class eagerly, so `openai/module.py` imports nothing of the SDK at file top. `__init__` imports both before reading any config field:
 

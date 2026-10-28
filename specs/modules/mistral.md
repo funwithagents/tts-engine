@@ -102,7 +102,7 @@ Why not native: the speech endpoint takes one `input` per request. The `voxtral-
 
 ### Dependencies and lazy import
 
-Requires the `mistral` extra: `pip install tts-engine[mistral]` / `uv sync --extra mistral`, declared in `[project.optional-dependencies]` as `mistral = ["mistralai>=3.5,<4"]` and added to the `all` aggregate. `<4`: the SDK is Speakeasy-generated and its 2.x → 3.x major moved the client to `mistralai.client`; the module relies on that path. The SDK is pure Python (`httpx`, `pydantic`, OpenTelemetry API), no codec: a light extra.
+Requires the `mistral` extra: `pip install tts-engine[mistral]` / `uv sync --extra mistral`, declared in `[project.optional-dependencies]` as `mistral = ["mistralai>=3.5,<4"]` and added to the `all-modules` aggregate. `<4`: the SDK is Speakeasy-generated and its 2.x → 3.x major moved the client to `mistralai.client`; the module relies on that path. The SDK is pure Python (`httpx`, `pydantic`, OpenTelemetry API), no codec: a light extra.
 
 `modules/__init__.py` imports every module *class* eagerly to build `REGISTRY`, so `mistral/module.py` must **not** import `mistralai` at file top. The import happens inside `__init__`, before any config field is read:
 

@@ -2849,6 +2849,22 @@ all = [
     { name = "qwentts-cpp-python", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
     { name = "uvicorn" },
 ]
+all-modules = [
+    { name = "cartesia", extra = ["websockets"] },
+    { name = "deepgram-sdk" },
+    { name = "elevenlabs" },
+    { name = "google-genai" },
+    { name = "gradium" },
+    { name = "huggingface-hub" },
+    { name = "kokoro-onnx" },
+    { name = "miniaudio" },
+    { name = "mistralai" },
+    { name = "openai", extra = ["realtime"] },
+    { name = "piper-tts" },
+    { name = "pocket-tts" },
+    { name = "ptts" },
+    { name = "qwentts-cpp-python", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
+]
 cartesia = [
     { name = "cartesia", extra = ["websockets"] },
 ]
@@ -2864,6 +2880,16 @@ gemini = [
 ]
 gradium = [
     { name = "gradium" },
+]
+hosted-modules = [
+    { name = "cartesia", extra = ["websockets"] },
+    { name = "deepgram-sdk" },
+    { name = "elevenlabs" },
+    { name = "google-genai" },
+    { name = "gradium" },
+    { name = "miniaudio" },
+    { name = "mistralai" },
+    { name = "openai", extra = ["realtime"] },
 ]
 kokoro = [
     { name = "huggingface-hub" },
@@ -2929,10 +2955,12 @@ requires-dist = [
     { name = "ptts", marker = "extra == 'phonon'", specifier = ">=0.4.2,<0.6" },
     { name = "qwentts-cpp-python", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'qwen3'", specifier = ">=0.5,<0.6" },
     { name = "sounddevice" },
-    { name = "tts-engine", extras = ["elevenlabs", "pocket", "gradium", "phonon", "mistral", "deepgram", "gemini", "cartesia", "openai", "openai-compatible", "qwen3", "kokoro", "piper", "mcp"], marker = "extra == 'all'" },
+    { name = "tts-engine", extras = ["all-modules", "mcp"], marker = "extra == 'all'" },
+    { name = "tts-engine", extras = ["elevenlabs", "gradium", "mistral", "deepgram", "gemini", "cartesia", "openai", "openai-compatible"], marker = "extra == 'hosted-modules'" },
+    { name = "tts-engine", extras = ["hosted-modules", "pocket", "phonon", "qwen3", "kokoro", "piper"], marker = "extra == 'all-modules'" },
     { name = "uvicorn", marker = "extra == 'mcp'" },
 ]
-provides-extras = ["elevenlabs", "pocket", "gradium", "mistral", "deepgram", "gemini", "cartesia", "openai-compatible", "openai", "phonon", "qwen3", "kokoro", "piper", "mcp", "all"]
+provides-extras = ["elevenlabs", "pocket", "gradium", "mistral", "deepgram", "gemini", "cartesia", "openai-compatible", "openai", "phonon", "qwen3", "kokoro", "piper", "mcp", "hosted-modules", "all-modules", "all"]
 
 [package.metadata.requires-dev]
 dev = [

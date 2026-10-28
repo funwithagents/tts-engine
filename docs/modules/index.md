@@ -43,9 +43,12 @@ uv sync --no-dev --extra cartesia     # Cartesia cloud API (Sonic)
 uv sync --no-dev --extra openai       # OpenAI Realtime API
 uv sync --no-dev --extra openai-compatible  # OpenAI speech endpoint or an OpenAI-compatible server
 uv sync --no-dev --extra mcp          # MCP server (tts-engine-mcp)
+uv sync --no-dev --extra hosted-modules  # every hosted provider
+uv sync --no-dev --extra all-modules  # every provider, local and hosted
 uv sync --no-dev --all-extras         # every extra
 
 # For an installed package:
+pip install "tts-engine[hosted-modules]"   # every hosted provider
 pip install "tts-engine[pocket]"
 pip install "tts-engine[phonon]"
 pip install "tts-engine[qwen3]"
@@ -60,7 +63,8 @@ pip install "tts-engine[cartesia]"
 pip install "tts-engine[openai]"
 pip install "tts-engine[openai-compatible]"
 pip install "tts-engine[mcp,pocket]"
-pip install "tts-engine[all]"
+pip install "tts-engine[all-modules]"   # every provider
+pip install "tts-engine[all]"   # every extra, the MCP server included
 ```
 
 Selecting a provider whose extra is not installed fails at engine construction with a `ConfigError` naming the `pip install` command.

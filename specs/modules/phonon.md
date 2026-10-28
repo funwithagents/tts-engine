@@ -64,7 +64,7 @@ Validated at construction, raising `ConfigError` before the model is loaded:
 
 ### Dependencies and lazy import
 
-Requires the `phonon` extra: `pip install tts-engine[phonon]` / `uv sync --extra phonon`, declared as `phonon = ["ptts>=0.4.2,<0.6"]` and added to `all`. The upper bound is deliberate: `ptts` is pre-1.0 and has shipped nine releases since July 2026, and the module's calls are validated against 0.4.2 and 0.5.0 only (see "Validated against `ptts`"); each new minor is checked before the bound moves. No torch, no `espeak-ng`, no system package.
+Requires the `phonon` extra: `pip install tts-engine[phonon]` / `uv sync --extra phonon`, declared as `phonon = ["ptts>=0.4.2,<0.6"]` and added to `all-modules`. The upper bound is deliberate: `ptts` is pre-1.0 and has shipped nine releases since July 2026, and the module's calls are validated against 0.4.2 and 0.5.0 only (see "Validated against `ptts`"); each new minor is checked before the bound moves. No torch, no `espeak-ng`, no system package.
 
 **Platforms.** `ptts` 0.4.2 and 0.5.0 publish `cp39-abi3` wheels for manylinux and musllinux x86_64/aarch64, macOS arm64 and x86_64, and Windows x86_64/arm64; the x86 builds require AVX2. So the extra installs on Intel macOS, unlike `pocket` ([project.md](../project.md), "Platforms").
 

@@ -110,7 +110,7 @@ Why not native: `/v1/audio/speech` takes one `input` per request. (OpenAI's Real
 
 ### Dependencies and lazy import
 
-Requires the `openai-compatible` extra: `pip install tts-engine[openai-compatible]` / `uv sync --extra openai-compatible`, declared in `[project.optional-dependencies]` as `openai-compatible = ["openai>=3.37,<4"]` and added to the `all` aggregate. The `openai` (Realtime) extra pulls the same SDK, with its `realtime` extra. `<4`: a Stainless/Castiron-generated SDK whose majors move client surfaces; the module relies on 3.x's `with_streaming_response`. The SDK is pure Python (`httpx2`, `pydantic`, `jiter`, `anyio`): a light extra.
+Requires the `openai-compatible` extra: `pip install tts-engine[openai-compatible]` / `uv sync --extra openai-compatible`, declared in `[project.optional-dependencies]` as `openai-compatible = ["openai>=3.37,<4"]` and added to the `all-modules` aggregate. The `openai` (Realtime) extra pulls the same SDK, with its `realtime` extra. `<4`: a Stainless/Castiron-generated SDK whose majors move client surfaces; the module relies on 3.x's `with_streaming_response`. The SDK is pure Python (`httpx2`, `pydantic`, `jiter`, `anyio`): a light extra.
 
 `modules/__init__.py` imports every module *class* eagerly to build `REGISTRY`, so `openai_compatible/module.py` must **not** import `openai` at file top. The import happens inside `__init__`, before any config field is read:
 

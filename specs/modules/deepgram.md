@@ -257,7 +257,7 @@ The socket is **dropped** rather than reused when its state is unknown: a cancel
 
 ### Dependencies and lazy import
 
-Requires the `deepgram` extra: `pip install tts-engine[deepgram]` / `uv sync --extra deepgram`, declared in `[project.optional-dependencies]` as `deepgram = ["deepgram-sdk>=7.15,<8"]` and added to the `all` aggregate. The `<8` pin is there because the SDK is Fern-generated and the module relies on the 7.x `speak.v1` and `speak.v2` socket clients. The SDK is pure Python (`httpx`, `pydantic`, `websockets>=12`), so it is a light extra.
+Requires the `deepgram` extra: `pip install tts-engine[deepgram]` / `uv sync --extra deepgram`, declared in `[project.optional-dependencies]` as `deepgram = ["deepgram-sdk>=7.15,<8"]` and added to the `all-modules` aggregate. The `<8` pin is there because the SDK is Fern-generated and the module relies on the 7.x `speak.v1` and `speak.v2` socket clients. The SDK is pure Python (`httpx`, `pydantic`, `websockets>=12`), so it is a light extra.
 
 `modules/__init__.py` imports every module *class* eagerly to build `REGISTRY`, so `deepgram/module.py` must **not** import `deepgram` at file top. The import happens inside `__init__`, before any other config field is read; only `model` is looked at first, to pick the message type of its API:
 
