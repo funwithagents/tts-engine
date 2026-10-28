@@ -1,4 +1,6 @@
 entry,type,kind,n,errors,ttfa_p50_ms,ttfa_p90_ms,ttfa_stream_p50_ms,ttfa_long_text_p50_ms,max_gap_ms,speed_x,load_s,first_call_ttfa_ms,run
+kokoro/v1.0-int8,kokoro,local,20,0,253,260,253,294,347,20.6,1.3,282,20261028-124154
+kokoro/v1.0-fp16,kokoro,local,20,0,512,523,538,601,765,9.4,1.2,534,20261028-124154
 kokoro/v1.0-fp32,kokoro,local,20,0,527,541,534,626,774,8.9,1.01,542,20261027-145315
 phonon/31m-en@auto,phonon,local,20,0,13,15,13,14,7,28.5,0.31,23,20261027-145315
 phonon/40m-en@auto,phonon,local,20,0,14,15,15,16,5,28.3,5.38,30,20261027-180851
@@ -46,6 +48,10 @@ elevenlabs/eleven_turbo_v2_5,elevenlabs,hosted,20,0,186,295,217,273,167,16.5,0.2
 elevenlabs/eleven_v3,elevenlabs,hosted,20,0,606,770,580,506,1196,2.2,0.26,762,20261027-171640
 elevenlabs/eleven_v4,elevenlabs,hosted,20,0,670,723,825,697,339,4.8,0.26,813,20261027-171640
 elevenlabs/eleven_multilingual_v2,elevenlabs,hosted,20,0,1020,1024,426,1660,467,7.1,0.2,949,20261027-171640
+gemini/gemini-3.8-flash-lite-tts,gemini,hosted,20,0,521,608,515,675,,,0.27,555,20261028-123808
+gemini/gemini-3.8-flash-tts,gemini,hosted,20,3,691,991,651,909,874,3.2,0.32,667,20261028-123808
+gemini/gemini-3.1-flash-tts-preview,gemini,hosted,10,0,862,971,904,994,1240,2.5,0.29,1352,20261028-132417
+gemini/gemini-2.5-pro-preview-tts,gemini,hosted,10,3,5081,5951,5100,18153,7509,1.3,0.28,5671,20261028-132417
 gradium/gradium-tts-beta,gradium,hosted,20,0,154,203,171,154,94,2.0,0.06,190,20261027-145315
 gradium/default,gradium,hosted,20,0,165,195,177,167,95,1.9,0.05,259,20261027-145315
 mistral/voxtral-mini-tts-3-0,mistral,hosted,20,0,453,508,388,412,467,5.9,0.2,545,20261027-145315

@@ -258,7 +258,7 @@
         "default",
         "rate-limited"
       ],
-      "notes": "10 requests/min/model on Tier 1. The medium text is 3 requests per run (one per sentence), so a 20 s pause keeps it near 8 req/min; use --texts short to go faster."
+      "notes": "10 requests/min/model on Tier 1. The medium text is 3 requests per run (one per sentence), so a 20 s pause keeps it near 8 req/min; use --texts short to go faster. Quota: 10 requests/min and, on this key's tier, 100 requests per model per day (GenerateRequestsPerDayPerProjectPerModel, measured 2026-10-28); an entry costs warmup+runs times 8 requests (the medium text is 3 per run), so --runs 10 (88 requests) is the most one day allows per model."
     },
     {
       "id": "gemini/gemini-3.8-flash-lite-tts",
@@ -273,7 +273,7 @@
         "api",
         "rate-limited"
       ],
-      "notes": "Documented replacement for gemini-3.1-flash-tts-preview."
+      "notes": "Documented replacement for gemini-3.1-flash-tts-preview. Quota: 10 requests/min and, on this key's tier, 100 requests per model per day (GenerateRequestsPerDayPerProjectPerModel, measured 2026-10-28); an entry costs warmup+runs times 8 requests (the medium text is 3 per run), so --runs 10 (88 requests) is the most one day allows per model."
     },
     {
       "id": "gemini/gemini-3.1-flash-tts-preview",
@@ -289,7 +289,7 @@
         "rate-limited",
         "prev"
       ],
-      "notes": "Still in the docs' model table."
+      "notes": "Still in the docs' model table. Quota: 10 requests/min and, on this key's tier, 100 requests per model per day (GenerateRequestsPerDayPerProjectPerModel, measured 2026-10-28); an entry costs warmup+runs times 8 requests (the medium text is 3 per run), so --runs 10 (88 requests) is the most one day allows per model."
     },
     {
       "id": "gemini/gemini-2.5-pro-preview-tts",
@@ -304,7 +304,8 @@
         "api",
         "rate-limited",
         "prev"
-      ]
+      ],
+      "notes": "Quota: 10 requests/min and, on this key's tier, 100 requests per model per day (GenerateRequestsPerDayPerProjectPerModel, measured 2026-10-28); an entry costs warmup+runs times 8 requests (the medium text is 3 per run), so --runs 10 (88 requests) is the most one day allows per model."
     },
     {
       "id": "gemini/gemini-2.5-flash-preview-tts",
@@ -320,7 +321,7 @@
         "api",
         "rate-limited"
       ],
-      "notes": "Only in the SDK's literals, no longer in the docs' table; opt in to check whether it still answers."
+      "notes": "Only in the SDK's literals, no longer in the docs' table; opt in to check whether it still answers. Quota: 10 requests/min and, on this key's tier, 100 requests per model per day (GenerateRequestsPerDayPerProjectPerModel, measured 2026-10-28); an entry costs warmup+runs times 8 requests (the medium text is 3 per run), so --runs 10 (88 requests) is the most one day allows per model."
     },
     {
       "id": "cartesia/sonic-3.6",

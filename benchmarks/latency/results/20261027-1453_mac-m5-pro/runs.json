@@ -57,9 +57,7 @@
         "audiofile",
         "gradium/default",
         "gradium/gradium-tts-beta",
-        "kokoro/v1.0-fp16",
         "kokoro/v1.0-fp32",
-        "kokoro/v1.0-int8",
         "mistral/voxtral-mini-tts-2603",
         "mistral/voxtral-mini-tts-3-0",
         "phonon/31m-en@auto",
@@ -508,6 +506,176 @@
         "pocket/english_18m_2026-10+quantize",
         "pocket/english_2m_2026-10+quantize",
         "pocket/english_7m_2026-10+quantize"
+      ]
+    },
+    {
+      "run": "20261028-123808",
+      "started": "2026-10-28T12:38:08+0100",
+      "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+      "machine": "arm64",
+      "processor": "arm",
+      "python": "3.13.14",
+      "git_sha": "41c8ba5",
+      "versions": {
+        "tts-engine": "0.1.0",
+        "elevenlabs": "2.74.1",
+        "pocket-tts": "4.0.1",
+        "torch": "2.14.0",
+        "gradium": "0.6.4",
+        "ptts": "0.5.0",
+        "mistralai": "3.5.0",
+        "deepgram-sdk": "7.15.0",
+        "google-genai": "2.33.0",
+        "cartesia": "4.2.0",
+        "openai": "3.37.0",
+        "qwentts-cpp-python": "0.5.0",
+        "kokoro-onnx": "0.6.1",
+        "piper-tts": "1.8.0",
+        "onnxruntime": "1.31.0"
+      },
+      "settings": {
+        "runs": 20,
+        "warmup": 1,
+        "modes": [
+          "say",
+          "stream"
+        ],
+        "texts": [
+          "short",
+          "medium"
+        ],
+        "token_delay_ms": 0.0,
+        "pause_s": 0.5,
+        "run_timeout_s": 120.0,
+        "entry_timeout_s": 600.0,
+        "max_consecutive_failures": 3
+      },
+      "selection": {
+        "only": [
+          "gemini/*"
+        ],
+        "exclude": null,
+        "tags": null,
+        "exclude_tags": null,
+        "include_disabled": false
+      },
+      "supplies": [
+        "gemini/gemini-3.8-flash-lite-tts",
+        "gemini/gemini-3.8-flash-tts"
+      ]
+    },
+    {
+      "run": "20261028-124154",
+      "started": "2026-10-28T12:41:54+0100",
+      "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+      "machine": "arm64",
+      "processor": "arm",
+      "python": "3.13.14",
+      "git_sha": "41c8ba5",
+      "versions": {
+        "tts-engine": "0.1.0",
+        "elevenlabs": "2.74.1",
+        "pocket-tts": "4.0.1",
+        "torch": "2.14.0",
+        "gradium": "0.6.4",
+        "ptts": "0.5.0",
+        "mistralai": "3.5.0",
+        "deepgram-sdk": "7.15.0",
+        "google-genai": "2.33.0",
+        "cartesia": "4.2.0",
+        "openai": "3.37.0",
+        "qwentts-cpp-python": "0.5.0",
+        "kokoro-onnx": "0.6.1",
+        "piper-tts": "1.8.0",
+        "onnxruntime": "1.31.0"
+      },
+      "settings": {
+        "runs": 20,
+        "warmup": 1,
+        "modes": [
+          "say",
+          "stream"
+        ],
+        "texts": [
+          "short",
+          "medium"
+        ],
+        "token_delay_ms": 0.0,
+        "pause_s": 0.5,
+        "run_timeout_s": 120.0,
+        "entry_timeout_s": 600.0,
+        "max_consecutive_failures": 3
+      },
+      "selection": {
+        "only": [
+          "kokoro/v1.0-int8",
+          "kokoro/v1.0-fp16"
+        ],
+        "exclude": null,
+        "tags": null,
+        "exclude_tags": null,
+        "include_disabled": true
+      },
+      "supplies": [
+        "kokoro/v1.0-fp16",
+        "kokoro/v1.0-int8"
+      ]
+    },
+    {
+      "run": "20261028-132417",
+      "started": "2026-10-28T13:24:17+0100",
+      "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+      "machine": "arm64",
+      "processor": "arm",
+      "python": "3.13.14",
+      "git_sha": "41c8ba5",
+      "versions": {
+        "tts-engine": "0.1.0",
+        "elevenlabs": "2.74.1",
+        "pocket-tts": "4.0.1",
+        "torch": "2.14.0",
+        "gradium": "0.6.4",
+        "ptts": "0.5.0",
+        "mistralai": "3.5.0",
+        "deepgram-sdk": "7.15.0",
+        "google-genai": "2.33.0",
+        "cartesia": "4.2.0",
+        "openai": "3.37.0",
+        "qwentts-cpp-python": "0.5.0",
+        "kokoro-onnx": "0.6.1",
+        "piper-tts": "1.8.0",
+        "onnxruntime": "1.31.0"
+      },
+      "settings": {
+        "runs": 10,
+        "warmup": 1,
+        "modes": [
+          "say",
+          "stream"
+        ],
+        "texts": [
+          "short",
+          "medium"
+        ],
+        "token_delay_ms": 0.0,
+        "pause_s": 0.5,
+        "run_timeout_s": 120.0,
+        "entry_timeout_s": 600.0,
+        "max_consecutive_failures": 3
+      },
+      "selection": {
+        "only": [
+          "gemini/gemini-3.1-flash-tts-preview",
+          "gemini/gemini-2.5-pro-preview-tts"
+        ],
+        "exclude": null,
+        "tags": null,
+        "exclude_tags": null,
+        "include_disabled": false
+      },
+      "supplies": [
+        "gemini/gemini-2.5-pro-preview-tts",
+        "gemini/gemini-3.1-flash-tts-preview"
       ]
     }
   ]
