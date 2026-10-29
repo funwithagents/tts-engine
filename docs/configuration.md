@@ -83,6 +83,20 @@ gain_db     -7.6
 peak after  -7.6 dBFS
 ```
 
+**Running it.** The command is installed with the package, and it needs the extra of the module the config names (`piper` for a piper voice):
+
+- **In a project that depends on `tts-engine`:** `uv run tts-engine-level --config tts.json`.
+- **With nothing installed,** run it once through `uvx`, from the repository:
+
+  ```bash
+  uvx --from "tts-engine[piper] @ git+https://github.com/funwithagents/tts-engine" \
+      tts-engine-level --config engine.json
+  ```
+
+- **In a checkout of this repository:** `uv run tts-engine-level --config examples/config.tone.json`.
+
+A hosted module reads its key from the environment variable its `api_key_env` names, as in normal use, so set it in the shell that runs the command.
+
 Copy `gain_db` into the engine block next to the voice's `module`. The file can be an engine block or a whole MCP-server config. Any `gain_db` already in it is ignored while measuring, so the printed value replaces it.
 
 Options:

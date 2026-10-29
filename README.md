@@ -126,11 +126,22 @@ Start at [docs/index.md](docs/index.md), the documentation by task. The pages us
 | [docs/audio-sinks.md](docs/audio-sinks.md) | The default player, and capturing or routing the audio yourself |
 | [docs/agents-and-mcp.md](docs/agents-and-mcp.md) | `TTSTools` for an agent, and the MCP server |
 | [docs/choosing-a-backend-and-voice.md](docs/choosing-a-backend-and-voice.md) | Where each backend runs, how fast it answers, its voices, and how to audition them |
-| [docs/troubleshooting.md](docs/troubleshooting.md) | No audio, a missing extra, and each backend's own errors |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | No audio, a missing extra, a voice louder or quieter than the others, and each backend's own errors |
 
 ## Examples
 
 [examples/](examples/) holds one complete, runnable config per module (`config.<type>.json`), plus a variant for ElevenLabs v4 and one for Deepgram Flux. They are in the MCP server's format (an `engine` block and a `server` block), so with the `mcp` extra installed, `uv run tts-engine-mcp --config examples/config.tone.json` starts a server as is; the `engine` block is what a library config takes. They hold no secrets: a hosted module reads its key from the environment variable named in `api_key_env`.
+
+## Commands
+
+Installing the package also installs two commands:
+
+| Command | What it does |
+|---|---|
+| `tts-engine-level --config engine.json` | Measures how loud a voice speaks and prints the `gain_db` that brings it to a common level, so voices played one after another sound equally loud ([docs/configuration.md](docs/configuration.md#finding-the-value)) |
+| `tts-engine-mcp --config config.json` | Starts the MCP server, with the `mcp` extra ([docs/agents-and-mcp.md](docs/agents-and-mcp.md)) |
+
+Each needs the extra of the module its config names. Inside a project, run them with `uv run`.
 
 ## Latency benchmark
 
