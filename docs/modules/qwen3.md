@@ -2,7 +2,7 @@
 
 **Kind:** `local` · **Synthesis:** In-process model (Apple silicon) · **Install:** `tts-engine[qwen3]` · **Credentials:** None · **Voice listing:** yes
 
-The qwen3 module runs [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) (Apache-2.0) in process through [`qwentts-cpp-python`](https://github.com/andimarafioti/qwentts-cpp-python), bindings over the qwentts.cpp GGML engine. It needs no API key and no PyTorch, speaks ten languages with nine preset voices, and can design a voice from a text description. On an Apple-silicon Mac it runs on Metal, faster than real time: in the latency benchmark's result [`20261027-1453_mac-m5-pro`](../../benchmarks/latency/results/20261027-1453_mac-m5-pro/summary.md) (an Apple M5 Pro), the default 0.6B `Q8_0` model's first audio comes after 188 ms (median), 168–282 ms across the sizes and weight formats. The first use downloads the GGUF weights into the Hugging Face cache: about 1.3 GB for the default 0.6B model at `Q8_0`, about 2.3 GB for a 1.7B model.
+The qwen3 module runs [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) (Apache-2.0) in process through [`qwentts-cpp-python`](https://github.com/andimarafioti/qwentts-cpp-python), bindings over the qwentts.cpp GGML engine. It needs no API key and no PyTorch, speaks ten languages with nine preset voices, and can design a voice from a text description. On an Apple-silicon Mac it runs on Metal, faster than real time: in the latency benchmark's result [`20261027-1453_mac-m5-pro`](../../benchmarks/results/20261027-1453_mac-m5-pro/summary.md) (an Apple M5 Pro), the default 0.6B `Q8_0` model's first audio comes after 188 ms (median), 168–282 ms across the sizes and weight formats. The first use downloads the GGUF weights into the Hugging Face cache: about 1.3 GB for the default 0.6B model at `Q8_0`, about 2.3 GB for a 1.7B model.
 
 The extra installs on **Apple-silicon macOS 14+ only**, because PyPI has no CPU or Windows build of the runtime. On Linux with an NVIDIA GPU, glibc 2.39+ and the CUDA 12.8 runtime, install the CUDA wheel yourself (`pip install "qwentts-cpp-python>=0.5,<0.6"`); that path is not tested here.
 
@@ -45,4 +45,4 @@ The module emits mono PCM at 24,000 Hz and synthesizes one sentence per call, fo
 
 - [specs/modules/qwen3.md](../../specs/modules/qwen3.md): the module's contract: every field's validation, the audio format, cancellation, errors and what it was validated against.
 - [examples/config.qwen3.json](../../examples/config.qwen3.json): a complete MCP-server config.
-- [Latency benchmark](../../benchmarks/latency/RESULTS.md): measured time to first audio for each of its models.
+- [Latency benchmark](../../benchmarks/RESULTS.md): measured time to first audio for each of its models.

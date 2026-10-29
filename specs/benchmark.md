@@ -1,7 +1,7 @@
 ---
 code:
-  - benchmarks/latency/bench.py
-  - benchmarks/latency/matrix.json
+  - benchmarks/bench.py
+  - benchmarks/matrix.json
 tests:
   - tests/test_benchmark.py
 ---
@@ -12,7 +12,7 @@ tests:
 
 ## Purpose
 
-The engine exists for low-latency streaming playback, so the project needs one repeatable way to answer "how long does a caller wait between asking to speak and the first sound, per backend and model, and does the audio then keep up?". The benchmark in [`benchmarks/latency/`](../benchmarks/latency/) measures that at the engine's public API, the `TTSEngine` an embedder or the MCP `say` tool uses, not inside each SDK, so the numbers include everything a user of this library pays: sentence grouping, socket setup, the module's buffering policy. Its findings feed design decisions recorded in the module specs (a module default, a held socket, a live-row pin) and are kept in the repository as data, so a decision can be re-checked against the measurement that made it.
+The engine exists for low-latency streaming playback, so the project needs one repeatable way to answer "how long does a caller wait between asking to speak and the first sound, per backend and model, and does the audio then keep up?". The benchmark in [`benchmarks/`](../benchmarks/) measures that at the engine's public API, the `TTSEngine` an embedder or the MCP `say` tool uses, not inside each SDK, so the numbers include everything a user of this library pays: sentence grouping, socket setup, the module's buffering policy. Its findings feed design decisions recorded in the module specs (a module default, a held socket, a live-row pin) and are kept in the repository as data, so a decision can be re-checked against the measurement that made it.
 
 It is tooling, not part of the library: nothing in `src/` depends on it, it is not installed, and it is never run by CI (it needs keys, hardware and hours).
 
@@ -45,7 +45,7 @@ The matrix covers every model reachable through each module, the module default 
 
 ### Where the findings live
 
-`benchmarks/latency/RESULTS.md` is the human reading of the benches: what was measured when, what stood out, which decisions it fed, what remains to measure. It cites results and runs by id and is updated in the same change as a run that changes a conclusion; a merge that changes what a result covers updates its `description.md` in the same change too. A spec that relies on a measurement quotes the number and the **result** id, never a run id: runs are git-ignored, so only a committed result can be re-checked (`runs.json` inside it names the run behind each entry). A number no result holds any more (superseded, or measured before the benchmark existed) is quoted with its date and conditions instead.
+`benchmarks/RESULTS.md` is the human reading of the benches: what was measured when, what stood out, which decisions it fed, what remains to measure. It cites results and runs by id and is updated in the same change as a run that changes a conclusion; a merge that changes what a result covers updates its `description.md` in the same change too. A spec that relies on a measurement quotes the number and the **result** id, never a run id: runs are git-ignored, so only a committed result can be re-checked (`runs.json` inside it names the run behind each entry). A number no result holds any more (superseded, or measured before the benchmark existed) is quoted with its date and conditions instead.
 
 ## Open questions
 
@@ -53,4 +53,4 @@ Deferrals only (design is settled):
 
 1. **Cross-bench comparison.** A `--compare` listing the same entries across benches (a Mac bench against a Raspberry Pi bench) in one table. Until then each bench's summary is read on its own.
 2. **Charts.** TTFA by module, say against stream, from `summary.csv`.
-3. **A second benchmark kind** (quality, cost) would sit next to `latency/` under `benchmarks/` with its own README and, if it earns one, its own spec.
+3. **A second benchmark kind** (quality, cost) would get its own subfolder under `benchmarks/` with its own README and, if it earns one, its own spec; this one stays at the root as the project's benchmark.

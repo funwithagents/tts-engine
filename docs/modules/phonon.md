@@ -2,7 +2,7 @@
 
 **Kind:** `local` · **Synthesis:** In-process model · **Install:** `tts-engine[phonon]` · **Credentials:** None · **Voice listing:** yes
 
-The phonon module runs Gradium's open-weight [Phonon](https://gradium.ai/phonon) models in process through the [`ptts`](https://github.com/gradium-ai/xn-ptts) runtime. It needs no API key and no PyTorch, installs from wheels on Linux, macOS (Apple Silicon and Intel) and Windows, and runs much faster than real time, on a CPU too. In the latency benchmark's result [`20261027-1453_mac-m5-pro`](../../benchmarks/latency/results/20261027-1453_mac-m5-pro/summary.md) (an Apple M5 Pro), the default model's first audio comes after 13 ms (median) on Metal and 18 ms on the CPU. The first use downloads the model (about 160 MB) and any catalog voice into the Hugging Face cache.
+The phonon module runs Gradium's open-weight [Phonon](https://gradium.ai/phonon) models in process through the [`ptts`](https://github.com/gradium-ai/xn-ptts) runtime. It needs no API key and no PyTorch, installs from wheels on Linux, macOS (Apple Silicon and Intel) and Windows, and runs much faster than real time, on a CPU too. In the latency benchmark's result [`20261027-1453_mac-m5-pro`](../../benchmarks/results/20261027-1453_mac-m5-pro/summary.md) (an Apple M5 Pro), the default model's first audio comes after 13 ms (median) on Metal and 18 ms on the CPU. The first use downloads the model (about 160 MB) and any catalog voice into the Hugging Face cache.
 
 Install the optional dependencies:
 
@@ -45,4 +45,4 @@ The module emits mono PCM at 24,000 Hz. The default English model is Apache-2.0.
 
 - [specs/modules/phonon.md](../../specs/modules/phonon.md): the module's contract: every field's validation, the audio format, cancellation, errors and what it was validated against.
 - [examples/config.phonon.json](../../examples/config.phonon.json): a complete MCP-server config.
-- [Latency benchmark](../../benchmarks/latency/RESULTS.md): measured time to first audio for each of its models.
+- [Latency benchmark](../../benchmarks/RESULTS.md): measured time to first audio for each of its models.

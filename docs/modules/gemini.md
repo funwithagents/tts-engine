@@ -31,7 +31,7 @@ pip install "tts-engine[gemini]"
 
 The module emits mono PCM at 24,000 Hz. Text is sent verbatim as the prompt, so natural-language direction ("Say cheerfully: …") and inline tags pass through. A text stream is synthesized one request per sentence, which has two limitations:
 
-- Each sentence starts after a short pause, the time to first audio of one request: 691 ms median, 991 ms at p90 for `gemini-3.8-flash-tts` in the latency benchmark's result [`20261027-1453_mac-m5-pro`](../../benchmarks/latency/results/20261027-1453_mac-m5-pro/summary.md).
+- Each sentence starts after a short pause, the time to first audio of one request: 691 ms median, 991 ms at p90 for `gemini-3.8-flash-tts` in the latency benchmark's result [`20261027-1453_mac-m5-pro`](../../benchmarks/results/20261027-1453_mac-m5-pro/summary.md).
 - The Gemini API limits requests per model per minute (10 on Tier 1). A text stream of more than ~10 sentences within a minute fails partway with a `TTSError` reporting `429 RESOURCE_EXHAUSTED`; a higher usage tier raises the limit.
 
 ## Troubleshooting
@@ -45,4 +45,4 @@ The module emits mono PCM at 24,000 Hz. Text is sent verbatim as the prompt, so 
 
 - [specs/modules/gemini.md](../../specs/modules/gemini.md): the module's contract: every field's validation, the audio format, cancellation, errors and what it was validated against.
 - [examples/config.gemini.json](../../examples/config.gemini.json): a complete MCP-server config.
-- [Latency benchmark](../../benchmarks/latency/RESULTS.md): measured time to first audio for each of its models.
+- [Latency benchmark](../../benchmarks/RESULTS.md): measured time to first audio for each of its models.

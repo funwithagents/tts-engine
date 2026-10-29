@@ -1,4 +1,4 @@
-"""Unit tier for benchmarks/latency/bench.py: the pure parts (metric
+"""Unit tier for benchmarks/bench.py: the pure parts (metric
 derivation, statistics, matrix selection, run merging, results, summaries).
 No backend, no subprocess, no network."""
 
@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-_BENCH_PY = Path(__file__).resolve().parents[1] / "benchmarks" / "latency" / "bench.py"
+_BENCH_PY = Path(__file__).resolve().parents[1] / "benchmarks" / "bench.py"
 _spec = importlib.util.spec_from_file_location("latency_bench", _BENCH_PY)
 assert _spec and _spec.loader
 bench = importlib.util.module_from_spec(_spec)

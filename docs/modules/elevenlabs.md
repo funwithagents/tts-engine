@@ -47,4 +47,4 @@ The module emits mono PCM at 44,100 Hz.
 - [specs/modules/elevenlabs.md](../../specs/modules/elevenlabs.md): the module's contract: every field's validation, the audio format, cancellation, errors and what it was validated against.
 - [examples/config.elevenlabs.json](../../examples/config.elevenlabs.json): a complete MCP-server config, with the module's defaults.
 - [examples/config.elevenlabs-v4.json](../../examples/config.elevenlabs-v4.json): the same with a v4 model (the text-to-dialogue socket).
-- [Latency benchmark](../../benchmarks/latency/RESULTS.md): measured time to first audio for each of its models.
+- [Latency benchmark](../../benchmarks/RESULTS.md): measured time to first audio for each of its models.

@@ -26,13 +26,13 @@ Two trees:
 
 Usage (from the repo root; see README.md for the full option list):
 
-    uv run python benchmarks/latency/bench.py list
-    uv run python benchmarks/latency/bench.py run --only tone --runs 2
-    zsh -ic 'source ~/.zshrc >/dev/null 2>&1; uv run python benchmarks/latency/bench.py \
-        run --into benchmarks/latency/results/20261027-1453_mac-m5-pro --runs 20 --tags api'
-    uv run python benchmarks/latency/bench.py new mac-m5-pro --from-run benchmarks/latency/runs/<ts>
-    uv run python benchmarks/latency/bench.py merge benchmarks/latency/results/<result> benchmarks/latency/runs/<ts>
-    uv run python benchmarks/latency/bench.py summarize benchmarks/latency/results/<result>
+    uv run python benchmarks/bench.py list
+    uv run python benchmarks/bench.py run --only tone --runs 2
+    zsh -ic 'source ~/.zshrc >/dev/null 2>&1; uv run python benchmarks/bench.py \
+        run --into benchmarks/results/20261027-1453_mac-m5-pro --runs 20 --tags api'
+    uv run python benchmarks/bench.py new mac-m5-pro --from-run benchmarks/runs/<ts>
+    uv run python benchmarks/bench.py merge benchmarks/results/<result> benchmarks/runs/<ts>
+    uv run python benchmarks/bench.py summarize benchmarks/results/<result>
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ from tts_engine.modules import REGISTRY
 log = logging.getLogger("bench")
 
 HERE = Path(__file__).resolve().parent
-REPO_ROOT = HERE.parents[1]
+REPO_ROOT = HERE.parent
 DEFAULT_MATRIX = HERE / "matrix.json"
 DEFAULT_RUNS = HERE / "runs"
 DEFAULT_RESULTS = HERE / "results"
@@ -1162,7 +1162,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     run.add_argument(
         "--runs-dir",
         default=str(DEFAULT_RUNS),
-        help="where runs land (default benchmarks/latency/runs, git-ignored)",
+        help="where runs land (default benchmarks/runs, git-ignored)",
     )
     run.add_argument(
         "--into",

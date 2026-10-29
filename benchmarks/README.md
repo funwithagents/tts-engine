@@ -1,6 +1,6 @@
 # Latency benchmark — every module and model, through the public API
 
-How long does a caller wait between asking to speak and the first sound, per backend and model, and does the audio then keep up? `bench.py` drives every entry of `matrix.json` through `TTSEngine` with an injected timing sink, records every chunk's arrival, and derives time to first audio, time to first voice, stalls and real-time factor afterwards. Design: [specs/benchmark.md](../../specs/benchmark.md). Findings so far: [RESULTS.md](RESULTS.md). Numbers: `results/<result>/summary.md`.
+How long does a caller wait between asking to speak and the first sound, per backend and model, and does the audio then keep up? `bench.py` drives every entry of `matrix.json` through `TTSEngine` with an injected timing sink, records every chunk's arrival, and derives time to first audio, time to first voice, stalls and real-time factor afterwards. Design: [specs/benchmark.md](../specs/benchmark.md). Findings so far: [RESULTS.md](RESULTS.md). Numbers: `results/<result>/summary.md`.
 
 ## What is measured, and why this way
 
@@ -50,7 +50,7 @@ Design choices:
 | kokoro | `v1.0-fp32` (default), ○ `v1.0-int8`, ○ `v1.0-fp16` | `kokoro` extra | int8/fp16 exist only as GitHub release assets (`model-files-v1.1`): put them in `models/` (git-ignored) first, then `--include-disabled` |
 | piper | `en_US-ljspeech-medium` (default), `en_US-ljspeech-high`, `en_US-lessac-{low,medium,high}` | `piper` extra | same speaker across quality tiers isolates the model-size effect |
 
-To add or change a config, edit `matrix.json`. Each entry is `{id, type, config}`, where `config` is the `engine.module` block without `type`. Optional keys: `modes`, `pause_s`, `timeout_s`, `requires_env`, `enabled`, `tags`, `notes`. Relative paths resolve against the repo root. A new backend in the library gets its rows here ([AGENTS.md](../../AGENTS.md), "Adding a new TTS module").
+To add or change a config, edit `matrix.json`. Each entry is `{id, type, config}`, where `config` is the `engine.module` block without `type`. Optional keys: `modes`, `pause_s`, `timeout_s`, `requires_env`, `enabled`, `tags`, `notes`. Relative paths resolve against the repo root. A new backend in the library gets its rows here ([AGENTS.md](../AGENTS.md), "Adding a new TTS module").
 
 ## Runs and results
 
@@ -67,20 +67,20 @@ From the repo root. The API keys live in `~/.zshrc`, so source it (as for `tests
 
 ```bash
 # Dry check: which entries would run or skip, and why. Synthesizes nothing.
-zsh -ic 'source ~/.zshrc >/dev/null 2>&1; uv run python benchmarks/latency/bench.py list'
+zsh -ic 'source ~/.zshrc >/dev/null 2>&1; uv run python benchmarks/bench.py list'
 
 # Smoke test of the harness: the tone fixture, no network, no audio device, ~10 s
-uv run python benchmarks/latency/bench.py run --only tone --runs 2
+uv run python benchmarks/bench.py run --only tone --runs 2
 
 # A result to keep: create it from its first run, then merge runs into it as they come.
 # 1. the first run, unattended (kept awake, detached, logged), 20 runs per cell
-nohup caffeinate -i zsh -ic 'source ~/.zshrc >/dev/null 2>&1; uv run python benchmarks/latency/bench.py run --runs 20 --exclude "gemini/*"' > benchmarks/latency/pass.log 2>&1 &
+nohup caffeinate -i zsh -ic 'source ~/.zshrc >/dev/null 2>&1; uv run python benchmarks/bench.py run --runs 20 --exclude "gemini/*"' > benchmarks/pass.log 2>&1 &
 # 2. the result folder, dated from that run, with a description to fill in
-uv run python benchmarks/latency/bench.py new mac-m5-pro --from-run benchmarks/latency/runs/<timestamp>
-uv run python benchmarks/latency/bench.py merge benchmarks/latency/results/<result> benchmarks/latency/runs/<timestamp>
+uv run python benchmarks/bench.py new mac-m5-pro --from-run benchmarks/runs/<timestamp>
+uv run python benchmarks/bench.py merge benchmarks/results/<result> benchmarks/runs/<timestamp>
 # 3. later runs merge on completion (latest completed measurement of an entry wins)
-zsh -ic 'source ~/.zshrc >/dev/null 2>&1; uv run python benchmarks/latency/bench.py run --into benchmarks/latency/results/<result> --runs 20 --only "gemini/*"'
-... bench.py run --into benchmarks/latency/results/<result> --runs 20 --only "openai/*"   # after a module change
+zsh -ic 'source ~/.zshrc >/dev/null 2>&1; uv run python benchmarks/bench.py run --into benchmarks/results/<result> --runs 20 --only "gemini/*"'
+... bench.py run --into benchmarks/results/<result> --runs 20 --only "openai/*"   # after a module change
 
 # Quick pass: every module's default model only
 ... bench.py run --tags default
@@ -91,15 +91,15 @@ zsh -ic 'source ~/.zshrc >/dev/null 2>&1; uv run python benchmarks/latency/bench
 ... bench.py run --tags api --runs 10 --modes stream --texts medium
 
 # Rebuild a result's summary (or a single run's, for a look before merging)
-uv run python benchmarks/latency/bench.py summarize benchmarks/latency/results/<result>
-uv run python benchmarks/latency/bench.py summarize benchmarks/latency/runs/<timestamp>
+uv run python benchmarks/bench.py summarize benchmarks/results/<result>
+uv run python benchmarks/bench.py summarize benchmarks/runs/<timestamp>
 ```
 
 **Stopping and resuming.** Every run's record is appended to the run's `raw.jsonl` the moment it completes, and an entry gets a `done` record when its worker finishes, so nothing measured is ever lost:
 
-- clean stop: `touch benchmarks/latency/runs/<timestamp>/STOP` — the running entry finishes, the summary is written (and the run merged if `--into` was given), the script exits;
+- clean stop: `touch benchmarks/runs/<timestamp>/STOP` — the running entry finishes, the summary is written (and the run merged if `--into` was given), the script exits;
 - immediate stop: Ctrl-C, or `kill <pid>` of the `bench.py` parent (`pkill -f "bench.py run"` kills parent and worker together) — the current entry is dropped and recorded as `interrupted`;
-- resume: `bench.py run --resume benchmarks/latency/runs/<timestamp>` — same settings and selection (read back from `env.json`), entries with a `done` record are kept, the others run again from scratch (a half-measured entry's partial records are discarded first, so it is never counted twice). Merge it again afterwards: a re-merged run replaces its earlier contribution.
+- resume: `bench.py run --resume benchmarks/runs/<timestamp>` — same settings and selection (read back from `env.json`), entries with a `done` record are kept, the others run again from scratch (a half-measured entry's partial records are discarded first, so it is never counted twice). Merge it again afterwards: a re-merged run replaces its earlier contribution.
 
 `run` options: `--only` / `--exclude` (id globs), `--tags` / `--exclude-tags`, `--runs` (5), `--warmup` (1), `--modes say stream`, `--texts short medium`, `--token-delay-ms` (0; e.g. 30 for LLM pacing), `--pause-s` (0.5), `--run-timeout-s` (120), `--entry-timeout-s` (600: the load/download allowance; each run adds `run_timeout_s` + pause to the entry's budget, so it scales with `--runs`), `--include-disabled`, `--into`, `--resume`, `--runs-dir`.
 
