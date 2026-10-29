@@ -52,7 +52,7 @@ Both public config dataclasses expose the **same symmetric trio**, layered file 
 **`base_dir`** is the directory relative file paths inside the config resolve against (the same idea as wica's `AgentConfig`/`WicaConfig` loaders). A dict or a JSON string has no location of its own, so `from_dict`/`from_json` take it as an optional keyword (`str | Path | None`); `from_json_file` supplies it from the config file's own directory, so a config file's relative paths are bound to where the file lives, not to the process working directory. With `base_dir=None`, relative paths are left as given and resolve against the working directory when used. How it reaches the module is described under "`engine.module` block" below.
 
 - `MCPServerConfig.*` parse the **top-level** `{engine, server}` object (the `--config` file). `from_dict` requires `engine` (delegated to `TTSEngineConfig.from_dict`) and defaults `server`.
-- `TTSEngineConfig.*` parse an **`engine` block on its own** — an object of `module` + `player`, *not* wrapped under an `"engine"` key. Use these when a library caller keeps an engine config in its own dict/string/file.
+- `TTSEngineConfig.*` parse an **`engine` block on its own** — an object of `module`, `player` and `gain_db`, *not* wrapped under an `"engine"` key. Use these when a library caller keeps an engine config in its own dict/string/file.
 
 There is no free `load_config` function — `MCPServerConfig.from_json_file(path)` replaces it.
 
@@ -60,12 +60,13 @@ There is no free `load_config` function — `MCPServerConfig.from_json_file(path
 
 ## `engine` block → `TTSEngineConfig`
 
-Everything needed to build a `TTSEngine`: the TTS module config and the audio player config.
+Everything needed to build a `TTSEngine`: the TTS module config, the audio player config and the engine's output gain.
 
 ```json
 "engine": {
   "module": { "type": "elevenlabs", "api_key": "...", "voice_id": "...", ... },
-  "player": { "device": null }
+  "player": { "device": null },
+  "gain_db": -3.5
 }
 ```
 
@@ -73,14 +74,15 @@ Everything needed to build a `TTSEngine`: the TTS module config and the audio pl
 @dataclass
 class TTSEngineConfig:
     module: dict[str, Any]  # raw module block, including "type"; parsed by the module
-    player: PlayerConfig
+    player: PlayerConfig = field(default_factory=PlayerConfig)
+    gain_db: float = 0.0
 ```
 
 `TTSEngine(engine_config)` consumes this (see [architecture.md](architecture.md)).
 
 #### `TTSEngineConfig.from_dict(engine_block)`
 
-The sanctioned in-memory constructor: it takes the raw `engine` block (the object of `module` + `player`, **not** the whole file) and returns a validated `TTSEngineConfig`, running the structural validation in "Validation rules". `MCPServerConfig.from_dict` delegates its `data["engine"]` here, and `TTSEngineConfig.from_json` / `from_json_file` delegate here after parsing — so every path shares one validation path.
+The sanctioned in-memory constructor: it takes the raw `engine` block (the object of `module`, `player` and `gain_db`, **not** the whole file) and returns a validated `TTSEngineConfig`, running the structural validation in "Validation rules". `MCPServerConfig.from_dict` delegates its `data["engine"]` here, and `TTSEngineConfig.from_json` / `from_json_file` delegate here after parsing — so every path shares one validation path.
 
 ```python
 engine_cfg = TTSEngineConfig.from_dict({"module": {"type": "elevenlabs", ...}, "player": {"device": null}})
@@ -120,6 +122,16 @@ class PlayerConfig:
     device: str | int | None = None
 ```
 
+### `engine.gain_db`
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `gain_db` | finite number, −60 to +24 | no | `0` | Static gain applied to every PCM chunk the engine feeds its sink, in decibels: negative attenuates, positive amplifies. `0` leaves the audio bit-exact. |
+
+Each provider, model and voice delivers speech at its own level, and the level is stable for a given module configuration (ten voices of ten modules, measured on one robot's voice tour, spread over 8.3 dB of active speech level, heard as a volume jump at every handover). An engine holds exactly one module configuration, so a gain on the engine block is a gain per voice: a consumer that plays several engines through one output (a demo comparing voices, one voice per character) levels them by giving each engine its own `gain_db`. It sits on the engine block rather than in each module because the engine applies it to the one PCM format every module emits: no module gains a field, a new module gets it for free, and it covers `say`, `say_stream`, the default player, an injected sink, the tools and the MCP server alike. How the engine applies it (passthrough at `0`, clipping reported) is in [architecture.md](architecture.md), "Output gain"; the value is found with `tts-engine-level` or `tts_engine.level.calibrate` ([level.md](level.md)), or on the voice audition's page for every candidate at once ([voice-audition.md](voice-audition.md), "Level and gain").
+
+It is a **gain** in dB, not a `volume`: it is relative, so it composes with the device's volume, a mixer or a provider's own knob, and a level difference measured in dB is its value as it is. The range is wide enough for any real correction (−60 dB is near silence) and bounded so a typo such as `75` for `-7.5` fails loudly instead of clipping everything.
+
 ---
 
 ## `server` block → `ServerConfig`
@@ -154,7 +166,8 @@ There is no `logging` config block. The log level is set at the process level by
     },
     "player": {
       "device": null
-    }
+    },
+    "gain_db": -3.5
   },
   "server": {
     "host": "127.0.0.1",
@@ -174,4 +187,9 @@ The `engine`-block rules below are enforced by `TTSEngineConfig.from_dict` and s
 - `engine.module.type` must be a non-empty string. Registry membership is validated later by `load_module` during `TTSEngine` construction, avoiding a config↔module import cycle and allowing callers to register custom modules before constructing the engine. Unknown values still raise `ConfigError` before an engine is created.
 - `engine.module.base_dir`, when present, must be a non-empty string. It is absolutized / filled in per the `base_dir` rules above; whether the directory exists is not checked here.
 - `engine.player.device` must be a string, an integer other than `bool`, or `null`.
+- `engine.gain_db`, when present, must be an `int` or `float` other than `bool`, finite (not `NaN` or an infinity) and within −60 to +24 inclusive; anything else raises `ConfigError` naming the field. It is stored as a `float`.
 - `server.host` must be a non-empty string; `server.port` must be an integer other than `bool` in range 1–65535.
+
+## Open questions
+
+- **Unknown engine-block keys.** `from_dict` ignores keys it does not know, in the engine block as in `server`. So a misspelt `gain_dB` is silently ignored, and a config carrying `gain_db` runs unlevelled, without an error, on a tts-engine older than the field. Rejecting unknown keys would catch both, at the cost of breaking configs that carry extra keys today (an embedder's own annotations); deferred as its own decision.

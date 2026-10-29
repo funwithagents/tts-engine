@@ -120,7 +120,7 @@ Start at [docs/index.md](docs/index.md), the documentation by task. The pages us
 
 | | |
 |---|---|
-| [docs/configuration.md](docs/configuration.md) | The engine block, the loaders, relative paths, the output device |
+| [docs/configuration.md](docs/configuration.md) | The engine block, the loaders, relative paths, the output device, the output gain |
 | [docs/modules/index.md](docs/modules/index.md) | Every module, with one page each |
 | [docs/streaming.md](docs/streaming.md) | Speaking an LLM response while it is generated |
 | [docs/audio-sinks.md](docs/audio-sinks.md) | The default player, and capturing or routing the audio yourself |
@@ -142,7 +142,7 @@ Start at [docs/index.md](docs/index.md), the documentation by task. The pages us
 
 ## Voice audition
 
-[tools/voice-audition/](tools/voice-audition/README.md) helps pick a voice: it builds a list of candidates from the backends' catalogs, has each one say the same sentence while measuring its time to first audio on your machine, and writes a page to listen to them one by one and mark each Yes, Maybe or No. It runs from a checkout; [its README](tools/voice-audition/README.md) has the commands, and [choosing a backend and a voice](docs/choosing-a-backend-and-voice.md) shows where it fits.
+[tools/voice-audition/](tools/voice-audition/README.md) helps pick a voice: it builds a list of candidates from the backends' catalogs, has each one say the same sentence while measuring its time to first audio on your machine and its level, and writes a page to listen to them one by one, mark each Yes, Maybe or No, and read the `gain_db` that levels it with the others. It runs from a checkout; [its README](tools/voice-audition/README.md) has the commands, and [choosing a backend and a voice](docs/choosing-a-backend-and-voice.md) shows where it fits.
 
 ## Feedback and contributions
 

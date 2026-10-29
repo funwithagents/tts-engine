@@ -10,7 +10,8 @@
   },
   "player": {
     "device": null
-  }
+  },
+  "gain_db": 0
 }
 ```
 
@@ -48,3 +49,60 @@ The optional `player.device` field selects the local output device: `null` uses 
 ```bash
 uv run python -c "import sounddevice; print(sounddevice.query_devices())"
 ```
+
+## Output gain
+
+Every provider, model and voice speaks at its own level: across ten voices of ten backends, the loudest is more than 8 dB above the quietest. An application that plays several engines through one output (a demo comparing voices, one voice per character, a voice the user picks from a list) hears that as a volume jump at every change. The optional `gain_db` field of the engine block sets one static gain for the engine, in decibels:
+
+```json
+{
+  "module": { "type": "piper", "voice": "en_US-ryan-medium" },
+  "gain_db": -7.6
+}
+```
+
+- **Negative attenuates, positive amplifies.** The default, `0`, leaves the audio exactly as the module produced it. The accepted range is −60 to +24.
+- **It applies to everything the engine plays:** `say` and `say_stream`, the local device and a custom sink, the agent tools and the MCP server. It adds no latency.
+- **A positive gain can clip** the loudest peaks. The engine then logs one warning per utterance with the number of clipped samples; lower `gain_db` until it stops.
+- **It is per engine, so per voice.** The level depends on the module's whole configuration (voice, model, speed or emotion settings), so give each engine configuration its own value.
+
+### Finding the value
+
+`tts-engine-level` has the engine say three built-in sentences, measures the level of the voice's speech with the silences left out, and prints the `gain_db` that brings it to a target level (−22 dBFS by default). Nothing is played, and a hosted module is billed for the three sentences.
+
+```bash
+tts-engine-level --config engine.json
+```
+
+```text
+measured    15.9 s of audio
+level       -14.4 dBFS (active speech)
+peak        +0.0 dBFS
+target      -22.0 dBFS
+gain_db     -7.6
+peak after  -7.6 dBFS
+```
+
+Copy `gain_db` into the engine block next to the voice's `module`. The file can be an engine block or a whole MCP-server config. Any `gain_db` already in it is ignored while measuring, so the printed value replaces it.
+
+Options:
+- `--target` aims at another level (−60 to 0).
+- `--text` (repeatable) says your own texts instead of the built-in ones.
+- `--json` prints the result as one object.
+
+A warning says when the gain would clip the peaks, or when the field's range stops it short of the target. A target below most voices keeps every gain negative, so nothing clips: use the same target for every voice you level against each other.
+
+The same calibration from Python, for an application that sets up its voices itself:
+
+```python
+from tts_engine import TTSEngineConfig
+from tts_engine.level import calibrate
+
+config = TTSEngineConfig(module={"type": "pocket", "voice": "alba"})
+result = await calibrate(config, target_dbfs=-22)
+print(result.level.level_dbfs, result.suggestion.gain_db)
+```
+
+`tts_engine.level` also has `measure_level(pcm, sample_rate)` for audio you already have, as int16 mono PCM, and `suggest_gain(level, target_dbfs)` to turn a level into the gain.
+
+To compare many voices first, the [voice audition tool](../tools/voice-audition/README.md) shows each candidate's level and suggested `gain_db` on its page, with a target you can change there. It uses the same measure.

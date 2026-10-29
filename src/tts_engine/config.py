@@ -6,6 +6,7 @@ which parses JSON and delegates to `from_dict(data)`, which validates and builds
 """
 
 import json
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,27 @@ def _loads(text: str, source: str | None = None) -> Any:
         raise ConfigError(f"Invalid JSON{where}: {e}") from e
 
 
+# Bounds of `engine.gain_db`: wide enough for any level correction, narrow
+# enough that a typo (75 for -7.5) fails instead of clipping everything.
+GAIN_DB_MIN = -60.0
+GAIN_DB_MAX = 24.0
+
+
+def _gain_db(engine_block: dict[str, Any]) -> float:
+    raw = engine_block.get("gain_db", 0.0)
+    if (
+        isinstance(raw, bool)
+        or not isinstance(raw, (int, float))
+        or not math.isfinite(raw)
+        or not (GAIN_DB_MIN <= raw <= GAIN_DB_MAX)
+    ):
+        raise ConfigError(
+            f"'engine.gain_db' must be a finite number from {GAIN_DB_MIN:g} to "
+            f"{GAIN_DB_MAX:g} dB, got {raw!r}"
+        )
+    return float(raw)
+
+
 @dataclass
 class PlayerConfig:
     device: str | int | None = None
@@ -55,6 +77,7 @@ class ServerConfig:
 class TTSEngineConfig:
     module: dict[str, Any]  # raw module block, including "type"; parsed by the module
     player: PlayerConfig = field(default_factory=PlayerConfig)
+    gain_db: float = 0.0  # static gain on the PCM fed to the sink; 0 = bit-exact
 
     @classmethod
     def from_dict(
@@ -64,7 +87,8 @@ class TTSEngineConfig:
 
         Structural validation: ``engine`` must be an object, ``module`` an object,
         ``module.type`` a non-empty string, ``module.base_dir`` (if present) a
-        non-empty string, and ``player.device`` a str | int (not bool) | None.
+        non-empty string, ``player.device`` a str | int (not bool) | None, and
+        ``gain_db`` (if present) a finite number within GAIN_DB_MIN–GAIN_DB_MAX.
 
         The ``module`` block is carried through as a raw dict; ``type`` and
         ``base_dir`` are the only two keys the loader touches. ``base_dir`` (the
@@ -106,7 +130,11 @@ class TTSEngineConfig:
                 "'engine.player.device' must be a string, an integer, or null"
             )
 
-        return cls(module=module, player=PlayerConfig(device=device))
+        return cls(
+            module=module,
+            player=PlayerConfig(device=device),
+            gain_db=_gain_db(engine_block),
+        )
 
     @classmethod
     def from_json(
@@ -118,7 +146,7 @@ class TTSEngineConfig:
     @classmethod
     def from_json_file(cls, path: str) -> "TTSEngineConfig":
         """Build a TTSEngineConfig from a JSON file whose top-level object is the
-        engine block (``module`` + ``player``), not a whole MCP-server config.
+        engine block (``module``, ``player``, ``gain_db``), not a whole MCP-server config.
         Relative paths in the module block resolve against the file's directory."""
         return cls.from_dict(
             _loads(_read(path), source=path), base_dir=Path(path).resolve().parent

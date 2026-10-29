@@ -270,3 +270,30 @@ def test_config_error_is_a_value_error():
     assert issubclass(ConfigError, ValueError)
     with pytest.raises(ValueError, match="engine.module.type"):
         TTSEngineConfig.from_dict({"module": {}})
+
+
+# --- engine.gain_db ----------------------------------------------------------
+
+
+def test_gain_db_defaults_to_zero_and_reaches_every_constructor(tmp_path):
+    assert TTSEngineConfig.from_dict({"module": {"type": "x"}}).gain_db == 0.0
+
+    data = {**VALID, "engine": {**VALID["engine"], "gain_db": -7.5}}
+    assert MCPServerConfig.from_json_file(_write(tmp_path, data)).engine.gain_db == -7.5
+    assert TTSEngineConfig.from_json(json.dumps(data["engine"])).gain_db == -7.5
+
+
+@pytest.mark.parametrize("value", [-60, -6.02, 0, 24.0])
+def test_gain_db_accepts_a_number_within_range(value):
+    cfg = TTSEngineConfig.from_dict({"module": {"type": "x"}, "gain_db": value})
+    assert cfg.gain_db == value
+    assert isinstance(cfg.gain_db, float)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [True, "-6", None, float("nan"), float("inf"), float("-inf"), -60.1, 24.1, 75],
+)
+def test_gain_db_invalid_rejected(bad):
+    with pytest.raises(ConfigError, match="engine.gain_db"):
+        TTSEngineConfig.from_dict({"module": {"type": "x"}, "gain_db": bad})

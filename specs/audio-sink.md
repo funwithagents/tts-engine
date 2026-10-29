@@ -54,7 +54,7 @@ Identical to the module→callback contract ([tts-module-interface.md](tts-modul
 | Channels | 1 (mono) |
 | Sample rate | The active module's declared `sample_rate` (Hz) |
 
-The engine does **not** resample or reformat. A sink whose destination wants another rate/dtype (e.g. float32 at 48 kHz) converts internally, and reads the source rate from `TTSEngine.sample_rate` (below).
+The engine does **not** resample or reformat. A sink whose destination wants another rate/dtype (e.g. float32 at 48 kHz) converts internally, and reads the source rate from `TTSEngine.sample_rate` (below). The one change the engine may make is to the sample *values*: a non-zero `gain_db` scales them before `feed`, in the same format, at the same rate and in the same chunks ([architecture.md](architecture.md), "Output gain"). At the default `0` the sink receives the module's bytes unchanged.
 
 ### Call discipline
 

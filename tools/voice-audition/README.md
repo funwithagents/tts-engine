@@ -1,6 +1,6 @@
 # Voice audition — hear candidate voices side by side and pick some
 
-Choosing a voice means hearing candidates from several backends say the same sentence, and knowing how long each one makes the listener wait. `audition.py` builds a candidate list from the backends' own catalogs (`list_voices`), renders every candidate through `TTSEngine` while measuring its time to first audio, and writes a static page to listen to them one by one and mark each Yes, Maybe or No. Design, file format and cache rules: [specs/voice-audition.md](../../specs/voice-audition.md).
+Choosing a voice means hearing candidates from several backends say the same sentence, and knowing how long each one makes the listener wait. `audition.py` builds a candidate list from the backends' own catalogs (`list_voices`), renders every candidate through `TTSEngine` while measuring its time to first audio and its level, and writes a static page to listen to them one by one and mark each Yes, Maybe or No. Design, file format and cache rules: [specs/voice-audition.md](../../specs/voice-audition.md).
 
 It is tooling run from a checkout: not installed with the package, never run by CI.
 
@@ -27,8 +27,8 @@ The hand-picked [`examples/demo.json`](examples/demo.json) has two or three conv
 | Command | What it does | Options |
 |---|---|---|
 | `new OUT.json` | Lists each module's voices and writes an audition file; refuses to overwrite without `--force` | `--text` (required), `--module` (a type, or a JSON module block for another key variable, a `model` or an endpoint; repeatable), `--gender`, `--language` (repeatable), `--query`, `--limit` (per module), `--keep-unknown`, `--name`, `--force` |
-| `render AUDITION.json` | Renders the candidates into `<audition>.audition/` (`index.html`, `results.json`, `samples/<id>.wav`) | `--runs` (measured runs after the warm-up, default 3), `--only ID…`, `--out`, `--force` |
-| `page AUDITION.json` | Rebuilds `index.html` from the existing results, rendering nothing | `--out` |
+| `render AUDITION.json` | Renders the candidates into `<audition>.audition/` (`index.html`, `results.json`, `samples/<id>.wav`) | `--runs` (measured runs after the warm-up, default 3), `--only ID…`, `--out`, `--force`, `--target` (dBFS the suggested `gain_db` aims at, default −22) |
+| `page AUDITION.json` | Rebuilds `index.html` from the existing results, rendering nothing | `--out`, `--target` |
 
 Good to know:
 
@@ -37,5 +37,6 @@ Good to know:
 - **A missing key or extra skips a candidate**, it does not fail the pass. A catalog without gender or language metadata (phonon, pocket, piper, qwen3) only passes those filters with `--keep-unknown`. Gemini, OpenAI Realtime and `openai-compatible` cannot list voices: write their candidates by hand.
 - **Hosted renders are paid calls**: one warm-up plus `--runs` syntheses of the sentence per candidate.
 - **The latency shown is this machine's**, three runs on one sentence after a warm-up. It is not comparable to the controlled numbers of the [latency benchmark](../../benchmarks/latency/RESULTS.md) and is not meant to be quoted.
+- **The level column** is the RMS of each sample's active speech (silences left out), with the engine `gain_db` that brings the voice to the target and the peak after it, flagged when it would clip. It is `tts_engine.level`'s measure, the one `tts-engine-level` uses. Change the target on the page; put the chosen value in the engine block next to the voice ([docs/configuration.md](../../docs/configuration.md#output-gain)).
 - **Choices stay in the browser** (`localStorage`); export them as `<name>-choices.json` to keep them, share them or hand them to an agent, and import them on another machine.
 - **Rendered folders (`*.audition/`) are git-ignored**; an `api_key` in a config is never shown on the page.
