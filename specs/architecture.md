@@ -243,7 +243,7 @@ await engine.say_stream(llm_tokens())
 | `audio.py` | Defines the `AudioSink` Protocol; `AudioPlayer` (its default impl): `sounddevice` output stream management, lazily imported; provider-agnostic consumer of the fixed PCM format contract |
 | `config.py` | Parse and validate config; produce typed config dataclasses (`MCPServerConfig`, `TTSEngineConfig`, …), each with a `from_dict`/`from_json`/`from_json_file` constructor trio |
 | `level.py` | Speech level and `gain_db` calibration: `measure_level`, `suggest_gain`, `calibrate` (an engine with a capture sink and no gain); see [level.md](level.md) |
-| `calibrate_cli.py` | The `tts-engine-calibrate` entry point over `calibrate`; configures logging for its process |
+| `level_cli.py` | The `tts-engine-level` entry point over `calibrate`; configures logging for its process |
 | `mcp_server_cli.py` | Argument parsing (`--config`, `--log-level`); imports the MCP stack inside `main`, exiting with the `pip install tts-engine[mcp]` hint when the extra is absent; `MCPServerConfig.from_json_file` → `TTSEngine(cfg.engine)` → MCP server; `logging.basicConfig(level=args.log_level)`; starts uvicorn |
 | `__init__.py` | Public API surface: re-exports `TTSEngine`, `TTSEngineConfig`, `MCPServerConfig`, `TTSTools`, `AudioSink` |
 

@@ -1,4 +1,4 @@
-"""`tts-engine-calibrate` entry point: config → engine → measured level →
+"""`tts-engine-level` entry point: config → engine → measured level →
 the suggested `gain_db` for a target level (see tts_engine.level)."""
 
 import argparse
@@ -29,7 +29,7 @@ def _load(path: str) -> TTSEngineConfig:
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="tts-engine-calibrate",
+        prog="tts-engine-level",
         description="Measure an engine configuration's speech level and suggest"
         " the gain_db that brings it to a target level. The texts are"
         " synthesized (a hosted module makes paid calls); nothing is played.",

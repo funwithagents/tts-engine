@@ -1,11 +1,11 @@
 ---
 code:
   - src/tts_engine/level.py
-  - src/tts_engine/calibrate_cli.py
+  - src/tts_engine/level_cli.py
   - pyproject.toml
 tests:
   - tests/test_level.py
-  - tests/test_calibrate_cli.py
+  - tests/test_level_cli.py
 ---
 
 # Level and gain calibration
@@ -20,7 +20,7 @@ The engine block's `gain_db` ([configuration.md](configuration.md), "`engine.gai
 - a pure measure over PCM;
 - the gain suggestion that follows from it;
 - `calibrate`, which renders texts through an engine and does both;
-- the `tts-engine-calibrate` command over `calibrate`.
+- the `tts-engine-level` command over `calibrate`.
 
 The voice audition tool ([voice-audition.md](voice-audition.md), "Level and gain") uses the same measure on the samples it already renders, so a level read on its page and one printed by the command are the same number.
 
@@ -84,12 +84,12 @@ Construction and synthesis errors propagate as the engine raises them (`ConfigEr
 
 `tts_engine.level` is the public import path. Its names are not re-exported from the package top level, which stays the engine's surface ([architecture.md](architecture.md), "Public API").
 
-### The command: `tts-engine-calibrate`
+### The command: `tts-engine-level`
 
-Declared in `[project.scripts]` as `tts-engine-calibrate = "tts_engine.calibrate_cli:main"`, installed with the base package, and needing no extra beyond the configured module's own.
+Declared in `[project.scripts]` as `tts-engine-level = "tts_engine.level_cli:main"`, installed with the base package, and needing no extra beyond the configured module's own.
 
 ```bash
-tts-engine-calibrate --config engine.json [--target -22] [--text TEXT …] [--json] [--log-level LEVEL]
+tts-engine-level --config engine.json [--target -22] [--text TEXT …] [--json] [--log-level LEVEL]
 ```
 
 - **`--config`** is an engine block, or a whole MCP-server config whose `engine` block it takes: a top-level object with an `engine` key is read as the latter. Relative paths resolve against the file's directory, as `from_json_file` does. Only the engine block is validated.

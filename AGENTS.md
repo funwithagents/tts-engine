@@ -36,7 +36,7 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | [mcp.py](src/tts_engine/mcp.py) | MCP server over StreamableHTTP, thin wrapper over the tools (behind the `mcp` extra) | [mcp-server.md](specs/mcp-server.md) |
 | [mcp_server_cli.py](src/tts_engine/mcp_server_cli.py) | `tts-engine-mcp` entry point: args → config → engine → server; configures logging for its process | [mcp-server.md](specs/mcp-server.md), [project.md](specs/project.md) |
 | [level.py](src/tts_engine/level.py) | Speech level and `gain_db` calibration: `measure_level` (active RMS and peak of PCM), `suggest_gain` (the gain to a target level), `calibrate` (render texts through an engine, then both) | [level.md](specs/level.md) |
-| [calibrate_cli.py](src/tts_engine/calibrate_cli.py) | `tts-engine-calibrate` entry point: config → `calibrate` → the measured level and the suggested `gain_db`; configures logging for its process | [level.md](specs/level.md), [project.md](specs/project.md) |
+| [level_cli.py](src/tts_engine/level_cli.py) | `tts-engine-level` entry point: config → `calibrate` → the measured level and the suggested `gain_db`; configures logging for its process | [level.md](specs/level.md), [project.md](specs/project.md) |
 | `modules/` | TTS backends: `base.py` (`TTSModule` ABC with `synthesize_text` / `synthesize_text_stream` and the `list_voices` classmethod, `VoiceInfo`, `VoiceListingUnsupported`, `TTSOptions`, `TTSError`, `resolve_path`, the `run_cancellable_worker` / `run_text_stream_worker` / `segment_sentences` / `feed_with_lookahead` helpers), `__init__.py` (`REGISTRY`, `load_module`, `list_voices`), then one package per backend, its class in `<backend>/module.py` and re-exported from `<backend>/__init__.py` — providers `elevenlabs/`, `pocket/`, `gradium/`, `phonon/`, `mistral/`, `deepgram/`, `gemini/`, `cartesia/`, `openai/`, `openai_compatible/`, `qwen3/`, `kokoro/`, `piper/` (each behind an extra) and fixtures `tone/`, `audiofile/` | [tts-module-interface.md](specs/tts-module-interface.md), plus one `specs/modules/<backend>.md` spec per backend |
 | `__init__.py` | Public API surface — re-exports `TTSEngine`, `TTSEngineConfig`, `MCPServerConfig`, `TTSTools`, `AudioSink`, `list_voices`, `VoiceInfo`, `VoiceListingUnsupported`; package glue, exempt from the map check | — |
 
@@ -114,6 +114,6 @@ uv run pyright
 uv run pytest                                # Unit tier only
 uv run pytest tests-e2e/                     # Opt-in live tier (see Testing for the key-sourcing invocation)
 uv run tts-engine-mcp --config examples/config.tone.json   # Start the MCP server on the tone fixture
-uv run tts-engine-calibrate --config examples/config.tone.json   # Measure a config's level and suggest its gain_db (see specs/level.md)
+uv run tts-engine-level --config examples/config.tone.json   # Measure a config's level and suggest its gain_db (see specs/level.md)
 uv run python tools/voice-audition/audition.py render tools/voice-audition/examples/demo.json   # Render a voice audition (see specs/voice-audition.md)
 ```

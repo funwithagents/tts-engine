@@ -1,11 +1,11 @@
-"""Tests for the `tts-engine-calibrate` entry point, on the `tone` fixture:
+"""Tests for the `tts-engine-level` entry point, on the `tone` fixture:
 the config forms it reads, its output, its exit codes."""
 
 import json
 
 import pytest
 
-from tts_engine.calibrate_cli import _LOG_FORMAT, main
+from tts_engine.level_cli import _LOG_FORMAT, main
 
 
 def _write(tmp_path, data, name="engine.json"):
@@ -18,7 +18,7 @@ _TONE = {"module": {"type": "tone", "seconds_per_char": 0.01}}
 
 
 def test_prints_the_level_and_the_suggested_gain(tmp_path, capsys, mocker):
-    basic_config = mocker.patch("tts_engine.calibrate_cli.logging.basicConfig")
+    basic_config = mocker.patch("tts_engine.level_cli.logging.basicConfig")
     assert main(["--config", _write(tmp_path, _TONE), "--log-level", "INFO"]) == 0
 
     basic_config.assert_called_once_with(level="INFO", format=_LOG_FORMAT)

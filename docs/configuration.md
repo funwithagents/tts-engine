@@ -68,10 +68,10 @@ Every provider, model and voice speaks at its own level: across ten voices of te
 
 ### Finding the value
 
-`tts-engine-calibrate` has the engine say three built-in sentences, measures the level of the voice's speech with the silences left out, and prints the `gain_db` that brings it to a target level (−22 dBFS by default). Nothing is played, and a hosted module is billed for the three sentences.
+`tts-engine-level` has the engine say three built-in sentences, measures the level of the voice's speech with the silences left out, and prints the `gain_db` that brings it to a target level (−22 dBFS by default). Nothing is played, and a hosted module is billed for the three sentences.
 
 ```bash
-tts-engine-calibrate --config engine.json
+tts-engine-level --config engine.json
 ```
 
 ```text
