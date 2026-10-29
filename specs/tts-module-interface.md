@@ -427,13 +427,16 @@ def finite_number(
     config: dict, field: str, *, label: str, default: float | None = None,
     minimum: float | None = None, maximum: float | None = None, exclusive_minimum: float | None = None,
 ) -> float | None: ...
+def positive_int(config: dict, field: str, *, label: str) -> int | None: ...
 ```
 
 - **`resolve_api_key`** is the credential rule every API-backed module follows ([elevenlabs-module.md](modules/elevenlabs.md), "API key resolution", is its reference description): a non-empty literal `api_key` wins; otherwise the environment variable named by `api_key_env` is read, and its being unset or empty is a `ConfigError` naming the variable; a non-string value for either field, or neither yielding a key, is a `ConfigError`. The key is always passed to the SDK explicitly, so no SDK's own environment fallback is in force.
 - **`optional_str`** reads a field that may be absent: absent gives `default` (`None` without one); present must be a non-empty string (`"<label> '<field>' must be a non-empty string"`). The **absent-versus-`null` policy** the modules chose is kept: with no `default`, an explicit `null` counts as absent; with a `default`, an explicit `null` is rejected like any other non-string, since a value the config names is validated and only a missing one is defaulted. A module that wants `null` to mean "the default" with a default of its own writes `optional_str(...) or DEFAULT` (qwen3, kokoro); a module whose field must not be `null` even without a default keeps its own `"field" in config` check (pocket's `voice`, audiofile's `default_file`).
 - **`finite_number`** reads a numeric field with the same absent/`null`/`default` policy, as a `float`: a present value must be an `int` or `float` (a bool is rejected rather than treated as an integer), **finite** (`NaN` and the infinities, which JSON's parser accepts, would otherwise reach a sampler or a timeout) and within the bounds given (`minimum`/`maximum` inclusive, `exclusive_minimum` exclusive); the message names the field and the bounds (`"... must be a finite number > 0"`, `"... between 0 and 1"`). The `timeout` field of every API-backed module is `finite_number(config, "timeout", label=..., default=30.0, exclusive_minimum=0)`.
 
-Integer fields (`sample_rate`, `max_tokens`, `max_buffer_delay_ms`) and enumerations (`device`, `language`) stay with the module: each has its own rule and there is one of each.
+- **`positive_int`** reads an integer field that may be absent, with the same absent/`null` policy and no default: a present value must be an `int` ≥ 1, a bool, a float or a string being rejected (`"<label> '<field>' must be an integer >= 1"`). It is the rule of the local modules' `threads` field (phonon, kokoro, piper), added once that rule existed three times.
+
+Integer fields with a rule of their own (`sample_rate`, `max_tokens`, `max_buffer_delay_ms`) and enumerations (`device`, `language`) stay with the module: there is one of each.
 
 ## Shared PCM helpers
 

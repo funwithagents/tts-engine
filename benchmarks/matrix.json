@@ -652,6 +652,32 @@
       ]
     },
     {
+      "id": "phonon/31m-en@cpu+t2",
+      "type": "phonon",
+      "config": {
+        "device": "cpu",
+        "threads": 2
+      },
+      "tags": [
+        "local",
+        "threads"
+      ],
+      "notes": "threads=2: half a four-core Pi, the other half left to its daemon. Compare with phonon/31m-en@cpu."
+    },
+    {
+      "id": "phonon/31m-en@cpu+t4",
+      "type": "phonon",
+      "config": {
+        "device": "cpu",
+        "threads": 4
+      },
+      "tags": [
+        "local",
+        "threads"
+      ],
+      "notes": "threads=4: a Pi's whole CPU at this host's per-core speed. Compare with phonon/31m-en@cpu."
+    },
+    {
       "id": "phonon/31m-en@cpu+q8_0",
       "type": "phonon",
       "config": {
@@ -662,6 +688,34 @@
         "local"
       ],
       "notes": "ptts quants: f32, q8_0, q8_1, q8k, q6k, q5_0, q5_1, q5k, q4_0, q4_1, q4k (CPU only)."
+    },
+    {
+      "id": "phonon/31m-en@cpu+q8_0+t2",
+      "type": "phonon",
+      "config": {
+        "device": "cpu",
+        "quant": "q8_0",
+        "threads": 2
+      },
+      "tags": [
+        "local",
+        "threads"
+      ],
+      "notes": "threads=2: half a four-core Pi, the other half left to its daemon. Compare with phonon/31m-en@cpu+q8_0."
+    },
+    {
+      "id": "phonon/31m-en@cpu+q8_0+t4",
+      "type": "phonon",
+      "config": {
+        "device": "cpu",
+        "quant": "q8_0",
+        "threads": 4
+      },
+      "tags": [
+        "local",
+        "threads"
+      ],
+      "notes": "threads=4: a Pi's whole CPU at this host's per-core speed. Compare with phonon/31m-en@cpu+q8_0."
     },
     {
       "id": "phonon/31m-en@cpu+q4k",
@@ -915,6 +969,32 @@
       "notes": "Pinned fastrtc/kokoro-onnx files (kokoro-v1.0.onnx 325 MB fp32 + voices-v1.0.bin)."
     },
     {
+      "id": "kokoro/v1.0-fp32+t2",
+      "type": "kokoro",
+      "config": {
+        "voice": "af_heart",
+        "threads": 2
+      },
+      "tags": [
+        "local",
+        "threads"
+      ],
+      "notes": "threads=2: half a four-core Pi, the other half left to its daemon. Compare with kokoro/v1.0-fp32."
+    },
+    {
+      "id": "kokoro/v1.0-fp32+t4",
+      "type": "kokoro",
+      "config": {
+        "voice": "af_heart",
+        "threads": 4
+      },
+      "tags": [
+        "local",
+        "threads"
+      ],
+      "notes": "threads=4: a Pi's whole CPU at this host's per-core speed. Compare with kokoro/v1.0-fp32."
+    },
+    {
       "id": "kokoro/v1.0-int8",
       "type": "kokoro",
       "config": {
@@ -927,6 +1007,38 @@
         "manual-download"
       ],
       "notes": "Download kokoro-v1.0.int8.onnx (114 MB) from the thewh1teagle/kokoro-onnx GitHub release 'model-files-v1.1' into models/ first."
+    },
+    {
+      "id": "kokoro/v1.0-int8+t2",
+      "type": "kokoro",
+      "config": {
+        "voice": "af_heart",
+        "model": "benchmarks/models/kokoro-v1.0.int8.onnx",
+        "threads": 2
+      },
+      "enabled": false,
+      "tags": [
+        "local",
+        "manual-download",
+        "threads"
+      ],
+      "notes": "threads=2: half a four-core Pi, the other half left to its daemon. Compare with kokoro/v1.0-int8."
+    },
+    {
+      "id": "kokoro/v1.0-int8+t4",
+      "type": "kokoro",
+      "config": {
+        "voice": "af_heart",
+        "model": "benchmarks/models/kokoro-v1.0.int8.onnx",
+        "threads": 4
+      },
+      "enabled": false,
+      "tags": [
+        "local",
+        "manual-download",
+        "threads"
+      ],
+      "notes": "threads=4: a Pi's whole CPU at this host's per-core speed. Compare with kokoro/v1.0-int8."
     },
     {
       "id": "kokoro/v1.0-fp16",
@@ -955,6 +1067,32 @@
       "notes": "Module default (public domain)."
     },
     {
+      "id": "piper/en_US-ljspeech-medium+t2",
+      "type": "piper",
+      "config": {
+        "voice": "en_US-ljspeech-medium",
+        "threads": 2
+      },
+      "tags": [
+        "local",
+        "threads"
+      ],
+      "notes": "threads=2: half a four-core Pi, the other half left to its daemon. Compare with piper/en_US-ljspeech-medium."
+    },
+    {
+      "id": "piper/en_US-ljspeech-medium+t4",
+      "type": "piper",
+      "config": {
+        "voice": "en_US-ljspeech-medium",
+        "threads": 4
+      },
+      "tags": [
+        "local",
+        "threads"
+      ],
+      "notes": "threads=4: a Pi's whole CPU at this host's per-core speed. Compare with piper/en_US-ljspeech-medium."
+    },
+    {
       "id": "piper/en_US-ljspeech-high",
       "type": "piper",
       "config": {
@@ -975,6 +1113,32 @@
         "local"
       ],
       "notes": "lessac low/medium/high: same speaker, quality tier is the only variable (16 kHz for low, 22.05 kHz otherwise)."
+    },
+    {
+      "id": "piper/en_US-lessac-low+t2",
+      "type": "piper",
+      "config": {
+        "voice": "en_US-lessac-low",
+        "threads": 2
+      },
+      "tags": [
+        "local",
+        "threads"
+      ],
+      "notes": "threads=2: half a four-core Pi, the other half left to its daemon. Compare with piper/en_US-lessac-low."
+    },
+    {
+      "id": "piper/en_US-lessac-low+t4",
+      "type": "piper",
+      "config": {
+        "voice": "en_US-lessac-low",
+        "threads": 4
+      },
+      "tags": [
+        "local",
+        "threads"
+      ],
+      "notes": "threads=4: a Pi's whole CPU at this host's per-core speed. Compare with piper/en_US-lessac-low."
     },
     {
       "id": "piper/en_US-lessac-medium",

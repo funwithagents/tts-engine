@@ -35,6 +35,7 @@ All fields go under the `engine.module` block alongside `"type": "phonon"` (see 
 | `quant` | non-empty string | no | — (the checkpoint's own weights) | Weight format, e.g. `"q8_0"`, `"q4k"` — one of `ptts.available_quants()`. Quantization is **CPU-only** in `ptts`: combined with a GPU device it is rejected at construction. |
 | `temperature` | finite number ≥ 0 | no | — (`ptts` default 0.3) | Sampling temperature. |
 | `cfg_coef` | number | no | — (checkpoint default) | Classifier-free-guidance coefficient (voice adherence). |
+| `threads` | integer ≥ 1 | no | — (`ptts`'s own choice: every core) | CPU threads for tensor ops, passed to `ptts.set_num_threads` before the model loads. Caps the cores a synthesis keeps busy, at some latency and real-time factor ("Validated against `ptts`" has the numbers; the benchmark's `+t2` / `+t4` entries measure the trade per model). **Process-wide**: `ptts` sizes its pool once, at the first model load, so the first Phonon model built in a process decides for the others (see "Construction"). |
 
 There is no API key (`api_key` / `api_key_env`): weights come from the Hugging Face Hub. The gated checkpoints (below) read the standard `HF_TOKEN` environment variable through the Hub client; the module adds nothing for it.
 
@@ -56,6 +57,7 @@ Validated at construction, raising `ConfigError` before the model is loaded:
 
 - `language` — if present, one of `en`, `fr`, `de`, `es`, `pt`, `none` (defaults to `en` when absent).
 - `model`, `voice`, `device`, `quant` — if present, non-empty strings.
+- `threads` — if present, an integer ≥ 1 (`positive_int`; booleans, floats and strings rejected).
 - `temperature` — if present, a finite number ≥ 0; `cfg_coef` — if present, a finite number. Booleans are rejected rather than treated as numbers, and so are `NaN` and the infinities (which JSON's parser accepts): they would reach the sampler.
 
 `ptts` validates the rest against the actual build and checkpoint, and the module turns those rejections into `ConfigError` as well (see "Error handling"): an unavailable device, a GPU device with a quantization, an unknown voice name, a missing local file.
@@ -84,11 +86,11 @@ except ImportError as exc:
 The engine reads `sample_rate` once at construction, so the model is loaded in `__init__`, after the lazy import and validation:
 
 1. Build the keyword arguments from the fields that were set: `lang` always (the configured or default language; `None` for `"none"`); `model` (the `hf://` value as-is, or the `resolve_path` result as a string); `device` unless `"auto"`; `quant`, `temperature`, `cfg_coef` when set; `voice` when it is a **name**.
-2. `self._tts = ptts.TTS(**kwargs)`. Weights download to the Hugging Face cache on first use (~160 MB for the default checkpoint); afterwards construction takes a fraction of a second. Passing a voice name here downloads that catalog voice now, so an unknown name fails at construction rather than on the first utterance.
+2. `ptts.set_num_threads(threads)` when `threads` is set (a rejection → `ConfigError`), then `self._tts = ptts.TTS(**kwargs)`. Weights download to the Hugging Face cache on first use (~160 MB for the default checkpoint); afterwards construction takes a fraction of a second. Passing a voice name here downloads that catalog voice now, so an unknown name fails at construction rather than on the first utterance.
 3. A `.safetensors` voice is registered after loading: `self._tts.add_voice(name, path)`, where `name` is the file's stem.
 4. Record `self._voice` (the name, the file's stem, or `None` for the default) and `self._sample_rate = int(self._tts.sample_rate)`.
 
-`ptts.set_num_threads` is process-global and only takes effect before the first model load, so v1 does not expose it (see "Open questions").
+`ptts.set_num_threads` is process-global and sizes a pool built once, at the first model load: a later call is accepted (`get_num_threads()` even reports the new value) but has no effect. The module therefore calls it before its own load, which honors `threads` for the usual one-engine process, and remembers in a module-level variable the count the first Phonon model of the process was loaded with (`None` for the default); a later Phonon module in the same process with a different `threads` (or none) still passes its value on and logs a **warning** that it cannot apply, naming both counts. Nothing in `ptts` reports the pool's actual size, so this is the only detection possible.
 
 ### Sample rate
 
@@ -175,7 +177,8 @@ Registered in `REGISTRY` as `"phonon"` ([modules/__init__.py](../../src/tts_engi
 
 - **Unit (`tests/modules/test_phonon.py`)** — `ptts` is **faked** (a stub module with a `TTS` class injected through `monkeypatch.setitem(sys.modules, "ptts", ...)`), so the fast tier never loads a model or touches the Hub. The fake `TTS` records its constructor kwargs and `add_voice` calls, and its `stream()` returns a fake `AudioStream` (context manager + iterator over given float32 arrays) that records `close`. Covers:
   - `ConfigError` with the install hint when `ptts` is unimportable;
-  - validation: `language` unknown or not a string (absent defaults to `lang="en"`), empty `model`/`voice`/`device`/`quant`, negative, boolean or non-finite `temperature`, boolean or non-finite `cfg_coef`;
+  - validation: `language` unknown or not a string (absent defaults to `lang="en"`), empty `model`/`voice`/`device`/`quant`, negative, boolean or non-finite `temperature`, boolean or non-finite `cfg_coef`, `threads` zero, boolean, float or string;
+  - `threads` reaches `set_num_threads` before the constructor runs and stays out of its kwargs; unset, the setter is not called; a setter rejection → `ConfigError`; a second module in the process with another count (or none) warns, naming both, while the same count is silent (the fake records the setter's calls; the fixture resets the module's pool memory, as a fresh process would);
   - kwargs: only set fields are passed, `"auto"` omits `device`, `"none"` passes `lang=None`, an `hf://` model passes through, a relative local model resolves against `base_dir`;
   - a relative `.safetensors` voice resolves against `base_dir`, is registered with `add_voice(stem, path)`, and is not passed to the constructor; a voice name is;
   - library rejections (`ValueError`, `NotImplementedError`, `LookupError`, `FileNotFoundError` from the fake constructor) → `ConfigError`; another exception → `TTSError`;
@@ -198,6 +201,7 @@ Confirmed on macOS arm64 (Apple M5 Pro) for 0.4.2, then re-checked point by poin
 - `sample_rate == 24000`; `stream()` yields 1-D `float32` chunks of 1920 samples; `synth()` returns one 1-D `float32` array.
 - Errors: unknown language → `ValueError`; `device="cuda"` → `NotImplementedError`; `quant` with `device="metal"` → `NotImplementedError`; unknown voice → `LookupError`; missing voice file → `FileNotFoundError`; unknown Hub repo → `OSError`; empty text → `ValueError`.
 - `AudioStream.close()` returned in ~2 ms mid-generation (~5 ms on 0.5.0); an exception raised inside `with tts.stream(...)` propagates unchanged.
+- `set_num_threads(2)` before the first load, then the default checkpoint on `device="cpu"`, one short sentence on an Apple M5 Pro: 3.44 s of audio in 0.11 s wall at 184 % of a core through `ptts` directly (about 570 % and 0.10 s unset); through the engine, whose process adds its own threads, 238 % at 2 threads and 282 % at 4 against 542 % unset, in 73–74 ms against 99 ms; `set_num_threads` after a load is accepted and `get_num_threads()` reports the new value, but a 15-thread pool stayed at ~570 % of a core (hence the warning rather than a check); `set_num_threads(0)` is accepted silently (hence the module's own ≥ 1 rule).
 - A `TTS` built on one thread streams correctly from another, and the GIL stays available to other threads while it decodes.
 
 What 0.5.0 changed, per its release notes, and why none of it reaches the module: small-model (Pocket) architectures the module does not select by default (a `model` value can name one); a Mimi decoder context change that makes output "slightly" differ (the tests assert PCM, never content); catalogs now keep the checkpoint's own voices when a catalog is added, and a local catalog's voice files must sit inside its folder (the module adds no catalog, only a single `.safetensors` file through `add_voice`); Rust-only breaking changes. `DEFAULT_MODEL` and `DEFAULT_VOICE_CATALOG` kept their 0.4.2 revisions, so the default checkpoint and voices are byte-identical.
@@ -216,7 +220,7 @@ Not verified on Linux or Windows: the device list of those wheels (assumed `["cp
 
 Deferrals only (design is settled):
 
-1. **Thread count.** `ptts.set_num_threads(n)` sizes a process-global pool once, before the first model load; a per-module field cannot honor it reliably when several engines share a process. Add a field later if wanted, documented as process-global.
+1. **Thread count across engines.** `threads` is honored by the first Phonon model loaded in a process and only warned about afterwards ("Construction"); if several engines with different counts in one process ever matter, `ptts` would need a per-model setting. The field itself exists since 2026-10-29, documented as process-global.
 2. **More `ptts` knobs.** `seed`, `eos_threshold`, `rewrites`, `conditions` and a custom `voice_catalog` are omitted from v1; each is a plain constructor keyword, so adding one is a config field plus a validation rule.
 3. **Voice cloning.** `clone_voice(name, pcm)` exists but the default checkpoint cannot clone; revisit if a public cloning checkpoint ships.
 4. **Text-in streaming.** If `ptts` gains an incremental text API in Python (the Rust server already streams text), `synthesize_text_stream` can switch from sentence grouping to a native stream.

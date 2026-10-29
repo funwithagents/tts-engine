@@ -46,6 +46,7 @@ All fields go under the `engine.module` block alongside `"type": "piper"` (see [
 | `voice` | non-empty string | no | `"en_US-ljspeech-medium"` | A voice key from `rhasspy/piper-voices`: `<locale>-<name>-<quality>`, e.g. `en_GB-alba-medium`, `fr_FR-siwis-medium`, `de_DE-thorsten-high`. Mutually exclusive with `model`. |
 | `model` | non-empty string | no | — | A voice model outside the catalog: `hf://owner/repo/path/to/voice.onnx[@revision]`, or a local `.onnx` path resolved with `resolve_path`. Its config is the file of the same name plus `.json` (Piper's own convention), fetched or resolved the same way. Mutually exclusive with `voice`. |
 | `speaker` | non-empty string or integer ≥ 0 | no | — (the voice's default speaker) | For a multi-speaker voice (`en_US-libritts_r-medium` has 2306, `en_US-arctic-medium` 18): a speaker name from the voice's `speaker_id_map`, or a speaker index below its `num_speakers`. Rejected for a single-speaker voice. |
+| `threads` | integer ≥ 1 | no | — (onnxruntime's own choice: the physical cores) | Intra-op threads of the onnxruntime session, the cores one synthesis can keep busy. Fewer threads cost latency: two threads doubled the default voice's time for one sentence on an Apple M5 Pro (46 → 93 ms) at 197 % of a core instead of 710 %; the benchmark's `+t2` / `+t4` entries measure the trade per voice. With it set the module builds the voice on its own session (see "Construction"). |
 | `speed` | number in [0.5, 2.0] | no | — (the voice's own pace) | Speaking rate multiplier. Piper's control is `length_scale` (phoneme duration, > 1 is slower), so the module passes `length_scale = voice.config.length_scale / speed`, keeping the voice's tuned pace at 1.0. Same field and range as kokoro. |
 
 There is no API key and no device field (see "Device"). Unset fields are omitted from `SynthesisConfig`, so the voice's own defaults apply.
@@ -65,6 +66,7 @@ At construction, before any download:
 - `voice`, `model` — if present, non-empty strings, and not both. A `voice` must have the `<locale>-<name>-<quality>` shape (three non-empty parts separated by `-`); an `hf://` `model` must have an owner, a repository and a file path, as in kokoro.
 - `speaker` — if present, a non-empty string or an integer ≥ 0 (booleans rejected).
 - `speed` — if present, a number in [0.5, 2.0] (booleans rejected).
+- `threads` — if present, an integer ≥ 1 (`positive_int`; booleans, floats and strings rejected).
 
 After the lazy import, before any download: a local `model` path, or its `.json` beside it, that is not an existing file → `ConfigError` naming the path. (`PiperVoice.load` opens the JSON first and raises `FileNotFoundError` for it, but a missing `.onnx` surfaces as onnxruntime's `NoSuchFile`.)
 
@@ -107,7 +109,7 @@ The package's module is named `piper`, the same as this repository's `tts_engine
 After validation and the lazy import:
 
 1. Resolve the `.onnx` and `.onnx.json` to local paths: `hf_hub_download` for a catalog voice or an `hf://` `model` (both files from the same repository and revision), `resolve_path` for a local `model`.
-2. `voice = PiperVoice.load(onnx_path, config_path=json_path)`: ~0.7–1.0 s.
+2. Without `threads`, `voice = PiperVoice.load(onnx_path, config_path=json_path)`: ~0.7–1.0 s. With it, the module does what `load` does, on a session sized to `threads`: the JSON read into `PiperConfig.from_dict`, `onnxruntime.InferenceSession(onnx_path, sess_options=options, providers=["CPUExecutionProvider"])` with `options.intra_op_num_threads = threads`, and `PiperVoice(config=..., session=...)`, whose other fields keep their defaults (the bundled espeak-ng data, no alignments).
 3. Post-load checks (above), then build the `SynthesisConfig` from the set fields only: `speaker_id` (an index, or the name looked up in `speaker_id_map`), `length_scale` (from `speed`).
 
 One `log.info` after the load names the voice (or model), its sample rate and the speaker count.
@@ -116,7 +118,7 @@ One `log.info` after the load names the voice (or model), its sample rate and th
 
 ### Device
 
-`PiperVoice.load(use_cuda=False)` runs on `CPUExecutionProvider`, which is the right default: the default voice synthesizes 7 s of audio in ~0.14 s on an Apple M5 Pro. `use_cuda=True` needs `onnxruntime-gpu`; not exposed in v1 (see "Open questions").
+`PiperVoice.load(use_cuda=False)` runs on `CPUExecutionProvider`, which is the right default: the default voice synthesizes 7 s of audio in ~0.14 s on an Apple M5 Pro. `use_cuda=True` needs `onnxruntime-gpu`; not exposed in v1 (see "Open questions"). The `threads` field is the session's intra-op thread count, the cores one synthesis can keep busy; unset it is onnxruntime's default (the physical cores).
 
 ### Synthesis
 
@@ -180,7 +182,8 @@ Registered in `REGISTRY` as `"piper"` ([modules/__init__.py](../../src/tts_engin
 
 - **Unit (`tests/modules/test_piper.py`)** — `piper` and `huggingface_hub` are **faked** (stub modules injected through `monkeypatch.setitem(sys.modules, ...)`), so the fast tier never downloads or loads a voice. The fake `PiperVoice.load` records its paths and returns a voice whose `config` has a sample rate, speakers, a `length_scale` and a phoneme type; its `phonemize` can raise; its `synthesize` records the text and `SynthesisConfig` and yields fake chunks (`sample_rate`, `audio_int16_bytes`), or raises. Covers:
   - `ConfigError` with the install hint when `piper` is unimportable;
-  - validation before load: empty or non-string fields, `voice` with `model`, a malformed voice key or `hf://` value, a bad `speaker` or `speed`; none reaches the fake download;
+  - validation before load: empty or non-string fields, `voice` with `model`, a malformed voice key or `hf://` value, a bad `speaker` or `speed`, `threads` zero, boolean or string; none reaches the fake download;
+  - `threads`: `PiperVoice.load` is not called; the module reads the voice's JSON into the fake `PiperConfig.from_dict`, builds the session (a fake `onnxruntime` records the model path, the intra-op thread count and the CPU provider) and the fake voice on it, and synthesizes through it;
   - voice files: the default voice downloads `en/en_US/ljspeech/medium/en_US-ljspeech-medium.onnx` and `.onnx.json` at the pinned revision; another key maps to its path; an `hf://` `model` fetches the `.onnx` and its `.json`; a local `model` is resolved against `base_dir` and not downloaded; a missing local `.onnx` or `.json` → `ConfigError` before load;
   - download and load failures: a missing Hub entry, repository or revision → `ConfigError`; a cache miss or another download error → `TTSError`; a load error → `TTSError`;
   - phoneme types: `pinyin` → `ConfigError`; a phonemizer `ImportError` → `ConfigError`; `espeak` passes;

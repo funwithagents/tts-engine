@@ -41,6 +41,7 @@ All fields go under the `engine.module` block alongside `"type": "kokoro"` (see 
 | `language` | non-empty string | no | from the voice's first letter (see below) | An espeak-ng language code passed to the phonemizer: `en-us`, `en-gb`, `es`, `fr-fr`, `hi`, `it`, `ja`, `pt-br`, `cmn`, or any other code espeak-ng supports. Checked at load. |
 | `speed` | number in [0.5, 2.0] | no | — (library default 1.0) | Speaking rate multiplier. |
 | `model` | non-empty string | no | the default model (see "Model files") | The ONNX model: `hf://owner/repo/path/to/file.onnx[@revision]`, or a local path resolved with `resolve_path`. |
+| `threads` | integer ≥ 1 | no | — (onnxruntime's own choice: the physical cores) | Intra-op threads of the onnxruntime session, the cores one synthesis can keep busy. Fewer threads cost latency: two threads doubled the time to first audio of the default model on an Apple M5 Pro (524 → 1046 ms) at 197 % of a core instead of 631 %; the benchmark's `+t2` / `+t4` entries measure the trade per model. With it set the module builds the session itself (see "Construction"). |
 | `voices` | non-empty string | no | the default voices file (see "Model files") | The voices file (a NumPy `.npz` archive of style vectors, as published by kokoro-onnx): `hf://owner/repo/path/to/file.bin[@revision]`, or a local path resolved with `resolve_path`. |
 
 There is no API key, and no device field: onnxruntime runs on the CPU (see "Device").
@@ -65,6 +66,7 @@ At construction, before any download:
 
 - `voice`, `language`, `model`, `voices` — if present, non-empty strings. An `hf://` value must have an owner, a repository and a file path, else `ConfigError`.
 - `speed` — if present, a number in [0.5, 2.0], booleans rejected.
+- `threads` — if present, an integer ≥ 1 (`positive_int`; booleans, floats and strings rejected).
 - No `language`, and a voice whose first letter is not in the default-language table → `ConfigError` asking for `language`.
 
 After the lazy import, before any download:
@@ -112,7 +114,7 @@ except ImportError as exc:
 The engine reads `sample_rate` once at construction, so the model is loaded in `__init__`, after validation and the lazy import:
 
 1. Resolve `model` and `voices` to local paths: `hf_hub_download(repo_id, filename, revision=...)` for an `hf://` value (a no-op when the file is already cached), `resolve_path` for anything else.
-2. `kokoro = Kokoro(model_path, voices_path)`. Loading takes ~0.7–0.8 s on an Apple M5 Pro CPU, on top of the first download (~353 MB).
+2. Without `threads`, `kokoro = Kokoro(model_path, voices_path)`. With it, the module builds the session the library would, with the thread count: `onnxruntime.InferenceSession(model_path, sess_options=options, providers=kokoro_onnx.session.resolve_providers())` where `options.intra_op_num_threads = threads`, handed over through `Kokoro.from_session(session, voices_path)`, the library's constructor for a caller-built session; `resolve_providers` is the function behind the library's own `create_session`, so the provider rule of "Device" (`ONNX_PROVIDER`, accelerated distributions) holds on both paths. Like `tokenizer`, `kokoro_onnx.session` is covered by the pin below 0.7. Loading takes ~0.7–0.8 s on an Apple M5 Pro CPU, on top of the first download (~353 MB).
 3. Post-load checks (above).
 
 One `log.info` after the load names the model, the voice, the language and the onnxruntime providers (`kokoro.sess.get_providers()`); nothing is logged per sentence.
@@ -121,7 +123,7 @@ One `log.info` after the load names the model, the voice, the language and the o
 
 ### Device
 
-`kokoro-onnx` builds its onnxruntime session on `CPUExecutionProvider` unless an accelerated onnxruntime distribution (`onnxruntime-gpu`, `-directml`, …) is installed, in which case it uses every available provider. The `ONNX_PROVIDER` environment variable overrides both. The module adds no device field. On the development Mac, CoreML (available in the stock wheel) loaded in 4.2 s instead of 0.8 s and synthesized no faster than the CPU, so CPU is the right default there. A Linux NVIDIA host can install `onnxruntime-gpu` next to the extra; this is documented, not verified (see "Open questions").
+`kokoro-onnx` builds its onnxruntime session on `CPUExecutionProvider` unless an accelerated onnxruntime distribution (`onnxruntime-gpu`, `-directml`, …) is installed, in which case it uses every available provider. The `ONNX_PROVIDER` environment variable overrides both. The module adds no device field. On the development Mac, CoreML (available in the stock wheel) loaded in 4.2 s instead of 0.8 s and synthesized no faster than the CPU, so CPU is the right default there. A Linux NVIDIA host can install `onnxruntime-gpu` next to the extra; this is documented, not verified (see "Open questions"). The `threads` field is the session's intra-op thread count: onnxruntime runs the graph sequentially, so that is the number of cores a synthesis can keep busy, and unset it is the library's default (the physical cores).
 
 ### Synthesis
 
@@ -188,7 +190,8 @@ Registered in `REGISTRY` as `"kokoro"` ([modules/__init__.py](../../src/tts_engi
 
 - **Unit (`tests/modules/test_kokoro.py`)** — `kokoro_onnx` and `huggingface_hub` are **faked** (stub modules injected through `monkeypatch.setitem(sys.modules, ...)`), so the fast tier never downloads or loads a model. The fake `hf_hub_download` records its arguments and returns a path; the fake `Kokoro` records its constructor paths, lists voices, has a `tokenizer.phonemize` that can reject a language, and a `create` that records its calls and returns given float32 arrays (or raises, or blocks on an event). Covers:
   - `ConfigError` with the install hint when `kokoro_onnx` is unimportable;
-  - validation before load: empty or non-string fields, `speed` out of range or boolean, a malformed `hf://` value, an unknown voice prefix with no `language`; none of these reaches the fake download or constructor;
+  - validation before load: empty or non-string fields, `speed` out of range or boolean, `threads` zero, boolean or string, a malformed `hf://` value, an unknown voice prefix with no `language`; none of these reaches the fake download or constructor;
+  - `threads`: the module builds the session (a fake `onnxruntime` records the options' intra-op thread count and the providers, the fake `Kokoro.from_session` the session) and the module works on it; unset, the constructor path is taken and no session is built by the module;
   - model files: the defaults download the pinned repository and revision; an `hf://owner/repo/dir/file@rev` value is split into repository, file and revision; a local path is resolved against `base_dir` and not downloaded; a local path that does not exist → `ConfigError` before the constructor runs;
   - language: derived from the voice prefix (`af_heart` → `en-us`, `ff_siwis` → `fr-fr`), an explicit `language` wins, and a language the phonemizer rejects → `ConfigError`;
   - an unknown voice after load → `ConfigError`;

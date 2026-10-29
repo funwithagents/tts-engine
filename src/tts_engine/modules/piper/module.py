@@ -23,6 +23,7 @@ from tts_engine.modules.base import (
     feed_with_lookahead,
     finite_number,
     optional_str,
+    positive_int,
     resolve_path,
     run_cancellable_worker,
     run_text_stream_worker,
@@ -107,6 +108,7 @@ class PiperModule(TTSModule):
         speed = finite_number(
             config, "speed", label=_LABEL, minimum=_MIN_SPEED, maximum=_MAX_SPEED
         )
+        threads = positive_int(config, "threads", label=_LABEL)
 
         try:
             from huggingface_hub import hf_hub_download
@@ -115,7 +117,7 @@ class PiperModule(TTSModule):
                 RepositoryNotFoundError,
                 RevisionNotFoundError,
             )
-            from piper import PiperVoice, SynthesisConfig
+            from piper import PiperConfig, PiperVoice, SynthesisConfig
         except ImportError as exc:
             raise ConfigError(
                 "The 'piper' module requires the piper extra: "
@@ -148,7 +150,25 @@ class PiperModule(TTSModule):
                 raise TTSError(f"piper model load failed: {exc}") from exc
 
         try:
-            voice = PiperVoice.load(onnx_path, config_path=json_path)
+            if threads is None:
+                voice = PiperVoice.load(onnx_path, config_path=json_path)
+            else:
+                # What PiperVoice.load does, on a session sized to `threads`
+                # (its other options keep their defaults: CPU, no alignments).
+                import onnxruntime as rt
+
+                with open(json_path, encoding="utf-8") as f:
+                    piper_config = PiperConfig.from_dict(json.load(f))
+                options = rt.SessionOptions()
+                options.intra_op_num_threads = threads
+                voice = PiperVoice(
+                    config=piper_config,
+                    session=rt.InferenceSession(
+                        onnx_path,
+                        sess_options=options,
+                        providers=["CPUExecutionProvider"],
+                    ),
+                )
         except Exception as exc:
             raise TTSError(f"piper model load failed: {exc}") from exc
 
@@ -181,10 +201,11 @@ class PiperModule(TTSModule):
         self._sample_rate = int(voice_config.sample_rate)
         self._slice_bytes = slice_bytes_for(self._sample_rate)
         log.info(
-            "piper voice loaded: voice=%s rate=%d speakers=%d",
+            "piper voice loaded: voice=%s rate=%d speakers=%d threads=%s",
             voice_key or model,
             self._sample_rate,
             voice_config.num_speakers,
+            threads or "default",
         )
 
     @staticmethod

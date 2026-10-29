@@ -762,6 +762,19 @@ def finite_number(
     return float(value)
 
 
+def positive_int(config: dict, field: str, *, label: str) -> int | None:
+    """Read an integer field that may be absent, with ``optional_str``'s
+    absent/``null`` policy and no default: a present value must be an ``int``
+    >= 1 (a bool, a float or a string is rejected). The thread count of the
+    local modules is one (``threads`` on phonon, kokoro and piper)."""
+    value = config.get(field)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ConfigError(f"{label} '{field}' must be an integer >= 1")
+    return value
+
+
 def _describe_bounds(
     minimum: float | None, maximum: float | None, exclusive_minimum: float | None
 ) -> str:

@@ -25,6 +25,7 @@ from tts_engine.modules.base import (
     float_to_int16_pcm,
     normalize_gender,
     optional_str,
+    positive_int,
     resolve_path,
     run_cancellable_worker,
     run_text_stream_worker,
@@ -94,6 +95,7 @@ class KokoroModule(TTSModule):
         speed = finite_number(
             config, "speed", label=_LABEL, minimum=_MIN_SPEED, maximum=_MAX_SPEED
         )
+        threads = positive_int(config, "threads", label=_LABEL)
         model_ref = _file_ref(
             config,
             "model",
@@ -145,7 +147,20 @@ class KokoroModule(TTSModule):
             raise TTSError(f"kokoro model load failed: {exc}") from exc
 
         try:
-            kokoro = Kokoro(model_path, voices_path)
+            if threads is None:
+                kokoro = Kokoro(model_path, voices_path)
+            else:
+                # The session the library would build, with the thread count:
+                # its provider rule, then its constructor for a given session.
+                import onnxruntime as rt
+                from kokoro_onnx.session import resolve_providers
+
+                options = rt.SessionOptions()
+                options.intra_op_num_threads = threads
+                session = rt.InferenceSession(
+                    model_path, sess_options=options, providers=resolve_providers()
+                )
+                kokoro = Kokoro.from_session(session, voices_path)
         except Exception as exc:
             raise TTSError(f"kokoro model load failed: {exc}") from exc
 
@@ -169,11 +184,12 @@ class KokoroModule(TTSModule):
         self._kokoro = kokoro
         self._create_kwargs = create_kwargs
         log.info(
-            "kokoro model loaded: model=%s voice=%s language=%s providers=%s",
+            "kokoro model loaded: model=%s voice=%s language=%s providers=%s threads=%s",
             model_path,
             voice,
             language,
             kokoro.sess.get_providers(),
+            threads or "default",
         )
 
     def close(self) -> None:

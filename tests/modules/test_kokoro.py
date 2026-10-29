@@ -53,6 +53,24 @@ class _Fakes:
         self.audio = np.array([0.0, 0.5, -0.5, 1.0, 1.5, -2.0], dtype=np.float32)
         self.rate = 24000
         self.instances: list = []
+        self.sessions: list[_FakeInferenceSession] = []
+
+
+class _FakeSessionOptions:
+    def __init__(self) -> None:
+        self.intra_op_num_threads = 0
+
+
+class _FakeInferenceSession:
+    """Records how the module built the session when `threads` is set."""
+
+    def __init__(self, model_path, sess_options=None, providers=None) -> None:
+        self._model_path = model_path
+        self.sess_options = sess_options
+        self.providers = providers
+
+    def get_providers(self):
+        return list(self.providers or [])
 
 
 class _FakeTokenizer:
@@ -73,15 +91,20 @@ def _install_fakes(monkeypatch, fakes: _Fakes) -> None:
         return f"/cache/{repo_id}/{filename}"
 
     class FakeKokoro:
-        def __init__(self, model_path, voices_path) -> None:
+        def __init__(self, model_path, voices_path, session=None) -> None:
             fakes.loaded.append((model_path, voices_path))
             if fakes.init_error is not None:
                 raise fakes.init_error
             fakes.instances.append(self)
             self.tokenizer = _FakeTokenizer(fakes)
-            self.sess = types.SimpleNamespace(
+            self.sess = session or types.SimpleNamespace(
                 get_providers=lambda: ["CPUExecutionProvider"]
             )
+
+        @classmethod
+        def from_session(cls, session, voices_path):
+            fakes.sessions.append(session)
+            return cls(session._model_path, voices_path, session)
 
         def get_voices(self):
             return sorted(fakes.voices)
@@ -100,8 +123,21 @@ def _install_fakes(monkeypatch, fakes: _Fakes) -> None:
     hub_mod = types.SimpleNamespace(hf_hub_download=hf_hub_download, errors=errors_mod)
     monkeypatch.setitem(sys.modules, "huggingface_hub", hub_mod)
     monkeypatch.setitem(sys.modules, "huggingface_hub.errors", errors_mod)
+    session_mod = types.SimpleNamespace(
+        resolve_providers=lambda: ["CPUExecutionProvider"]
+    )
     monkeypatch.setitem(
-        sys.modules, "kokoro_onnx", types.SimpleNamespace(Kokoro=FakeKokoro)
+        sys.modules,
+        "kokoro_onnx",
+        types.SimpleNamespace(Kokoro=FakeKokoro, session=session_mod),
+    )
+    monkeypatch.setitem(sys.modules, "kokoro_onnx.session", session_mod)
+    monkeypatch.setitem(
+        sys.modules,
+        "onnxruntime",
+        types.SimpleNamespace(
+            SessionOptions=_FakeSessionOptions, InferenceSession=_FakeInferenceSession
+        ),
     )
 
 
@@ -128,6 +164,9 @@ def fakes(monkeypatch) -> _Fakes:
         ({"model": "hf://owner//file.onnx"}, "model"),
         ({"model": "hf://o/r/f.onnx@"}, "model"),
         ({"voice": "xx_custom"}, "no default language"),
+        ({"threads": 0}, "threads"),
+        ({"threads": True}, "threads"),
+        ({"threads": "2"}, "threads"),
     ],
 )
 def test_invalid_config_raises_before_any_download(fakes, config, match):
@@ -158,6 +197,23 @@ def test_defaults_download_the_pinned_files(fakes):
         )
     ]
     assert module.sample_rate == 24000
+
+
+def test_threads_build_the_session_with_the_thread_count(fakes):
+    module = KokoroModule({"type": "kokoro", "threads": 2})
+    (session,) = fakes.sessions
+    assert session.sess_options.intra_op_num_threads == 2
+    assert session.providers == ["CPUExecutionProvider"]  # the library's rule
+    assert fakes.loaded == [
+        (
+            "/cache/fastrtc/kokoro-onnx/kokoro-v1.0.onnx",
+            "/cache/fastrtc/kokoro-onnx/voices-v1.0.bin",
+        )
+    ]
+    assert module.sample_rate == 24000
+    fakes.sessions.clear()
+    KokoroModule({"type": "kokoro"})
+    assert fakes.sessions == []  # unset: the library builds its own session
 
 
 def test_hf_reference_is_split_into_repo_file_and_revision(fakes):

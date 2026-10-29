@@ -21,6 +21,7 @@ from tts_engine.modules.base import (
     finite_number,
     float_to_int16_pcm,
     optional_str,
+    positive_int,
     resolve_path,
     run_cancellable_worker,
     run_text_stream_worker,
@@ -28,6 +29,10 @@ from tts_engine.modules.base import (
 )
 
 log = logging.getLogger(__name__)
+
+# The thread count the first Phonon model of this process was loaded with
+# (None: ptts's default): ptts sizes its pool once, so later values cannot apply.
+_pool_threads: int | None = None
 
 _LANGUAGES = {"en", "fr", "de", "es", "pt", "none"}
 _DEFAULT_LANGUAGE = "en"
@@ -64,6 +69,7 @@ class PhononModule(TTSModule):
         quant = optional_str(config, "quant", label=_LABEL)
         temperature = finite_number(config, "temperature", label=_LABEL, minimum=0.0)
         cfg_coef = finite_number(config, "cfg_coef", label=_LABEL)
+        threads = positive_int(config, "threads", label=_LABEL)
 
         try:
             import ptts
@@ -90,6 +96,23 @@ class PhononModule(TTSModule):
             # A name: loading it here fails fast on an unknown voice.
             kwargs["voice"] = voice
 
+        global _pool_threads
+        if threads is not None:
+            # Sizes ptts's process-global pool, built once at the first model
+            # load: the first Phonon model of a process decides for the others,
+            # and a later value is accepted by ptts but has no effect.
+            try:
+                ptts.set_num_threads(threads)
+            except Exception as exc:
+                raise ConfigError(f"Phonon module 'threads': {exc}") from exc
+        if _pool_threads is not None and _pool_threads != threads:
+            log.warning(
+                "Phonon module 'threads' %s cannot apply: a model already loaded "
+                "in this process sized the thread pool (threads=%s)",
+                threads or "default",
+                _pool_threads or "default",
+            )
+
         try:
             tts = ptts.TTS(**kwargs)
             if voice_file is not None:
@@ -101,14 +124,17 @@ class PhononModule(TTSModule):
         except Exception as exc:
             raise TTSError(f"phonon model load failed: {exc}") from exc
 
+        if _pool_threads is None:
+            _pool_threads = threads
         self._tts = tts
         self._voice: str | None = voice
         self._sample_rate = int(tts.sample_rate)
         log.info(
-            "phonon model loaded: model=%s device=%s quant=%s",
+            "phonon model loaded: model=%s device=%s quant=%s threads=%s",
             model or "default",
             getattr(tts, "device", "?"),
             getattr(tts, "quant", "?"),
+            threads or "default",
         )
 
     def close(self) -> None:

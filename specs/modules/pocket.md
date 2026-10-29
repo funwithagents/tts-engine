@@ -87,6 +87,10 @@ One `log.info` after the load names the model (`language` or `config`, else the 
 
 Model download/load is blocking and takes a few seconds (weights are fetched to the Hugging Face cache on first run, then ~2–5 s warm, the tiny models faster); this is startup cost paid once, mirroring how ElevenLabs builds its client in `__init__`.
 
+### Threads
+
+No `threads` field, unlike phonon, kokoro and piper: `pocket-tts` pins torch to **one** thread itself (`torch.set_num_threads(1)` at import of its model module), so its tensor ops already keep a single core busy; what the engine's process adds is the library's own decoder and generation threads. There is nothing for a field to cap.
+
 ### Device note (mps is experimental)
 
 `"auto"` deliberately does **not** select Apple's `mps` backend: on `pocket-tts` 4.0.1 with `torch` 2.14 it still aborts the process mid-generation with a Metal command-encoder assertion (`A command encoder is already encoding to this command buffer`), so auto-selecting it would break synthesis on Apple Silicon — the common dev machine. CPU there is fine (several times real-time on an M-series). `mps` remains reachable by setting `device: "mps"` explicitly for anyone wanting to test it, but it is unsupported until the upstream issue is resolved; `cuda` and `cpu` are the supported paths.
