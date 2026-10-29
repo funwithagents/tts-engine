@@ -1,9 +1,13 @@
-"""Latency benchmark for every tts-engine module/model.
+"""Latency and resource benchmark for every tts-engine module/model.
 
 Drives each entry of ``matrix.json`` through the public ``TTSEngine`` API with
 an injected timing sink (no audio hardware, no playback) and records, per run,
 the arrival of every PCM chunk at the sink. Time to first audio, time to first
 voice, stalls and real-time factor are derived from that timeline afterwards.
+The worker also samples its own CPU use in short windows during every call and
+records its peak resident memory, so a result says what a backend costs the
+machine (cores at its busiest, memory held) beside how long it makes a caller
+wait.
 
 Each entry runs in its **own subprocess**: a cold engine construction per
 entry (model load / client setup measured on its own), memory released between
@@ -54,6 +58,7 @@ import signal
 import statistics
 import subprocess
 import sys
+import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass
@@ -179,9 +184,94 @@ class TimingSink:
         self.drains += 1
 
 
+class CpuSampler:
+    """Samples the process's CPU use, every thread, user and system time, in
+    windows of `window_s`: a thread records at the end of each window the CPU
+    seconds spent in it over its wall length, in cores. The log is the raw
+    material of the CPU metrics, as the sink's events are of the timing ones.
+
+    The thread is Python, so it takes the interpreter lock for a few
+    microseconds per window; the benchmark README records what that costs the
+    headline. Windows' process clock ticks every 15.6 ms, so windows under
+    ~100 ms are coarse there."""
+
+    def __init__(self, window_s: float) -> None:
+        self.window_s = window_s
+        self.log: list[tuple[float, float]] = []  # (t, cores in the window ending at t)
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        self.log = []
+        self._stop.clear()
+        self._thread = threading.Thread(
+            target=self._run, name="cpu-sampler", daemon=True
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join()
+            self._thread = None
+
+    def _run(self) -> None:
+        wall, cpu = time.perf_counter(), time.process_time()
+        stopped = False
+        while not stopped:
+            stopped = self._stop.wait(self.window_s)
+            now_wall, now_cpu = time.perf_counter(), time.process_time()
+            # The last window is cut short by `stop`; it is kept from 10 ms
+            # up, so a call shorter than a window still gets its one sample
+            # and a call under 10 ms gets none (its average is still recorded).
+            if now_wall - wall >= (0.01 if stopped else self.window_s / 2):
+                self.log.append((now_wall, (now_cpu - cpu) / (now_wall - wall)))
+            wall, cpu = now_wall, now_cpu
+
+
+def peak_rss_mb() -> float | None:
+    """Peak resident set size of this process in MB: a high-water mark, so
+    read once after construction and once after every run. None where the
+    `resource` module is missing (Windows). macOS reports bytes, Linux
+    kilobytes."""
+    try:
+        import resource
+    except ImportError:
+        return None
+    rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return rss / 1e6 if sys.platform == "darwin" else rss / 1e3
+
+
+def host_state() -> dict:
+    """What the host says about itself at this moment, for the entries of a
+    Raspberry Pi bench: the SoC temperature (`temp_c`, the first thermal zone)
+    and the firmware's throttle flags (`throttled`, from `vcgencmd`). Empty
+    where neither exists."""
+    state: dict[str, Any] = {}
+    try:
+        state["temp_c"] = (
+            int(Path("/sys/class/thermal/thermal_zone0/temp").read_text()) / 1000
+        )
+    except (OSError, ValueError):
+        pass
+    try:
+        out = subprocess.run(
+            ["vcgencmd", "get_throttled"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        ).stdout.strip()
+        state["throttled"] = out.removeprefix("throttled=")
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return state
+
+
 # Metric name -> (unit, definition). Every one is computed from a run's chunk
-# log by `derive_metrics`, at summary time, so adding a metric is one line here
-# and one in that function, and it applies to past runs as well.
+# log (and its CPU log) by `derive_metrics`, at summary time, so adding a
+# metric is one line here and one in that function, and it applies to past
+# runs as well (as None where a past run lacks the raw material).
 METRICS: dict[str, tuple[str, str]] = {
     "ttfa_ms": ("ms", "call → first PCM chunk at the sink"),
     "ttfv_ms": (
@@ -197,6 +287,11 @@ METRICS: dict[str, tuple[str, str]] = {
     "total_ms": ("ms", "call → return"),
     "audio_s": ("s", "audio produced"),
     "speed_x": ("×", "audio seconds per wall second after the first chunk"),
+    "cpu_peak_x": (
+        "×",
+        "cores busy in the call's busiest sampling window (every thread, user + system)",
+    ),
+    "cpu_mean_x": ("×", "cores busy over the whole call: CPU seconds / wall seconds"),
 }
 
 STATS = ("n", "mean", "median", "stdev", "min", "p90", "max")
@@ -213,6 +308,8 @@ def derive_metrics(run: dict) -> dict[str, float | None]:
     audio_s = sum(n for _, n, _ in log) / 2 / run["sample_rate"]
     gen_s = (last - first) / 1000
     sent = run.get("first_sentence_sent_ms")
+    cpu_log: list[list[float]] = run.get("cpu_log") or []
+    cpu_s = run.get("cpu_s")
     return {
         "ttfa_ms": first,
         "ttfv_ms": voiced,
@@ -224,6 +321,12 @@ def derive_metrics(run: dict) -> dict[str, float | None]:
         # The capture sink never blocks, so this is the backend's own speed,
         # bounded by any server-side pacing.
         "speed_x": audio_s / gen_s if gen_s > 0 else None,
+        "cpu_peak_x": max(cores for _, cores in cpu_log) if cpu_log else None,
+        "cpu_mean_x": (
+            cpu_s / (run["end_ms"] / 1000)
+            if cpu_s is not None and run["end_ms"] > 0
+            else None
+        ),
     }
 
 
@@ -250,32 +353,52 @@ async def token_stream(text: str, delay_s: float, marks: StreamMarks):
 
 
 async def measure_one(
-    engine: Any, sink: TimingSink, mode: str, text: str, settings: dict
+    engine: Any,
+    sink: TimingSink,
+    sampler: CpuSampler | None,
+    mode: str,
+    text: str,
+    settings: dict,
 ) -> dict:
     sink.reset()
     marks = StreamMarks()
+    if sampler is not None:
+        sampler.start()
+    cpu0 = time.process_time()
     t0 = time.perf_counter()
-    if mode == "say":
-        call = engine.say(text)
-    else:
-        call = engine.say_stream(
-            token_stream(text, settings["token_delay_ms"] / 1000.0, marks)
-        )
-    await asyncio.wait_for(call, timeout=settings["run_timeout_s"])
-    t_end = time.perf_counter()
+    try:
+        if mode == "say":
+            call = engine.say(text)
+        else:
+            call = engine.say_stream(
+                token_stream(text, settings["token_delay_ms"] / 1000.0, marks)
+            )
+        await asyncio.wait_for(call, timeout=settings["run_timeout_s"])
+    finally:
+        t_end = time.perf_counter()
+        cpu_s = time.process_time() - cpu0
+        if sampler is not None:
+            sampler.stop()
 
     def ms(t: float | None) -> float | None:
         return None if t is None else round((t - t0) * 1000, 2)
 
     # The raw record: every timestamp relative to the call, every chunk as
-    # [arrival ms, bytes, peak |sample|]. The derived values are appended for
-    # grep-ability only; `summarize` recomputes them from the log.
+    # [arrival ms, bytes, peak |sample|], every CPU window as [end ms, cores],
+    # and the call's CPU seconds (every thread; no sampler needed). The derived
+    # values are appended for grep-ability only; `summarize` recomputes them.
     run = {
         "sample_rate": engine.sample_rate,
         "end_ms": ms(t_end),
         "first_sentence_sent_ms": ms(marks.first_sentence_sent),
         "last_piece_sent_ms": ms(marks.last_piece_sent),
         "drains": sink.drains,
+        "cpu_s": round(cpu_s, 4),
+        "cpu_log": (
+            None
+            if sampler is None
+            else [[ms(t), round(cores, 3)] for t, cores in sampler.log]
+        ),
         "chunk_log": [[ms(t), n, peak] for t, n, peak in sink.events],
     }
     run.update(derive_metrics(run))
@@ -318,11 +441,16 @@ async def run_entry(entry: dict, settings: dict, out_path: Path) -> None:
             "ok": True,
             "load_s": time.perf_counter() - t0,
             "sample_rate": engine.sample_rate,
+            "rss_mb": peak_rss_mb(),
+            **host_state(),
         }
     )
 
     modes = [m for m in settings["modes"] if m in entry.get("modes", MODES)]
     pause = float(entry.get("pause_s", settings["pause_s"]))
+    # A run from before the sampler existed (resumed) has no window: average only.
+    window_s = settings.get("cpu_window_ms", 0) / 1000
+    sampler = CpuSampler(window_s) if window_s > 0 else None
     seq = 0
     async with engine:
         for mode in modes:
@@ -340,7 +468,7 @@ async def run_entry(entry: dict, settings: dict, out_path: Path) -> None:
                     }
                     try:
                         m = await measure_one(
-                            engine, sink, mode, TEXTS[text_id], settings
+                            engine, sink, sampler, mode, TEXTS[text_id], settings
                         )
                         emit({**base, "ok": True, **m})
                         failures = 0
@@ -373,6 +501,10 @@ async def run_entry(entry: dict, settings: dict, out_path: Path) -> None:
                     seq += 1
                     if pause:
                         await asyncio.sleep(pause)
+    # What the entry cost the machine once every run is done: the process's
+    # peak memory (model, runtime, buffers) and the host's state (a Pi's
+    # temperature and throttle flags, at the entry's hottest).
+    emit({"record": "usage", "rss_mb": peak_rss_mb(), **host_state()})
 
 
 # --------------------------------------------------------------------------
@@ -401,6 +533,44 @@ def skip_reason(entry: dict, include_disabled: bool) -> str | None:
         if not _importable(lib):
             return f"{lib!r} not importable (uv sync --extra {entry['type']})"
     return None
+
+
+def expected_cells(entry: dict, settings: dict) -> list[tuple[str, str]]:
+    """The (mode, text) cells an entry is measured in under `settings`."""
+    modes = [m for m in settings["modes"] if m in entry.get("modes", MODES)]
+    return [(m, t) for m in modes for t in settings["texts"]]
+
+
+def unmeasured_cells(records: list[dict], entry: dict, settings: dict) -> list[str]:
+    """The entry's cells with no successful measured run among `records`, as
+    `mode/text`. A worker that ran to the end with every synthesis failing (a
+    revoked key, a retired model) has finished but measured nothing: its entry
+    must not get the `done` record that would let it supersede an older,
+    complete measurement on merge, so the parent records an abort instead."""
+    measured = {
+        (r["mode"], r["text"])
+        for r in records
+        if r["entry"] == entry["id"]
+        and r["record"] == "run"
+        and r["ok"]
+        and r["phase"] == "measured"
+    }
+    return [
+        f"{m}/{t}" for m, t in expected_cells(entry, settings) if (m, t) not in measured
+    ]
+
+
+def measures(settings: dict) -> dict:
+    """What a run's workers record beyond the chunk timeline, kept in its
+    `env.json` so a result can say why a resource cell is empty: the CPU
+    sampling window in ms (0: the per-call average only), whether peak memory
+    is readable on this platform, and the GPU reader (none exists yet; see the
+    spec's open questions)."""
+    return {
+        "cpu_window_ms": settings.get("cpu_window_ms", 0),
+        "rss": peak_rss_mb() is not None,
+        "gpu": None,
+    }
 
 
 def select_entries(matrix: list[dict], args: argparse.Namespace) -> list[dict]:
@@ -440,6 +610,7 @@ def environment_info() -> dict:
         "platform": platform.platform(),
         "machine": platform.machine(),
         "processor": platform.processor(),
+        "cpu_count": os.cpu_count(),
         "python": sys.version.split()[0],
         "git_sha": sha,
         "versions": versions,
@@ -533,6 +704,7 @@ def run_all(args: argparse.Namespace, entries: list[dict]) -> Path:
             "run_timeout_s": args.run_timeout_s,
             "entry_timeout_s": args.entry_timeout_s,
             "max_consecutive_failures": args.max_consecutive_failures,
+            "cpu_window_ms": args.cpu_window_ms,
         }
         selection = {
             k: getattr(args, k)
@@ -543,6 +715,7 @@ def run_all(args: argparse.Namespace, entries: list[dict]) -> Path:
                 {
                     "run": run_id,
                     **environment_info(),
+                    "measures": measures(settings),
                     "settings": settings,
                     "selection": selection,
                     "texts": TEXTS,
@@ -573,10 +746,8 @@ def run_all(args: argparse.Namespace, entries: list[dict]) -> Path:
         # Budget: the load allowance (model download included) plus the worst
         # case of every run timing out, so it follows the run count. A hang
         # inside a run is already cut by run_timeout_s; this is the backstop.
-        n_runs = (
-            len([m for m in settings["modes"] if m in entry.get("modes", MODES)])
-            * len(settings["texts"])
-            * (settings["warmup"] + settings["runs"])
+        n_runs = len(expected_cells(entry, settings)) * (
+            settings["warmup"] + settings["runs"]
         )
         pause = float(entry.get("pause_s", settings["pause_s"]))
         timeout = entry.get("timeout_s", settings["entry_timeout_s"]) + n_runs * (
@@ -615,6 +786,13 @@ def run_all(args: argparse.Namespace, entries: list[dict]) -> Path:
             print(f"{prefix}: interrupted", flush=True)
             stopped = True
             break
+        if status == "ok":
+            # Finished is not measured: a `done` record only when every cell
+            # has a successful run, or the merge would prefer this attempt
+            # to an older, complete measurement.
+            missing = unmeasured_cells(read_records(out_dir), entry, settings)
+            if missing:
+                status = "no successful run in " + ", ".join(missing)
         if status == "ok":
             _record(raw, entry, "done", seconds=round(time.perf_counter() - t0, 1))
         else:
@@ -861,6 +1039,28 @@ SUMMARY_COLUMNS: list[tuple[str, str, str, str, str, int, str]] = [
             "three-sentence stream: below 1 playback starves"
         ),
     ),
+    (
+        "cpu_peak_p50_x",
+        "CPU peak p50",
+        "stream",
+        "medium",
+        "cpu_peak_x__median",
+        1,
+        (
+            "median over runs of the cores busy in the call's busiest sampling "
+            "window, three-sentence stream: what the synthesis grabs at its peak, "
+            "every thread of the engine's process"
+        ),
+    ),
+    (
+        "cpu_peak_p90_x",
+        "CPU peak p90",
+        "stream",
+        "medium",
+        "cpu_peak_x__p90",
+        1,
+        "its tail across runs",
+    ),
 ]
 SUMMARY_FIXED = [
     (
@@ -875,7 +1075,29 @@ SUMMARY_FIXED = [
         0,
         "TTFA of the very first synthesis after construction (cold connection, kernels); not in the statistics",
     ),
+    (
+        "peak_mb",
+        "peak MB",
+        0,
+        "peak resident memory of the entry's process after its runs: the model, its runtime, its buffers",
+    ),
 ]
+
+
+def _measures_line(env: dict) -> str:
+    """What a run recorded beyond the timeline, for the Runs table: why an
+    older run's resource cells are empty."""
+    m = env.get("measures")
+    if not m:
+        return "—"  # before resource usage was recorded
+    window = m.get("cpu_window_ms")
+    return ", ".join(
+        [
+            f"cpu ({window:g} ms windows)" if window else "cpu (average only)",
+            "memory" if m.get("rss") else "no memory",
+            f"gpu ({m['gpu']})" if m.get("gpu") else "no gpu",
+        ]
+    )
 
 
 def _settings_line(env: dict) -> str:
@@ -912,6 +1134,7 @@ def summarize(target: Path) -> None:
     runs = load_result(target) if (target / MANIFEST).exists() else [load_run(target)]
     records, source = merge_runs(runs)
     load: dict[str, dict] = {}
+    usage: dict[str, dict] = {}
     kinds: dict[str, str] = {}
     status: dict[str, str] = {}
     first_call: dict[str, dict] = {}
@@ -932,6 +1155,8 @@ def summarize(target: Path) -> None:
             load[eid] = r
             if not r["ok"]:
                 status[eid] = f"load failed: {r['error']}"
+        elif record == "usage":
+            usage[eid] = r
         elif record == "run":
             key = (eid, r["mode"], r["text"])
             if r.get("seq") == 0 and r["ok"]:
@@ -959,6 +1184,8 @@ def summarize(target: Path) -> None:
             "errors": errors.get(key, 0),
             "load_s": load[eid]["load_s"] if load.get(eid, {}).get("ok") else None,
             "first_call_ttfa_ms": derive_metrics(fc)["ttfa_ms"] if fc else None,
+            "load_mb": load.get(eid, {}).get("rss_mb"),
+            "peak_mb": usage.get(eid, {}).get("rss_mb"),
         }
         for name in METRICS:
             st = _stats([v for m in metrics if (v := m[name]) is not None])
@@ -1002,7 +1229,7 @@ def summarize(target: Path) -> None:
     # summary.md: the same table, readable.
     labels = [c[1] for c in SUMMARY_COLUMNS] + [c[1] for c in SUMMARY_FIXED]
     lines = [
-        f"# Latency benchmark — `{target.name}`",
+        f"# Benchmark — `{target.name}`",
         "",
         (
             "Generated by `bench.py`; what was benchmarked and on what is in "
@@ -1010,6 +1237,7 @@ def summarize(target: Path) -> None:
             "grouped by module and fastest first "
             "within a module; the fixture modules (tone, audiofile) are left out, "
             "see `results.csv`; times in ms, "
+            "CPU in cores, memory in MB; "
             "statistics over the measured (warm) runs; `n` = measured runs behind "
             "the headline cell, `err` = failed runs over every cell. For each entry "
             "the latest run that completed it supplies the numbers (`run`). Every "
@@ -1058,15 +1286,16 @@ def summarize(target: Path) -> None:
     lines += [
         "## Runs",
         "",
-        "| run | started | platform | Python | git | supplies | settings |",
-        "|---|---|---|---|---|---:|---|",
+        "| run | started | platform | Python | git | supplies | settings | measures |",
+        "|---|---|---|---|---|---:|---|---|",
     ]
     for run_id, env, _records in sorted(runs, key=lambda run: run[0]):
         supplied = sum(1 for e, r in source.items() if r == run_id)
         lines.append(
             f"| {run_id} | {env.get('started', '?')} | {env.get('platform', '?')} "
             f"({env.get('machine', '?')}) | {env.get('python', '?')} | "
-            f"{env.get('git_sha', '?')} | {supplied} | {_settings_line(env)} |"
+            f"{env.get('git_sha', '?')} | {supplied} | {_settings_line(env)} | "
+            f"{_measures_line(env)} |"
         )
     lines.append("")
     (target / "summary.md").write_text("\n".join(lines))
@@ -1159,6 +1388,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "to the subprocess budget (default 600)",
     )
     run.add_argument("--max-consecutive-failures", type=int, default=3)
+    run.add_argument(
+        "--cpu-window-ms",
+        type=float,
+        default=50.0,
+        help="window of the worker's CPU sampler; the busiest window of a call is "
+        "its CPU peak (default 50). 0 disables the sampler and keeps the "
+        "per-call average, which costs nothing",
+    )
     run.add_argument(
         "--runs-dir",
         default=str(DEFAULT_RUNS),
