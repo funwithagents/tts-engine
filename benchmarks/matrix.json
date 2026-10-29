@@ -784,6 +784,20 @@
       "notes": "threads=2: half a four-core Pi, the other half left to its daemon. Compare with phonon/31m-en@cpu+q4k."
     },
     {
+      "id": "phonon/31m-en@cpu+q4k+t4",
+      "type": "phonon",
+      "config": {
+        "device": "cpu",
+        "quant": "q4k",
+        "threads": 4
+      },
+      "tags": [
+        "local",
+        "threads"
+      ],
+      "notes": "threads=4: a Pi's whole CPU at this host's per-core speed. Compare with phonon/31m-en@cpu+q4k."
+    },
+    {
       "id": "phonon/40m-en@auto",
       "type": "phonon",
       "config": {
