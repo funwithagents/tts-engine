@@ -37,13 +37,13 @@ def test_derive_metrics_from_a_chunk_log():
         "first_sentence_sent_ms": 40.0,
         # [arrival ms, bytes, peak]: the first chunk is leading silence.
         "chunk_log": [[100.0, 4800, 0], [150.0, 4800, 900], [300.0, 4800, 900]],
-        # CPU: [window end ms, cores busy in the window], and the call's CPU seconds.
-        "cpu_log": [[50.0, 1.2], [100.0, 2.5], [150.0, 0.4]],
+        # CPU: [window end ms, % of a core in the window], and the call's CPU seconds.
+        "cpu_log": [[50.0, 120.0], [100.0, 250.0], [150.0, 40.0]],
         "cpu_s": 0.16,
     }
     m = bench.derive_metrics(run)
-    assert m["cpu_peak_x"] == 2.5  # the busiest window
-    assert m["cpu_mean_x"] == pytest.approx(0.16 / 0.32)  # CPU seconds over the call
+    assert m["cpu_peak_pct"] == 250.0  # the busiest window
+    assert m["cpu_mean_pct"] == pytest.approx(100 * 0.16 / 0.32)  # CPU over the call
     assert m["ttfa_ms"] == 100.0
     assert m["ttfv_ms"] == 150.0  # first chunk with a sample above VOICE_THRESHOLD
     assert m["after_first_sentence_ms"] == 60.0
@@ -62,10 +62,10 @@ def test_derive_metrics_before_cpu_was_recorded_is_none_for_cpu_only():
     run = {"sample_rate": 24000, "end_ms": 50.0, "chunk_log": [[20.0, 4800, 900]]}
     m = bench.derive_metrics(run)
     assert m["ttfa_ms"] == 20.0 and m["audio_s"] == pytest.approx(0.1)
-    assert m["cpu_peak_x"] is None and m["cpu_mean_x"] is None
+    assert m["cpu_peak_pct"] is None and m["cpu_mean_pct"] is None
     # A sampler disabled (`--cpu-window-ms 0`) writes cpu_log None: average only.
     m = bench.derive_metrics({**run, "cpu_log": None, "cpu_s": 0.025})
-    assert m["cpu_peak_x"] is None and m["cpu_mean_x"] == pytest.approx(0.5)
+    assert m["cpu_peak_pct"] is None and m["cpu_mean_pct"] == pytest.approx(50.0)
 
 
 def test_derive_metrics_without_audio_is_all_none():
@@ -74,19 +74,19 @@ def test_derive_metrics_without_audio_is_all_none():
     assert all(v is None for v in m.values())
 
 
-def test_cpu_sampler_logs_windows_in_cores():
+def test_cpu_sampler_logs_windows_in_percent_of_a_core():
     # Six windows expected; generous, so a loaded CI runner that wakes the
     # sampler late (one sample in 50 ms was seen on macOS) still gets two.
     sampler = bench.CpuSampler(window_s=0.025)
     sampler.start()
     t0 = time.perf_counter()
-    while time.perf_counter() - t0 < 0.15:  # busy: about one core
+    while time.perf_counter() - t0 < 0.15:  # busy: about one core, ~100 %
         pass
     sampler.stop()
     assert len(sampler.log) >= 2
     ends = [t for t, _ in sampler.log]
-    assert ends == sorted(ends) and all(cores >= 0 for _, cores in sampler.log)
-    assert max(cores for _, cores in sampler.log) > 0.2
+    assert ends == sorted(ends) and all(pct >= 0 for _, pct in sampler.log)
+    assert max(pct for _, pct in sampler.log) > 20
     # Restarting starts a fresh log; stopping at once keeps a sub-window tail
     # only from 10 ms up, so a call shorter than that has no sample.
     sampler.start()
@@ -186,11 +186,11 @@ def _run_record(
     ttfa: float,
     seq: int = 1,
     ok: bool = True,
-    cores: float | None = None,
+    cpu_pct: float | None = None,
 ) -> dict:
     """A run record as the worker writes it: the raw timeline plus the derived
     metrics appended. seq 0 is the warm-up (the first call after construction);
-    `cores` adds a CPU log and CPU seconds, as a run with the sampler has."""
+    `cpu_pct` adds a CPU log and CPU seconds, as a run with the sampler has."""
     if not ok:
         return {
             "entry": entry,
@@ -223,9 +223,9 @@ def _run_record(
         "drains": 1,
         "chunk_log": [[ttfa, 4800, 900], [ttfa + 50, 4800, 900]],
     }
-    if cores is not None:
-        record["cpu_log"] = [[ttfa, cores / 2], [ttfa + 50, cores]]
-        record["cpu_s"] = cores * (ttfa + 100) / 1000 / 2
+    if cpu_pct is not None:
+        record["cpu_log"] = [[ttfa, cpu_pct / 2], [ttfa + 50, cpu_pct]]
+        record["cpu_s"] = cpu_pct / 100 * (ttfa + 100) / 1000 / 2
     record.update(bench.derive_metrics(record))
     return record
 
@@ -398,7 +398,7 @@ def test_merge_into_builds_a_result_then_a_newer_run_overrides(tmp_path: Path):
         [
             _load("m/a"),
             _run_record("m/a", "say", 20.0, seq=0),
-            _run_record("m/a", "say", 22.0, cores=2.0),
+            _run_record("m/a", "say", 22.0, cpu_pct=200.0),
             _usage("m/a", 123.4),
             _done("m/a"),
             _skip("m/b"),
@@ -406,7 +406,7 @@ def test_merge_into_builds_a_result_then_a_newer_run_overrides(tmp_path: Path):
             _run_record("tone", "say", 0.5),
             _done("tone"),
             _load("l/x"),
-            _run_record("l/x", "say", 5.0, cores=3.5),
+            _run_record("l/x", "say", 5.0, cpu_pct=350.0),
             _usage("l/x", 456.7),
             _done("l/x"),
         ],
@@ -468,8 +468,8 @@ def test_merge_into_builds_a_result_then_a_newer_run_overrides(tmp_path: Path):
     # saying which run measured what.
     assert compact["m/a"]["peak_mb"] == "123" and compact["m/c"]["peak_mb"] == ""
     assert rows[("l/x", "say")]["peak_mb"] == "456.7"
-    assert float(rows[("l/x", "say")]["cpu_peak_x__median"]) == 3.5
-    assert rows[("m/c", "stream")]["cpu_peak_x__median"] == ""
+    assert float(rows[("l/x", "say")]["cpu_peak_pct__median"]) == 350.0
+    assert rows[("m/c", "stream")]["cpu_peak_pct__median"] == ""
     assert "| CPU peak p50 | CPU peak p90 | load s | first call | peak MB | run |" in md
     assert "| l/x | 1 | 0 | 5 | 5 | — | — | — | — | — | — | 0.50 | — | 457 |" in md
     assert "| 20261028-100000 |" in md and "| — |\n" in md  # r1: no measures

@@ -134,7 +134,7 @@ Start at [docs/index.md](docs/index.md), the documentation by task. The pages us
 
 ## Benchmark
 
-[benchmarks/](benchmarks/README.md) measures how long each module and model makes you wait before the first sound, whether the audio then keeps up, and what it costs the machine (the cores it keeps busy, the memory it holds), through the same `TTSEngine` API you use. Where to look:
+[benchmarks/](benchmarks/README.md) measures how long each module and model makes you wait before the first sound, whether the audio then keeps up, and what it costs the machine (the CPU it keeps busy, the memory it holds), through the same `TTSEngine` API you use. Where to look:
 
 - [the Mac result's summary](benchmarks/results/20261027-1453_mac-m5-pro/summary.md): the numbers, one row per model, local backends then hosted ones, with the device and network in its `description.md`;
 - [RESULTS.md](benchmarks/RESULTS.md): what stood out, and the decisions it led to;

@@ -6,8 +6,8 @@ the arrival of every PCM chunk at the sink. Time to first audio, time to first
 voice, stalls and real-time factor are derived from that timeline afterwards.
 The worker also samples its own CPU use in short windows during every call and
 records its peak resident memory, so a result says what a backend costs the
-machine (cores at its busiest, memory held) beside how long it makes a caller
-wait.
+machine (CPU at its busiest, as top shows it, memory held) beside how long it
+makes a caller wait.
 
 Each entry runs in its **own subprocess**: a cold engine construction per
 entry (model load / client setup measured on its own), memory released between
@@ -187,8 +187,9 @@ class TimingSink:
 class CpuSampler:
     """Samples the process's CPU use, every thread, user and system time, in
     windows of `window_s`: a thread records at the end of each window the CPU
-    seconds spent in it over its wall length, in cores. The log is the raw
-    material of the CPU metrics, as the sink's events are of the timing ones.
+    seconds spent in it over its wall length, as a percentage of one core, the
+    convention of top (200 = two cores). The log is the raw material of the
+    CPU metrics, as the sink's events are of the timing ones.
 
     The thread is Python, so it takes the interpreter lock for a few
     microseconds per window; the benchmark README records what that costs the
@@ -197,7 +198,9 @@ class CpuSampler:
 
     def __init__(self, window_s: float) -> None:
         self.window_s = window_s
-        self.log: list[tuple[float, float]] = []  # (t, cores in the window ending at t)
+        self.log: list[
+            tuple[float, float]
+        ] = []  # (t, % of a core in the window ending at t)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -225,7 +228,7 @@ class CpuSampler:
             # up, so a call shorter than a window still gets its one sample
             # and a call under 10 ms gets none (its average is still recorded).
             if now_wall - wall >= (0.01 if stopped else self.window_s / 2):
-                self.log.append((now_wall, (now_cpu - cpu) / (now_wall - wall)))
+                self.log.append((now_wall, 100 * (now_cpu - cpu) / (now_wall - wall)))
             wall, cpu = now_wall, now_cpu
 
 
@@ -287,11 +290,17 @@ METRICS: dict[str, tuple[str, str]] = {
     "total_ms": ("ms", "call → return"),
     "audio_s": ("s", "audio produced"),
     "speed_x": ("×", "audio seconds per wall second after the first chunk"),
-    "cpu_peak_x": (
-        "×",
-        "cores busy in the call's busiest sampling window (every thread, user + system)",
+    "cpu_peak_pct": (
+        "%",
+        (
+            "CPU use in the call's busiest sampling window, percent of one core as "
+            "top shows it (every thread, user + system; 200 = two cores)"
+        ),
     ),
-    "cpu_mean_x": ("×", "cores busy over the whole call: CPU seconds / wall seconds"),
+    "cpu_mean_pct": (
+        "%",
+        "CPU use over the whole call, percent of one core: CPU seconds / wall seconds",
+    ),
 }
 
 STATS = ("n", "mean", "median", "stdev", "min", "p90", "max")
@@ -321,9 +330,9 @@ def derive_metrics(run: dict) -> dict[str, float | None]:
         # The capture sink never blocks, so this is the backend's own speed,
         # bounded by any server-side pacing.
         "speed_x": audio_s / gen_s if gen_s > 0 else None,
-        "cpu_peak_x": max(cores for _, cores in cpu_log) if cpu_log else None,
-        "cpu_mean_x": (
-            cpu_s / (run["end_ms"] / 1000)
+        "cpu_peak_pct": max(pct for _, pct in cpu_log) if cpu_log else None,
+        "cpu_mean_pct": (
+            100 * cpu_s / (run["end_ms"] / 1000)
             if cpu_s is not None and run["end_ms"] > 0
             else None
         ),
@@ -384,7 +393,7 @@ async def measure_one(
         return None if t is None else round((t - t0) * 1000, 2)
 
     # The raw record: every timestamp relative to the call, every chunk as
-    # [arrival ms, bytes, peak |sample|], every CPU window as [end ms, cores],
+    # [arrival ms, bytes, peak |sample|], every CPU window as [end ms, % of a core],
     # and the call's CPU seconds (every thread; no sampler needed). The derived
     # values are appended for grep-ability only; `summarize` recomputes them.
     run = {
@@ -397,7 +406,7 @@ async def measure_one(
         "cpu_log": (
             None
             if sampler is None
-            else [[ms(t), round(cores, 3)] for t, cores in sampler.log]
+            else [[ms(t), round(pct, 1)] for t, pct in sampler.log]
         ),
         "chunk_log": [[ms(t), n, peak] for t, n, peak in sink.events],
     }
@@ -1040,25 +1049,26 @@ SUMMARY_COLUMNS: list[tuple[str, str, str, str, str, int, str]] = [
         ),
     ),
     (
-        "cpu_peak_p50_x",
+        "cpu_peak_p50_pct",
         "CPU peak p50",
         "stream",
         "medium",
-        "cpu_peak_x__median",
-        1,
+        "cpu_peak_pct__median",
+        0,
         (
-            "median over runs of the cores busy in the call's busiest sampling "
-            "window, three-sentence stream: what the synthesis grabs at its peak, "
-            "every thread of the engine's process"
+            "median over runs of the CPU use in the call's busiest sampling "
+            "window, three-sentence stream, percent of one core as top shows it "
+            "(200 = two cores): what the synthesis grabs at its peak, every thread "
+            "of the engine's process"
         ),
     ),
     (
-        "cpu_peak_p90_x",
+        "cpu_peak_p90_pct",
         "CPU peak p90",
         "stream",
         "medium",
-        "cpu_peak_x__p90",
-        1,
+        "cpu_peak_pct__p90",
+        0,
         "its tail across runs",
     ),
 ]
@@ -1237,7 +1247,7 @@ def summarize(target: Path) -> None:
             "grouped by module and fastest first "
             "within a module; the fixture modules (tone, audiofile) are left out, "
             "see `results.csv`; times in ms, "
-            "CPU in cores, memory in MB; "
+            "CPU in percent of one core (200 = two cores), memory in MB; "
             "statistics over the measured (warm) runs; `n` = measured runs behind "
             "the headline cell, `err` = failed runs over every cell. For each entry "
             "the latest run that completed it supplies the numbers (`run`). Every "
