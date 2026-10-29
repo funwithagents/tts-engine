@@ -818,6 +818,72 @@
         "qwen3/1.7B-CustomVoice-Q8_0",
         "qwen3/1.7B-VoiceDesign-Q8_0"
       ]
+    },
+    {
+      "run": "20261029-140348",
+      "started": "2026-10-29T14:03:48+0100",
+      "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+      "machine": "arm64",
+      "processor": "arm",
+      "cpu_count": 15,
+      "python": "3.13.14",
+      "git_sha": "43c2810",
+      "versions": {
+        "tts-engine": "0.1.0",
+        "elevenlabs": "2.74.1",
+        "pocket-tts": "4.0.1",
+        "torch": "2.14.0",
+        "gradium": "0.6.4",
+        "ptts": "0.5.0",
+        "mistralai": "3.5.0",
+        "deepgram-sdk": "7.15.0",
+        "google-genai": "2.33.0",
+        "cartesia": "4.2.0",
+        "openai": "3.37.0",
+        "qwentts-cpp-python": "0.5.0",
+        "kokoro-onnx": "0.6.1",
+        "piper-tts": "1.8.0",
+        "onnxruntime": "1.31.0"
+      },
+      "measures": {
+        "cpu_window_ms": 50.0,
+        "rss": true,
+        "gpu": null
+      },
+      "settings": {
+        "runs": 20,
+        "warmup": 1,
+        "modes": [
+          "say",
+          "stream"
+        ],
+        "texts": [
+          "short",
+          "medium"
+        ],
+        "token_delay_ms": 0.0,
+        "pause_s": 0.5,
+        "run_timeout_s": 120.0,
+        "entry_timeout_s": 600.0,
+        "max_consecutive_failures": 3,
+        "cpu_window_ms": 50.0
+      },
+      "selection": {
+        "only": [
+          "*+q4k+t*"
+        ],
+        "exclude": null,
+        "tags": null,
+        "exclude_tags": null,
+        "include_disabled": false
+      },
+      "supplies": [
+        "phonon/31m-en@cpu+q4k+t1",
+        "phonon/31m-en@cpu+q4k+t2",
+        "phonon/40m-multilingual@cpu+q4k+t1",
+        "phonon/40m-multilingual@cpu+q4k+t2",
+        "phonon/40m-multilingual@cpu+q4k+t4"
+      ]
     }
   ]
 }

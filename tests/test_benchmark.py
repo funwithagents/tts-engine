@@ -446,7 +446,7 @@ def test_merge_into_builds_a_result_then_a_newer_run_overrides(tmp_path: Path):
     assert float(rows[("m/a", "say")]["first_call_ttfa_ms"]) == 20.0
     assert rows[("m/c", "stream")]["run"] == "20261028-100000"
     compact = {r["entry"]: r for r in csv.DictReader((result / "summary.csv").open())}
-    # local first; by module, then TTFA p50, an entry with no headline cell last
+    # local first; by module, then matrix order (none of these is listed: by id)
     assert list(compact) == ["l/x", "m/a", "m/c"]
     assert compact["l/x"]["kind"] == "local" and compact["m/a"]["kind"] == "hosted"
     assert rows[("m/a", "say")]["kind"] == "hosted"  # results.csv carries it too
@@ -509,3 +509,17 @@ def test_summarize_a_single_run(tmp_path: Path):
     )
     bench.summarize(run)
     assert "| m/a | 1 | 0 | 15 |" in (run / "summary.md").read_text()
+
+
+def test_summary_follows_matrix_order_not_speed(tmp_path: Path):
+    # Each configuration sits above its `+t<n>` caps whatever their speed; an
+    # entry the matrix no longer lists comes after the listed ones, by id.
+    ids = ["m/b", "m/b+t1", "m/b+t2", "m/a"]
+    matrix = tmp_path / "matrix.json"
+    matrix.write_text(json.dumps({"entries": [{"id": e} for e in ids]}))
+    ttfa = {"m/a": 5.0, "m/b": 30.0, "m/b+t1": 90.0, "m/b+t2": 10.0, "m/0-old": 1.0}
+    records = [r for e, t in ttfa.items() for r in (_run_record(e, "say", t), _done(e))]
+    run = _write_run(tmp_path / "runs", "20261028-120000", records)
+    bench.summarize(run, matrix)
+    compact = [r["entry"] for r in csv.DictReader((run / "summary.csv").open())]
+    assert compact == ids + ["m/0-old"]
