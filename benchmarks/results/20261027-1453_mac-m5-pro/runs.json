@@ -57,32 +57,10 @@
         "audiofile",
         "gradium/default",
         "gradium/gradium-tts-beta",
-        "kokoro/v1.0-fp32",
         "mistral/voxtral-mini-tts-2603",
         "mistral/voxtral-mini-tts-3-0",
-        "phonon/31m-en@auto",
-        "phonon/31m-en@cpu",
-        "phonon/31m-en@cpu+q4k",
-        "phonon/31m-en@cpu+q8_0",
-        "piper/en_US-lessac-high",
-        "piper/en_US-lessac-low",
-        "piper/en_US-lessac-medium",
-        "piper/en_US-ljspeech-high",
-        "piper/en_US-ljspeech-medium",
-        "pocket/english_18m_2026-10",
-        "pocket/english_2026-10",
-        "pocket/english_2026-10+quantize",
         "pocket/english_2026-10@mps",
         "pocket/english_24l",
-        "pocket/english_2m_2026-10",
-        "pocket/english_7m_2026-10",
-        "qwen3/0.6B-CustomVoice-BF16",
-        "qwen3/0.6B-CustomVoice-Q4_K_M",
-        "qwen3/0.6B-CustomVoice-Q8_0",
-        "qwen3/1.7B-CustomVoice-BF16",
-        "qwen3/1.7B-CustomVoice-Q4_K_M",
-        "qwen3/1.7B-CustomVoice-Q8_0",
-        "qwen3/1.7B-VoiceDesign-Q8_0",
         "tone"
       ]
     },
@@ -148,8 +126,7 @@
         "elevenlabs/eleven_v3",
         "elevenlabs/eleven_v3_conversational",
         "elevenlabs/eleven_v4",
-        "elevenlabs/eleven_v4_turbo",
-        "pocket/english_2026-09_24l"
+        "elevenlabs/eleven_v4_turbo"
       ]
     },
     {
@@ -203,10 +180,7 @@
         "exclude_tags": null,
         "include_disabled": false
       },
-      "supplies": [
-        "phonon/40m-en@auto",
-        "phonon/40m-multilingual@auto"
-      ]
+      "supplies": []
     },
     {
       "run": "20261028-094201",
@@ -496,17 +470,7 @@
         "exclude_tags": null,
         "include_disabled": false
       },
-      "supplies": [
-        "phonon/40m-en@cpu",
-        "phonon/40m-en@cpu+q4k",
-        "phonon/40m-en@cpu+q8_0",
-        "phonon/40m-multilingual@cpu",
-        "phonon/40m-multilingual@cpu+q4k",
-        "phonon/40m-multilingual@cpu+q8_0",
-        "pocket/english_18m_2026-10+quantize",
-        "pocket/english_2m_2026-10+quantize",
-        "pocket/english_7m_2026-10+quantize"
-      ]
+      "supplies": []
     },
     {
       "run": "20261028-123808",
@@ -616,10 +580,7 @@
         "exclude_tags": null,
         "include_disabled": true
       },
-      "supplies": [
-        "kokoro/v1.0-fp16",
-        "kokoro/v1.0-int8"
-      ]
+      "supplies": []
     },
     {
       "run": "20261028-132417",
@@ -755,6 +716,107 @@
         "piper/en_US-ljspeech-medium+t1",
         "piper/en_US-ljspeech-medium+t2",
         "piper/en_US-ljspeech-medium+t4"
+      ]
+    },
+    {
+      "run": "20261029-111334",
+      "started": "2026-10-29T11:13:34+0100",
+      "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+      "machine": "arm64",
+      "processor": "arm",
+      "cpu_count": 15,
+      "python": "3.13.14",
+      "git_sha": "bb505e7",
+      "versions": {
+        "tts-engine": "0.1.0",
+        "elevenlabs": "2.74.1",
+        "pocket-tts": "4.0.1",
+        "torch": "2.14.0",
+        "gradium": "0.6.4",
+        "ptts": "0.5.0",
+        "mistralai": "3.5.0",
+        "deepgram-sdk": "7.15.0",
+        "google-genai": "2.33.0",
+        "cartesia": "4.2.0",
+        "openai": "3.37.0",
+        "qwentts-cpp-python": "0.5.0",
+        "kokoro-onnx": "0.6.1",
+        "piper-tts": "1.8.0",
+        "onnxruntime": "1.31.0"
+      },
+      "measures": {
+        "cpu_window_ms": 50.0,
+        "rss": true,
+        "gpu": null
+      },
+      "settings": {
+        "runs": 20,
+        "warmup": 1,
+        "modes": [
+          "say",
+          "stream"
+        ],
+        "texts": [
+          "short",
+          "medium"
+        ],
+        "token_delay_ms": 0.0,
+        "pause_s": 0.5,
+        "run_timeout_s": 120.0,
+        "entry_timeout_s": 600.0,
+        "max_consecutive_failures": 3,
+        "cpu_window_ms": 50.0
+      },
+      "selection": {
+        "only": null,
+        "exclude": [
+          "pocket/*@mps"
+        ],
+        "tags": [
+          "local"
+        ],
+        "exclude_tags": [
+          "threads"
+        ],
+        "include_disabled": true
+      },
+      "supplies": [
+        "kokoro/v1.0-fp16",
+        "kokoro/v1.0-fp32",
+        "kokoro/v1.0-int8",
+        "phonon/31m-en@auto",
+        "phonon/31m-en@cpu",
+        "phonon/31m-en@cpu+q4k",
+        "phonon/31m-en@cpu+q8_0",
+        "phonon/40m-en@auto",
+        "phonon/40m-en@cpu",
+        "phonon/40m-en@cpu+q4k",
+        "phonon/40m-en@cpu+q8_0",
+        "phonon/40m-multilingual@auto",
+        "phonon/40m-multilingual@cpu",
+        "phonon/40m-multilingual@cpu+q4k",
+        "phonon/40m-multilingual@cpu+q8_0",
+        "piper/en_US-lessac-high",
+        "piper/en_US-lessac-low",
+        "piper/en_US-lessac-medium",
+        "piper/en_US-ljspeech-high",
+        "piper/en_US-ljspeech-medium",
+        "pocket/english_18m_2026-10",
+        "pocket/english_18m_2026-10+quantize",
+        "pocket/english_2026-09_24l",
+        "pocket/english_2026-10",
+        "pocket/english_2026-10+quantize",
+        "pocket/english_2m_2026-10",
+        "pocket/english_2m_2026-10+quantize",
+        "pocket/english_7m_2026-10",
+        "pocket/english_7m_2026-10+quantize",
+        "qwen3/0.6B-CustomVoice-BF16",
+        "qwen3/0.6B-CustomVoice-Q4_K_M",
+        "qwen3/0.6B-CustomVoice-Q8_0",
+        "qwen3/1.7B-CustomVoice-BF16",
+        "qwen3/1.7B-CustomVoice-Q4_K_M",
+        "qwen3/1.7B-CustomVoice-Q8_0",
+        "qwen3/1.7B-VoiceDesign-Q8_0"
       ]
     }
   ]
