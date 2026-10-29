@@ -60,6 +60,23 @@ class _Chunk:
     audio_int16_bytes: bytes
 
 
+class _FakeSessionOptions:
+    def __init__(self) -> None:
+        self.intra_op_num_threads = 0
+
+
+class _FakeInferenceSession:
+    """Records how the module built the session when `threads` is set."""
+
+    def __init__(self, model_path, sess_options=None, providers=None) -> None:
+        self._model_path = model_path
+        self.sess_options = sess_options
+        self.providers = providers
+
+    def get_providers(self):
+        return list(self.providers or [])
+
+
 class _Fakes:
     """Shared state for one test: what the fakes recorded, and how they behave."""
 
@@ -79,6 +96,8 @@ class _Fakes:
         self.synth_error: Exception | None = None
         self.chunk_rate: int | None = None  # defaults to the voice's rate
         self.pcm = np.array([1, -2, 3], dtype="<i2").tobytes()
+        self.sessions: list[_FakeInferenceSession] = []
+        self.config_dicts: list[dict] = []
 
     def config(self):
         return types.SimpleNamespace(
@@ -98,8 +117,11 @@ def _install_fakes(monkeypatch, fakes: _Fakes) -> None:
         return f"/cache/{repo_id}/{filename}"
 
     class FakeVoice:
-        def __init__(self) -> None:
-            self.config = fakes.config()
+        def __init__(self, config=None, session=None) -> None:
+            self.config = config or fakes.config()
+            self.session = session
+            if session is not None:  # built by the module, not by load()
+                fakes.sessions.append(session)
             fakes.instances.append(self)
 
         @staticmethod
@@ -128,10 +150,24 @@ def _install_fakes(monkeypatch, fakes: _Fakes) -> None:
     hub_mod = types.SimpleNamespace(hf_hub_download=hf_hub_download, errors=errors_mod)
     monkeypatch.setitem(sys.modules, "huggingface_hub", hub_mod)
     monkeypatch.setitem(sys.modules, "huggingface_hub.errors", errors_mod)
+
+    def from_dict(config_dict: dict):
+        fakes.config_dicts.append(config_dict)
+        return fakes.config()
+
     piper_mod = types.SimpleNamespace(
-        PiperVoice=FakeVoice, SynthesisConfig=SynthesisConfig
+        PiperVoice=FakeVoice,
+        SynthesisConfig=SynthesisConfig,
+        PiperConfig=types.SimpleNamespace(from_dict=from_dict),
     )
     monkeypatch.setitem(sys.modules, "piper", piper_mod)
+    monkeypatch.setitem(
+        sys.modules,
+        "onnxruntime",
+        types.SimpleNamespace(
+            SessionOptions=_FakeSessionOptions, InferenceSession=_FakeInferenceSession
+        ),
+    )
 
 
 @pytest.fixture
@@ -167,6 +203,9 @@ def _say(module: PiperModule, text: str, callback=lambda _b: None) -> None:
         ({"speaker": 1.5}, "speaker"),
         ({"speed": 0.4}, "speed"),
         ({"speed": 2.5}, "speed"),
+        ({"threads": 0}, "threads"),
+        ({"threads": True}, "threads"),
+        ({"threads": "2"}, "threads"),
     ],
 )
 def test_invalid_config_raises_before_any_download(fakes, config, match):
@@ -218,6 +257,24 @@ def test_local_model_resolves_against_base_dir(fakes, tmp_path):
     PiperModule({"type": "piper", "model": "v.onnx", "base_dir": str(tmp_path)})
     assert fakes.downloads == []
     assert fakes.loaded == [(str(tmp_path / "v.onnx"), f"{tmp_path / 'v.onnx'}.json")]
+
+
+def test_threads_build_the_voice_on_a_session_with_the_thread_count(fakes, tmp_path):
+    (tmp_path / "v.onnx").touch()
+    (tmp_path / "v.onnx.json").write_text('{"audio": {"sample_rate": 22050}}')
+    fakes.sample_rate = 16000  # the config the fake PiperConfig builds
+    module = PiperModule(
+        {"type": "piper", "model": "v.onnx", "base_dir": str(tmp_path), "threads": 2}
+    )
+    assert fakes.loaded == []  # not PiperVoice.load: the module built the voice
+    (session,) = fakes.sessions
+    assert session._model_path == str(tmp_path / "v.onnx")
+    assert session.sess_options.intra_op_num_threads == 2
+    assert session.providers == ["CPUExecutionProvider"]
+    assert fakes.config_dicts == [{"audio": {"sample_rate": 22050}}]  # the JSON
+    assert module.sample_rate == 16000
+    _say(module, "Hi.")
+    assert [t for t, _ in fakes.synth_calls] == ["Hi."]
 
 
 @pytest.mark.parametrize("present", ["v.onnx", "v.onnx.json"])

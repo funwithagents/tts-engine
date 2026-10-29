@@ -28,6 +28,7 @@ Then select the module:
 | `voice` | no | `af_heart` | A voice from the voices file. The first letter is the language (`a` American English, `b` British English, `e` Spanish, `f` French, `h` Hindi, `i` Italian, `j` Japanese, `p` Brazilian Portuguese, `z` Mandarin), the second the gender: `af_heart`, `am_michael`, `bf_emma`, `ff_siwis`, … The full list is in [Kokoro's VOICES.md](https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md). |
 | `language` | no | From the voice's first letter | An espeak-ng language code: `en-us`, `en-gb`, `es`, `fr-fr`, `hi`, `it`, `ja`, `pt-br`, `cmn`. |
 | `speed` | no | Library default (1.0) | Speaking rate, from 0.5 to 2.0. |
+| `threads` | no | onnxruntime's choice (the physical cores) | CPU threads for synthesis, 1 or more. Fewer threads leave cores for the rest of the machine at some latency: two threads doubled the time to first audio on an M5 Pro. |
 | `model` | no | `kokoro-v1.0.onnx`, pinned | `hf://owner/repo/path/file.onnx[@revision]`, or a local path (relative to `base_dir`), e.g. the int8 or fp16 exports from the [kokoro-onnx releases](https://github.com/thewh1teagle/kokoro-onnx/releases). |
 | `voices` | no | `voices-v1.0.bin`, pinned | Same forms as `model`, for the voices file. |
 

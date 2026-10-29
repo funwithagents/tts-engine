@@ -27,6 +27,7 @@ Then select the module:
 | `model` | no | None | A voice outside the catalog: `hf://owner/repo/path/voice.onnx[@revision]` or a local `.onnx` path (relative to `base_dir`), with its `.onnx.json` next to it. Not with `voice`. |
 | `speaker` | no | The voice's default | For a multi-speaker voice (`en_US-libritts_r-medium`, `en_US-arctic-medium`): a speaker name or index. |
 | `speed` | no | The voice's own pace | Speaking rate, from 0.5 to 2.0. |
+| `threads` | no | onnxruntime's choice (the physical cores) | CPU threads for synthesis, 1 or more. Fewer threads leave cores for the rest of the machine at some latency: two threads doubled the time per sentence on an M5 Pro. |
 
 Catalog voices are pinned to one commit of the repository. The module emits mono PCM at the voice's rate: 22,050 Hz for `medium` and `high` voices, 16,000 Hz for `low` ones. It synthesizes one sentence at a time and prepares the next one while the current one plays. The Japanese, Thai and two of the Chinese voices (`zh_CN-chaowen-medium`, `zh_CN-xiao_ya-medium`) need extra packages and are not supported; the module says so when it loads them.
 

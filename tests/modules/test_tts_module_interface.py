@@ -20,6 +20,7 @@ from tts_engine.modules.base import (
     normalize_gender,
     open_cancellable,
     optional_str,
+    positive_int,
     resolve_api_key,
     resolve_path,
     run_cancellable_worker,
@@ -744,6 +745,19 @@ def test_finite_number_bounds_and_their_message(bounds, ok, bad, message):
     assert finite_number({"f": ok}, "f", label=_LABEL, **bounds) == float(ok)
     with pytest.raises(ConfigError, match=re.escape(f"X module 'f' must be {message}")):
         finite_number({"f": bad}, "f", label=_LABEL, **bounds)
+
+
+def test_positive_int_absent_null_and_values():
+    assert positive_int({}, "f", label=_LABEL) is None
+    assert positive_int({"f": None}, "f", label=_LABEL) is None
+    assert positive_int({"f": 1}, "f", label=_LABEL) == 1
+    assert positive_int({"f": 4}, "f", label=_LABEL) == 4
+
+
+@pytest.mark.parametrize("bad", [0, -1, True, 1.5, 2.0, "2", [2]])
+def test_positive_int_rejects_zero_negatives_bools_floats_and_strings(bad):
+    with pytest.raises(ConfigError, match="X module 'f' must be an integer >= 1"):
+        positive_int({"f": bad}, "f", label=_LABEL)
 
 
 # --- shared PCM helpers --------------------------------------------------------

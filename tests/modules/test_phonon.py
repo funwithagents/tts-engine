@@ -78,6 +78,8 @@ class _FakeBackend:
         self.instances: list = []
         self.block: threading.Event | None = None
         self.reached = threading.Event()
+        self.threads_set: list[int] = []
+        self.threads_at_init: list[int] | None = None
 
 
 def _fake_ptts(backend: _FakeBackend) -> types.SimpleNamespace:
@@ -88,6 +90,7 @@ def _fake_ptts(backend: _FakeBackend) -> types.SimpleNamespace:
 
         def __init__(self, **kwargs) -> None:
             backend.init_kwargs = kwargs
+            backend.threads_at_init = list(backend.threads_set)
             backend.instances.append(self)
             if backend.raise_on_init is not None:
                 raise backend.raise_on_init
@@ -104,13 +107,19 @@ def _fake_ptts(backend: _FakeBackend) -> types.SimpleNamespace:
             backend.streams.append(audio)
             return audio
 
-    return types.SimpleNamespace(TTS=FakeTTS)
+    def set_num_threads(n: int) -> None:
+        backend.threads_set.append(n)
+
+    return types.SimpleNamespace(TTS=FakeTTS, set_num_threads=set_num_threads)
 
 
 @pytest.fixture
 def fake(monkeypatch) -> _FakeBackend:
+    from tts_engine.modules.phonon import module as phonon_module
+
     backend = _FakeBackend()
     monkeypatch.setitem(sys.modules, "ptts", _fake_ptts(backend))
+    monkeypatch.setattr(phonon_module, "_pool_threads", None)  # a fresh process
     return backend
 
 
@@ -137,6 +146,10 @@ def _run(coro):
         ({"device": 0}, "device"),
         ({"temperature": -0.1}, "temperature"),
         ({"cfg_coef": "2"}, "cfg_coef"),
+        ({"threads": 0}, "threads"),
+        ({"threads": True}, "threads"),
+        ({"threads": 1.5}, "threads"),
+        ({"threads": "2"}, "threads"),
     ],
 )
 def test_invalid_config_raises(config, match):
@@ -179,6 +192,48 @@ def test_init_kwargs(fake, config, init_kwargs):
     module = PhononModule({"type": "phonon", **config})
     assert fake.init_kwargs == init_kwargs
     assert module.sample_rate == 24000
+
+
+def test_threads_size_the_pool_before_the_load_and_stay_out_of_the_kwargs(fake):
+    PhononModule({"type": "phonon", "threads": 2})
+    assert fake.threads_at_init == [2]  # set_num_threads ran before TTS(...)
+    assert fake.init_kwargs == {"lang": "en"}
+    fake.threads_set.clear()
+    PhononModule({"type": "phonon"})
+    assert fake.threads_set == []  # unset: the library's own pool size
+
+
+def test_a_second_model_with_another_thread_count_warns(fake, monkeypatch, caplog):
+    from tts_engine.modules.phonon import module as phonon_module
+
+    monkeypatch.setattr(phonon_module, "_pool_threads", None)  # a fresh process
+    PhononModule({"type": "phonon", "threads": 2})
+    with caplog.at_level("WARNING", logger=phonon_module.__name__):
+        PhononModule({"type": "phonon", "threads": 2})
+        assert caplog.records == []  # the same count: nothing to say
+        PhononModule({"type": "phonon", "threads": 4})
+        PhononModule({"type": "phonon"})
+    assert [r.getMessage() for r in caplog.records] == [
+        (
+            "Phonon module 'threads' 4 cannot apply: a model already loaded in "
+            "this process sized the thread pool (threads=2)"
+        ),
+        (
+            "Phonon module 'threads' default cannot apply: a model already loaded "
+            "in this process sized the thread pool (threads=2)"
+        ),
+    ]
+    assert fake.threads_set == [2, 2, 4]  # still passed on; ptts ignores it
+
+
+def test_threads_the_library_rejects_is_a_config_error(fake, monkeypatch):
+    def refuse(n: int) -> None:
+        raise ValueError("pool already built")
+
+    monkeypatch.setattr(sys.modules["ptts"], "set_num_threads", refuse)
+    with pytest.raises(ConfigError, match="threads.*pool already built"):
+        PhononModule({"type": "phonon", "threads": 2})
+    assert fake.instances == []
 
 
 def test_local_model_resolves_against_base_dir(fake):

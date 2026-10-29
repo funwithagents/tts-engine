@@ -32,6 +32,7 @@ Then select the module:
 | `quant` | no | Model weights | CPU-only weight format, e.g. `q8_0` or `q4k`. |
 | `temperature` | no | `ptts` default (0.3) | Sampling temperature, 0 or more. |
 | `cfg_coef` | no | Model default | Guidance coefficient (voice adherence). |
+| `threads` | no | Every core (`ptts`'s choice) | CPU threads for synthesis, 1 or more. Fewer threads leave cores for the rest of the machine at some latency. Process-wide: the first phonon model loaded in a process sets it, and a later different value only logs a warning. |
 
 The module emits mono PCM at 24,000 Hz. The default English model is Apache-2.0. The French, German, Spanish, Portuguese and multilingual models (`gradium/phonon-40m-*`) are gated and licensed CC BY-NC 4.0: they need an `HF_TOKEN` with access, plus matching `model` and `language` fields.
 
