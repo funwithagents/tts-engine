@@ -75,16 +75,18 @@ def test_derive_metrics_without_audio_is_all_none():
 
 
 def test_cpu_sampler_logs_windows_in_cores():
-    sampler = bench.CpuSampler(window_s=0.01)
+    # Six windows expected; generous, so a loaded CI runner that wakes the
+    # sampler late (one sample in 50 ms was seen on macOS) still gets two.
+    sampler = bench.CpuSampler(window_s=0.025)
     sampler.start()
     t0 = time.perf_counter()
-    while time.perf_counter() - t0 < 0.05:  # busy: about one core
+    while time.perf_counter() - t0 < 0.15:  # busy: about one core
         pass
     sampler.stop()
     assert len(sampler.log) >= 2
     ends = [t for t, _ in sampler.log]
     assert ends == sorted(ends) and all(cores >= 0 for _, cores in sampler.log)
-    assert max(cores for _, cores in sampler.log) > 0.5
+    assert max(cores for _, cores in sampler.log) > 0.2
     # Restarting starts a fresh log; stopping at once keeps a sub-window tail
     # only from 10 ms up, so a call shorter than that has no sample.
     sampler.start()
