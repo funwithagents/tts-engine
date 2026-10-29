@@ -14,6 +14,7 @@ dependencies = [
 
 [project.scripts]
 tts-engine-mcp = "tts_engine.mcp_server_cli:main"
+tts-engine-calibrate = "tts_engine.calibrate_cli:main"
 
 # One extra per TTS provider and one per transport, plus three bundles:
 # `hosted-modules`, `all-modules` and `all`. The base install is the engine only —

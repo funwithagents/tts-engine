@@ -11,7 +11,6 @@ import sys
 import wave
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 from tts_engine import VoiceInfo, VoiceListingUnsupported
@@ -259,25 +258,6 @@ def test_render_writes_samples_measurements_and_the_page(tmp_path):
         )
     assert json.loads((out / "results.json").read_text(encoding="utf-8")) == results
     assert (out / "index.html").exists()
-
-
-def test_measure_level_reads_the_active_speech_and_the_peak():
-    rate = 24000
-    t = np.arange(rate) / rate
-    sine = np.round(0.2 * 32767 * np.sin(2 * np.pi * 440 * t)).astype("<i2")
-    silence = np.zeros(rate // 2, dtype="<i2")
-
-    # A sine of amplitude 0.2: RMS 0.2/sqrt(2) (-17.0 dBFS), peak -14.0 dBFS;
-    # the silence padding either end leaves the active level unchanged.
-    padded = np.concatenate([silence, sine, silence]).tobytes()
-    assert audition.measure_level(padded, rate) == {
-        "level_dbfs": -17.0,
-        "peak_dbfs": -14.0,
-    }
-    assert audition.measure_level(silence.tobytes(), rate) == {
-        "level_dbfs": None,
-        "peak_dbfs": None,
-    }
 
 
 def test_render_records_the_level_and_fills_it_in_for_older_results(tmp_path):

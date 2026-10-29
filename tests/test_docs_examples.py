@@ -179,6 +179,17 @@ def test_engine_from_an_mcp_server_config():
     assert namespace["engine"].sample_rate == 24000
 
 
+def test_calibrating_the_gain():
+    source = _python_block(
+        _REPO_ROOT / "docs" / "configuration.md", "Finding the value"
+    )
+    namespace = _run(source, {})
+    # tone stands in for pocket: a sine at 0.2 of full scale.
+    assert namespace["result"].level.level_dbfs == -17.0
+    assert namespace["result"].suggestion.gain_db == -5.0
+    assert not _RecordingPlayer.fed  # measured, not played
+
+
 def test_finding_a_voice(monkeypatch: pytest.MonkeyPatch):
     voice = VoiceInfo(
         id="v1",

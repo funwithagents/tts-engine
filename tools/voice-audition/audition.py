@@ -36,11 +36,10 @@ import statistics
 import sys
 import time
 import wave
+from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-
-import numpy as np
 
 from tts_engine import (
     TTSEngine,
@@ -50,6 +49,7 @@ from tts_engine import (
     list_voices,
 )
 from tts_engine.config import ConfigError
+from tts_engine.level import DEFAULT_TARGET_DBFS, measure_level
 from tts_engine.modules import REGISTRY
 from tts_engine.modules.base import TTSError
 
@@ -61,11 +61,6 @@ _ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
 _TOP_KEYS = {"name", "text", "candidates"}
 _CANDIDATE_KEYS = {"id", "label", "section", "notes", "config"}
 _GENDERS = ("male", "female", "neutral")
-# The level measure: the RMS of the 20 ms frames above -40 dBFS, so the
-# silence an engine pads an utterance with does not lower it.
-_FRAME_S = 0.02
-_ACTIVE_DBFS = -40.0
-DEFAULT_TARGET_DBFS = -22.0
 
 
 class AuditionError(Exception):
@@ -306,30 +301,11 @@ class _CaptureSink:
         pass
 
 
-def _dbfs(value: float) -> float:
-    return round(20 * np.log10(value / 32768), 1)
-
-
-def measure_level(pcm: bytes, sample_rate: int) -> dict[str, float | None]:
-    """The active level and the peak of int16 mono PCM, in dBFS (``None`` for
-    no active speech, or no signal at all)."""
-    samples = np.frombuffer(pcm, dtype="<i2").astype(np.float64)
-    peak = float(np.abs(samples).max()) if samples.size else 0.0
-    frame = max(1, round(_FRAME_S * sample_rate))
-    frames = samples[: samples.size // frame * frame].reshape(-1, frame)
-    power = (frames**2).mean(axis=1)
-    active = frames[power > (32768 * 10 ** (_ACTIVE_DBFS / 20)) ** 2]
-    return {
-        "level_dbfs": _dbfs(float(np.sqrt((active**2).mean())))
-        if active.size
-        else None,
-        "peak_dbfs": _dbfs(peak) if peak else None,
-    }
-
-
 def _wav_level(path: Path) -> dict[str, float | None]:
     with wave.open(str(path), "rb") as wav:
-        return measure_level(wav.readframes(wav.getnframes()), wav.getframerate())
+        return asdict(
+            measure_level(wav.readframes(wav.getnframes()), wav.getframerate())
+        )
 
 
 def cache_key(text: str, config: dict[str, Any]) -> str:
@@ -403,7 +379,7 @@ async def render_candidate(
         "ttfa_median_ms": round(statistics.median(ttfa), 1),
         "duration_s": round(len(pcm) / 2 / rate, 2),
         "sample_rate": rate,
-        **measure_level(pcm, rate),
+        **asdict(measure_level(pcm, rate)),
         "rendered_at": datetime.now(UTC).isoformat(timespec="seconds"),
     }
 

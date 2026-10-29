@@ -182,6 +182,8 @@ The level is a property of the module configuration (voice, model, emotion and s
 - **A per-module `volume` field** would be written once per module, in each provider's unit, and still not cover the local models.
 - **The device's volume** sets one level for everything played on it and does not exist for an injected sink.
 
+Finding the value is `tts_engine.level`'s job: it measures a configuration's level and suggests the gain to a target ([level.md](level.md)).
+
 ## Data flow
 
 ### Through the MCP
@@ -240,6 +242,8 @@ await engine.say_stream(llm_tokens())
 | `modules/audiofile/module.py` | Fixture module: text → WAV file mapping with a default file, paths relative to `base_dir` |
 | `audio.py` | Defines the `AudioSink` Protocol; `AudioPlayer` (its default impl): `sounddevice` output stream management, lazily imported; provider-agnostic consumer of the fixed PCM format contract |
 | `config.py` | Parse and validate config; produce typed config dataclasses (`MCPServerConfig`, `TTSEngineConfig`, …), each with a `from_dict`/`from_json`/`from_json_file` constructor trio |
+| `level.py` | Speech level and `gain_db` calibration: `measure_level`, `suggest_gain`, `calibrate` (an engine with a capture sink and no gain); see [level.md](level.md) |
+| `calibrate_cli.py` | The `tts-engine-calibrate` entry point over `calibrate`; configures logging for its process |
 | `mcp_server_cli.py` | Argument parsing (`--config`, `--log-level`); imports the MCP stack inside `main`, exiting with the `pip install tts-engine[mcp]` hint when the extra is absent; `MCPServerConfig.from_json_file` → `TTSEngine(cfg.engine)` → MCP server; `logging.basicConfig(level=args.log_level)`; starts uvicorn |
 | `__init__.py` | Public API surface: re-exports `TTSEngine`, `TTSEngineConfig`, `MCPServerConfig`, `TTSTools`, `AudioSink` |
 
@@ -259,7 +263,7 @@ The package exposes the library entry points at the top level:
 from tts_engine import TTSEngine, TTSEngineConfig, MCPServerConfig, TTSTools, AudioSink
 ```
 
-`TTSEngine` exposes `say`, `say_stream`, `sample_rate`, `close` and the async context-manager protocol. `TTSTools` is curated so agents can register its bound methods directly (see [tools.md](tools.md), "Consumers"). `AudioSink` is exported so embedders can type their own playback destination against the seam ([audio-sink.md](audio-sink.md)). Everything else (modules, the concrete `AudioPlayer`, mcp, mcp_server_cli) is reachable by submodule import but is not part of the curated top-level surface. None of the top-level names needs an extra: `MCPServerConfig` is a plain dataclass, while `tts_engine.mcp` itself requires the `mcp` extra.
+`TTSEngine` exposes `say`, `say_stream`, `sample_rate`, `close` and the async context-manager protocol. `TTSTools` is curated so agents can register its bound methods directly (see [tools.md](tools.md), "Consumers"). `AudioSink` is exported so embedders can type their own playback destination against the seam ([audio-sink.md](audio-sink.md)). Everything else (modules, the concrete `AudioPlayer`, `level`, mcp, the entry points) is reachable by submodule import but is not part of the curated top-level surface. None of the top-level names needs an extra: `MCPServerConfig` is a plain dataclass, while `tts_engine.mcp` itself requires the `mcp` extra.
 
 ## Threading / async model
 

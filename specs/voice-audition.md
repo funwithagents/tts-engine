@@ -120,12 +120,9 @@ my-assistant.audition/
 
 Each provider, model and voice speaks at its own level, so voices compared side by side, or played one after another by an application, jump in volume at every change. The engine's `gain_db` ([configuration.md](configuration.md), "`engine.gain_db`") corrects that per engine; the audition is where its value is found, since choosing a voice and its gain then happen in one place.
 
-- **`level_dbfs`** is the RMS of the sample's **active speech**: the sample is cut into 20 ms frames, the frames whose own RMS is above −40 dBFS are kept, and the RMS of all their samples is taken, in dBFS (full scale 32768). Leaving the silences out matters: engines pad an utterance with up to 0.7 s of silence, which lowers a whole-file RMS without changing what is heard. `null` when no frame is active.
-- **`peak_dbfs`** is the sample's largest absolute value in dBFS; `null` for a silent sample.
-- Both are measured on the kept sample (the last run), at the module's own rate, and rounded to 0.1 dB. The level of a configuration is stable across texts, so one sentence gives a usable value; a longer text gives a firmer one.
-- **The target.** The page shows, under each level, the **suggested `gain_db`** (`target − level`, to 0.1 dB) and the **peak after that gain**, flagged when it passes 0 dBFS, since the engine would then clip. The target starts at `--target` (default **−22 dBFS**, on `render` and `page`) and can be changed on the page, which recomputes every row. A target below most voices keeps the gains negative, and attenuating never clips.
-
-Active RMS is the simple measure and matched the ear on the voices it was tried on. Perceptual loudness (ITU-R BS.1770, LUFS) is stricter; it can replace it if two voices measure equal but sound different (Open questions).
+- **`level_dbfs` and `peak_dbfs`** are `tts_engine.level.measure_level` on the kept sample (the last run), at the module's own rate: the RMS of the active speech (20 ms frames above −40 dBFS) and the largest absolute sample, in dBFS to 0.1 dB, `null` when there is none ([level.md](level.md), "The measure"). The tool calls the library's measure, so its levels and those of `tts-engine-calibrate` are the same number for the same audio. It measures the audio it already rendered, with no extra synthesis.
+- The level of a configuration is stable across texts, so one sentence gives a usable value. `tts-engine-calibrate` measures three sentences, for a firmer one on the voice finally kept.
+- **The target.** The page shows, under each level, the **suggested `gain_db`** and the **peak after that gain**, flagged when it passes 0 dBFS, since the engine would then clip: `suggest_gain`'s arithmetic ([level.md](level.md), "The suggestion"), redone in the page's script so the target stays editable. The target starts at `--target` (default `DEFAULT_TARGET_DBFS`, **−22 dBFS**, on `render` and `page`), and changing it on the page recomputes every row. A target below most voices keeps the gains negative, and attenuating never clips.
 
 `render` exits non-zero when a candidate ends in `error`, after writing everything else; `skipped` is not a failure. Entries of ids no longer in the file are dropped from `results.json`, and their WAVs are left alone.
 
@@ -163,7 +160,6 @@ The exported file is how choices leave the browser: for another machine, a colle
 - the file validation;
 - `new` against a faked `list_voices`: filters, unknown metadata, limit, ids and their deduplication, the hosted key variable, a module that cannot list, refusing to overwrite;
 - `render` with the `tone` fixture: the WAV and its rate, the runs and their median, the level and peak, the cache key (an unchanged candidate not rendered again, a changed text rendering it again, `--force`), an older entry's level filled in from its WAV, a candidate with an unset key `skipped` without construction, a bad config an `error`;
-- the level measure on a known sine, with and without silence around it, and on silence;
 - the page: its data embedded, `api_key` redacted, the storage key, the target.
 
 The page's script is not run by the tests.
@@ -174,6 +170,5 @@ Deferrals only:
 
 1. **Several sentences.** One sentence covers a first pass; a greeting, a long answer and a question would separate close voices better. That would make `text` a list with labels, give each candidate one sample per text, and key the cache by both.
 2. **From choices back to a file.** A `select` command could turn an exported choices file into a new audition with only the Yes (and Maybe) candidates, to re-render a shortlist with more runs or a longer text, or print their configs.
-3. **LUFS instead of active RMS** for the level, if the RMS and the ear disagree on a set of voices.
-4. **Rendering with a gain.** A candidate could carry its `gain_db` so the page plays the voices already levelled; for now the samples are the engine's native level and the page only suggests the value.
-5. **Packaged CLI.** If users of the library outside this repository need it, the tool can become a `tts-engine-audition` entry point with `page.html` as package data. That makes its file format a public interface, which is why it starts in the repository.
+3. **Rendering with a gain.** A candidate could carry its `gain_db` so the page plays the voices already levelled; for now the samples are the engine's native level and the page only suggests the value.
+4. **Packaged CLI.** If users of the library outside this repository need it, the tool can become a `tts-engine-audition` entry point with `page.html` as package data. That makes its file format a public interface, which is why it starts in the repository.
