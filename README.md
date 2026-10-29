@@ -126,7 +126,7 @@ Start at [docs/index.md](docs/index.md), the documentation by task. The pages us
 | [docs/audio-sinks.md](docs/audio-sinks.md) | The default player, and capturing or routing the audio yourself |
 | [docs/agents-and-mcp.md](docs/agents-and-mcp.md) | `TTSTools` for an agent, and the MCP server |
 | [docs/choosing-a-backend-and-voice.md](docs/choosing-a-backend-and-voice.md) | Where each backend runs, how fast it answers, its voices, and how to audition them |
-| [docs/troubleshooting.md](docs/troubleshooting.md) | No audio, a missing extra, and each backend's own errors |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | No audio, a missing extra, a voice louder or quieter than the others, and each backend's own errors |
 
 ## Examples
 
@@ -143,6 +143,16 @@ Start at [docs/index.md](docs/index.md), the documentation by task. The pages us
 ## Voice audition
 
 [tools/voice-audition/](tools/voice-audition/README.md) helps pick a voice: it builds a list of candidates from the backends' catalogs, has each one say the same sentence while measuring its time to first audio on your machine and its level, and writes a page to listen to them one by one, mark each Yes, Maybe or No, and read the `gain_db` that levels it with the others. It runs from a checkout; [its README](tools/voice-audition/README.md) has the commands, and [choosing a backend and a voice](docs/choosing-a-backend-and-voice.md) shows where it fits.
+
+## Level
+
+Each backend, model and voice speaks at its own level, and the engine plays it as it is: an application that switches voices, or plays several one after another, hears a volume jump at every change. The engine block's optional `gain_db` sets one static gain per engine, and `tts-engine-level`, installed with the package, finds its value for a voice:
+
+```bash
+uv run tts-engine-level --config engine.json
+```
+
+It has the engine say three sentences, measures the level of the speech with the silences left out, and prints the `gain_db` that brings the voice to a target level (−22 dBFS by default, `--target` to change it). Copy that value into the engine block next to the voice's `module`, and use the same target for every voice you want to match. The same measure is available from Python as `tts_engine.level.calibrate`, and the voice audition shows it for every candidate. [Output gain](docs/configuration.md#output-gain) has the details: running it with nothing installed, its options, clipping.
 
 ## Feedback and contributions
 
