@@ -1,43 +1,21 @@
-"""Voice audition: hear candidate voices side by side, measure them, pick some.
-
-An audition file (JSON) holds one sentence and a list of candidates, each a
-complete ``engine.module`` block. Three commands:
-
-- ``new`` builds an audition file from the backends' own catalogs
-  (``tts_engine.list_voices``), filtered by gender, language and text;
-- ``render`` synthesizes every candidate through ``TTSEngine``: one warm-up,
-  then ``--runs`` timed calls whose time to first audio is recorded, the last
-  run's audio kept as ``samples/<id>.wav``. Only what changed is rendered
-  again, and a candidate whose key or extra is missing is skipped;
-- ``page`` writes ``index.html``: one row per candidate with its player, its
-  measured latency, its level with the ``gain_db`` that brings it to a target
-  level, and Yes / Maybe / No / NotSet choices, Yes and Maybe tabs, and an
-  export/import of the choices.
-
-Design: specs/voice-audition.md. Usage (from the repo root):
-
-    uv run python tools/voice-audition/audition.py new my-assistant.json \\
-        --text "Hi! What would you like to talk about?" \\
-        --module phonon --module cartesia --gender male --language en --limit 8
-    zsh -ic 'source ~/.zshrc >/dev/null 2>&1; \\
-        uv run python tools/voice-audition/audition.py render my-assistant.json'
-    open my-assistant.audition/index.html
-"""
+"""The voice audition behind `tts-engine-audition`: the audition and choices
+files, `new` (candidates from the backends' catalogs), `render` (every
+candidate through `TTSEngine`, its time to first audio and level measured,
+only what changed rendered again) and the page (see specs/voice-audition.md).
+The command line is in `cli.py`."""
 
 from __future__ import annotations
 
-import argparse
-import asyncio
 import hashlib
 import json
 import os
 import re
 import statistics
-import sys
 import time
 import wave
 from dataclasses import asdict
 from datetime import UTC, datetime
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -53,14 +31,14 @@ from tts_engine.level import DEFAULT_TARGET_DBFS, measure_level
 from tts_engine.modules import REGISTRY
 from tts_engine.modules.base import TTSError
 
-_HERE = Path(__file__).resolve().parent
-_TEMPLATE = _HERE / "page.html"
+_TEMPLATE = files("tts_engine.audition") / "page.html"
 _DATA_PLACEHOLDER = "/*AUDITION_DATA*/null"
 
 _ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
-_TOP_KEYS = {"name", "text", "candidates"}
+_TOP_KEYS = {"name", "description", "text", "candidates"}
 _CANDIDATE_KEYS = {"id", "label", "section", "notes", "config"}
-_GENDERS = ("male", "female", "neutral")
+_CHOICES = ("yes", "maybe", "no")
+GENDERS = ("male", "female", "neutral")
 
 
 class AuditionError(Exception):
@@ -86,6 +64,9 @@ def load_audition(path: Path) -> dict[str, Any]:
     name = data.get("name", path.stem)
     if not isinstance(name, str) or not name:
         raise AuditionError(f"{path}: 'name' must be a non-empty string")
+    description = data.get("description", "")
+    if not isinstance(description, str):
+        raise AuditionError(f"{path}: 'description' must be a string")
     text = data.get("text")
     if not isinstance(text, str) or not text.strip():
         raise AuditionError(f"{path}: 'text' must be a non-empty string")
@@ -125,11 +106,49 @@ def load_audition(path: Path) -> dict[str, Any]:
                 "config": config,
             }
         )
-    return {"name": name, "text": text, "candidates": loaded}
+    return {
+        "name": name,
+        "description": description,
+        "text": text,
+        "candidates": loaded,
+    }
 
 
 def default_out_dir(audition_path: Path) -> Path:
     return audition_path.with_suffix(".audition")
+
+
+def load_choices(path: Path, audition: dict[str, Any]) -> dict[str, str]:
+    """A choices file (the page's export format) checked against the
+    audition: `{id: "yes" | "maybe" | "no"}`; `AuditionError` naming the file
+    and field otherwise."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AuditionError(f"{path}: cannot read the choices file: {exc}") from exc
+    if not isinstance(data, dict):
+        raise AuditionError(f"{path}: the choices file must be a JSON object")
+    owner = data.get("audition")
+    if owner is not None and owner != audition["name"]:
+        raise AuditionError(
+            f"{path}: these choices belong to the audition {owner!r},"
+            f" not {audition['name']!r}"
+        )
+    ids = {c["id"] for c in audition["candidates"]}
+    choices: dict[str, str] = {}
+    for value in _CHOICES:
+        listed = data.get(value, [])
+        if not isinstance(listed, list) or not all(isinstance(i, str) for i in listed):
+            raise AuditionError(f"{path}: {value!r} must be a list of candidate ids")
+        for cid in listed:
+            if cid not in ids:
+                raise AuditionError(f"{path}: {value!r}: no candidate {cid!r}")
+            if cid in choices:
+                raise AuditionError(
+                    f"{path}: {cid!r} is both {choices[cid]!r} and {value!r}"
+                )
+            choices[cid] = value
+    return choices
 
 
 # --- new ----------------------------------------------------------------------
@@ -227,13 +246,25 @@ def build_candidates(
     return candidates
 
 
-def cmd_new(args: argparse.Namespace) -> int:
-    out = Path(args.out)
-    if out.exists() and not args.force:
+def new(
+    out: Path,
+    *,
+    text: str,
+    modules: list[str],
+    genders: list[str],
+    languages: list[str],
+    query: str | None = None,
+    limit: int | None = None,
+    keep_unknown: bool = False,
+    name: str | None = None,
+    force: bool = False,
+) -> int:
+    """Write an audition file from the modules' catalogs; the exit code."""
+    if out.exists() and not force:
         raise AuditionError(f"{out} exists; pass --force to overwrite it")
-    if not args.text.strip():
+    if not text.strip():
         raise AuditionError("--text must not be empty")
-    bases = [parse_module(value) for value in args.module]
+    bases = [parse_module(value) for value in modules]
 
     candidates: list[dict[str, Any]] = []
     taken: set[str] = set()
@@ -252,14 +283,14 @@ def cmd_new(args: argparse.Namespace) -> int:
             for v in voices
             if voice_matches(
                 v,
-                genders=args.gender,
-                languages=args.language,
-                query=args.query,
-                keep_unknown=args.keep_unknown,
+                genders=genders,
+                languages=languages,
+                query=query,
+                keep_unknown=keep_unknown,
             )
         ]
-        if args.limit is not None:
-            matching = matching[: args.limit]
+        if limit is not None:
+            matching = matching[:limit]
         print(f"{label}: {len(matching)} of {len(voices)} voices")
         candidates.extend(build_candidates(base, matching, taken))
 
@@ -267,8 +298,8 @@ def cmd_new(args: argparse.Namespace) -> int:
         print("no voice matched; nothing written")
         return 1
     audition = {
-        "name": args.name or out.stem,
-        "text": args.text,
+        "name": name or out.stem,
+        "text": text,
         "candidates": candidates,
     }
     out.write_text(
@@ -410,12 +441,14 @@ async def render(
     only: list[str] | None = None,
     force: bool = False,
     target_dbfs: float = DEFAULT_TARGET_DBFS,
+    choices_path: Path | None = None,
 ) -> dict[str, Any]:
     """Render the audition's candidates into `out` and write the page; the
     results by id."""
     if runs < 1:
         raise AuditionError("--runs must be at least 1")
     audition = load_audition(audition_path)
+    choices = load_choices(choices_path, audition) if choices_path else {}
     ids = {c["id"] for c in audition["candidates"]}
     unknown = set(only or ()) - ids
     if unknown:
@@ -456,7 +489,7 @@ async def render(
         _write_results(out, results)
 
     _write_results(out, results)
-    write_page(audition, results, out, target_dbfs=target_dbfs)
+    write_page(audition, results, out, target_dbfs=target_dbfs, choices=choices)
     return results
 
 
@@ -472,6 +505,7 @@ def page_data(
     results: dict[str, Any],
     *,
     target_dbfs: float = DEFAULT_TARGET_DBFS,
+    choices: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     sections: list[str] = []
     for candidate in audition["candidates"]:
@@ -479,8 +513,10 @@ def page_data(
             sections.append(candidate["section"])
     return {
         "name": audition["name"],
+        "description": audition["description"],
         "text": audition["text"],
         "target_dbfs": target_dbfs,
+        "choices": choices or {},
         "sections": sections,
         "candidates": [
             {
@@ -504,6 +540,7 @@ def write_page(
     out: Path,
     *,
     target_dbfs: float = DEFAULT_TARGET_DBFS,
+    choices: dict[str, str] | None = None,
 ) -> Path:
     template = _TEMPLATE.read_text(encoding="utf-8")
     if template.count(_DATA_PLACEHOLDER) != 1:
@@ -512,119 +549,10 @@ def write_page(
         )
     # Inside a <script>, "</" could end the element: escape it in the JSON.
     data = json.dumps(
-        page_data(audition, results, target_dbfs=target_dbfs), ensure_ascii=False
+        page_data(audition, results, target_dbfs=target_dbfs, choices=choices),
+        ensure_ascii=False,
     ).replace("</", "<\\/")
     out.mkdir(parents=True, exist_ok=True)
     page = out / "index.html"
     page.write_text(template.replace(_DATA_PLACEHOLDER, data), encoding="utf-8")
     return page
-
-
-# --- command line -------------------------------------------------------------
-
-
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    sub = p.add_subparsers(dest="command", required=True)
-
-    new = sub.add_parser(
-        "new", help="write an audition file from the backends' catalogs"
-    )
-    new.add_argument("out", help="the audition file to write (.json)")
-    new.add_argument("--text", required=True, help="the sentence every candidate says")
-    new.add_argument(
-        "--module",
-        action="append",
-        required=True,
-        help="a module type (hosted ones get <TYPE>_API_KEY) or a JSON module block; repeatable",
-    )
-    new.add_argument(
-        "--gender", action="append", default=[], choices=_GENDERS, help="repeatable"
-    )
-    new.add_argument(
-        "--language",
-        action="append",
-        default=[],
-        help="a language code or prefix (en, en-US); repeatable",
-    )
-    new.add_argument("--query", help="substring of the name, description or tags")
-    new.add_argument("--limit", type=int, help="at most this many voices per module")
-    new.add_argument(
-        "--keep-unknown",
-        action="store_true",
-        help="keep voices whose catalog gives no gender/language when filtering on it",
-    )
-    new.add_argument("--name", help="the audition's name (default: the file's stem)")
-    new.add_argument("--force", action="store_true", help="overwrite an existing file")
-
-    ren = sub.add_parser("render", help="render the candidates and write the page")
-    ren.add_argument("audition", help="the audition file")
-    ren.add_argument("--out", help="output folder (default: <audition>.audition)")
-    ren.add_argument(
-        "--runs",
-        type=int,
-        default=3,
-        help="measured runs per candidate after one warm-up",
-    )
-    ren.add_argument("--only", nargs="+", help="render only these candidate ids")
-    ren.add_argument(
-        "--force", action="store_true", help="render again even when unchanged"
-    )
-
-    page = sub.add_parser("page", help="rewrite the page from the existing results")
-    page.add_argument("audition", help="the audition file")
-    page.add_argument("--out", help="output folder (default: <audition>.audition)")
-    for command in (ren, page):
-        command.add_argument(
-            "--target",
-            type=float,
-            default=DEFAULT_TARGET_DBFS,
-            help="the level (dBFS) the page's suggested gain_db aims at"
-            f" (default {DEFAULT_TARGET_DBFS:g}; also editable on the page)",
-        )
-    return p.parse_args(argv)
-
-
-def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
-    try:
-        if args.command == "new":
-            return cmd_new(args)
-        audition_path = Path(args.audition)
-        out = Path(args.out) if args.out else default_out_dir(audition_path)
-        if args.command == "page":
-            page = write_page(
-                load_audition(audition_path),
-                load_results(out),
-                out,
-                target_dbfs=args.target,
-            )
-            print(f"wrote {page}")
-            return 0
-        results = asyncio.run(
-            render(
-                audition_path,
-                out,
-                runs=args.runs,
-                only=args.only,
-                force=args.force,
-                target_dbfs=args.target,
-            )
-        )
-    except AuditionError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
-    counts = {
-        s: sum(r.get("status") == s for r in results.values())
-        for s in ("ok", "skipped", "error")
-    }
-    print(
-        f"{counts['ok']} ok, {counts['skipped']} skipped, {counts['error']} errors; page: {out / 'index.html'}"
-    )
-    return 1 if counts["error"] else 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

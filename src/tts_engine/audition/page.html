@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Voice audition</title>
-<!-- Template of tools/voice-audition/audition.py: `page` replaces the data
+<!-- Template of tts_engine/audition/audition.py: `page` replaces the data
      placeholder below with the audition's JSON and writes index.html. -->
 <style>
   :root {
@@ -20,6 +20,9 @@
   body { font: 15px system-ui, sans-serif; margin: 24px; background: var(--bg); color: var(--fg); }
   h1 { font-size: 24px; margin: 0 0 6px; }
   .sentence { margin: 0 0 4px; }
+  .description { max-width: 900px; }
+  .description p { margin: 0 0 8px; }
+  .description a { color: inherit; }
   .hint { color: var(--muted); font-size: 13px; margin: 0; }
   .bar { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 10px 0;
          border-bottom: 1px solid var(--line); margin: 12px 0 0; }
@@ -56,6 +59,7 @@
 </head>
 <body>
   <h1 id="title">Voice audition</h1>
+  <div class="description" id="description"></div>
   <p class="sentence"><i id="sentence"></i></p>
   <p class="hint">Latency: time to first audio measured while rendering (median of the runs after a warm-up; hover for the range).</p>
   <p class="hint">Level: RMS of the sample's active speech (20 ms frames above −40 dBFS). Below it, the engine's <code>gain_db</code> that brings the voice to the target level, and the sample's peak after that gain.</p>
@@ -85,8 +89,11 @@ const ids = new Set(DATA.candidates.map(c => c.id));
 let state = {};
 let tab = "all";
 
+// The browser's stored choices; with none stored, the audition's starting ones.
 function load() {
-  try { state = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { state = {}; }
+  let stored = null;
+  try { stored = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
+  state = stored && typeof stored === "object" ? stored : {...(DATA.choices || {})};
 }
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
@@ -163,9 +170,29 @@ function row(c, index) {
   );
 }
 
+// Plain text: paragraphs split on blank lines, [label](href) links when href
+// is http(s) or relative; anything else stays text.
+function description(text) {
+  const box = document.getElementById("description");
+  for (const para of (text || "").split(/\n\s*\n/)) {
+    if (!para.trim()) continue;
+    const p = el("p");
+    let last = 0;
+    for (const m of para.matchAll(/\[([^\]\n]+)\]\(([^)\s]+)\)/g)) {
+      p.append(para.slice(last, m.index));
+      const safe = /^https?:\/\//i.test(m[2]) || !/^[a-z][a-z0-9+.-]*:/i.test(m[2]);
+      p.append(safe ? el("a", {href: m[2]}, m[1]) : m[0]);
+      last = m.index + m[0].length;
+    }
+    p.append(para.slice(last));
+    box.append(p);
+  }
+}
+
 function build() {
   document.title = "Voice audition: " + DATA.name;
   document.getElementById("title").textContent = "Voice audition: " + DATA.name;
+  description(DATA.description);
   document.getElementById("sentence").textContent = DATA.text;
   const rows = document.getElementById("rows");
   DATA.candidates.forEach((c, index) => c.index = index);

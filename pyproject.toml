@@ -15,6 +15,7 @@ dependencies = [
 [project.scripts]
 tts-engine-mcp = "tts_engine.mcp_server_cli:main"
 tts-engine-level = "tts_engine.level_cli:main"
+tts-engine-audition = "tts_engine.audition.cli:main"
 
 # One extra per TTS provider and one per transport, plus three bundles:
 # `hosted-modules`, `all-modules` and `all`. The base install is the engine only —
@@ -182,7 +183,7 @@ target-version = "py311"  # keep in sync with requires-python
 "tests-e2e/__init__.py" = ["N999"]  # dir name intentionally hyphenated (opt-in tier)
 
 [tool.pyright]
-include = ["src", "tests", "tests-e2e", "benchmarks", "tools"]  # type-check test code, the benchmark and the tools too, not just src
+include = ["src", "tests", "tests-e2e", "benchmarks"]  # type-check test code and the benchmark too, not just src
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.11"

@@ -1,28 +1,23 @@
-"""Unit tier for tools/voice-audition/audition.py: the audition file, `new`
-against a faked `list_voices`, `render` through the `tone` fixture, the page.
-No network, no key, no audio hardware."""
+"""Unit tier for the voice audition (`tts_engine.audition`): the audition
+and choices files, `new` against a faked `list_voices`, `render` through the
+`tone` fixture, the page, the packaging. No network, no key, no audio
+hardware."""
 
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import json
-import sys
+import tomllib
 import wave
 from pathlib import Path
 
 import pytest
 
 from tts_engine import VoiceInfo, VoiceListingUnsupported
+from tts_engine.audition import audition, cli
 
-_AUDITION_PY = (
-    Path(__file__).resolve().parents[1] / "tools" / "voice-audition" / "audition.py"
-)
-_spec = importlib.util.spec_from_file_location("voice_audition", _AUDITION_PY)
-assert _spec is not None and _spec.loader is not None
-audition = importlib.util.module_from_spec(_spec)
-sys.modules["voice_audition"] = audition
-_spec.loader.exec_module(audition)
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_EXAMPLES = _REPO_ROOT / "examples" / "auditions"
 
 
 def _write(path: Path, data: dict) -> Path:
@@ -53,6 +48,7 @@ def _tone_audition(tmp_path: Path, **overrides) -> Path:
 def test_load_fills_in_the_defaults(tmp_path):
     loaded = audition.load_audition(_tone_audition(tmp_path))
     assert loaded["name"] == "trial"
+    assert loaded["description"] == ""
     first, second = loaded["candidates"]
     assert (first["label"], first["section"], first["notes"]) == ("tone-a", "tone", "")
     assert (second["label"], second["section"]) == ("Second", "fixtures")
@@ -62,6 +58,7 @@ def test_load_fills_in_the_defaults(tmp_path):
     ("change", "message"),
     [
         ({"text": "  "}, "'text'"),
+        ({"description": 3}, "'description'"),
         ({"surprise": 1}, "unknown keys"),
         (
             {"candidates": [{"id": "Bad Id", "config": {"type": "tone"}}]},
@@ -197,7 +194,7 @@ def test_new_writes_candidates_from_the_catalogs(tmp_path, monkeypatch, capsys):
         limit=2,
         keep_unknown=True,
     )
-    assert audition.main(argv) == 0
+    assert cli.main(argv) == 0
 
     assert seen[0] == {"type": "cartesia", "api_key_env": "CARTESIA_API_KEY"}
     written = json.loads((tmp_path / "picked.json").read_text(encoding="utf-8"))
@@ -229,8 +226,8 @@ def test_new_refuses_to_overwrite_and_reports_no_match(tmp_path, monkeypatch):
         audition, "list_voices", lambda config: [_voice("a", gender="female")]
     )
     (tmp_path / "picked.json").write_text("{}")
-    assert audition.main(_new_args(tmp_path, "phonon")) == 2
-    assert audition.main(_new_args(tmp_path, "phonon", gender="male", force=True)) == 1
+    assert cli.main(_new_args(tmp_path, "phonon")) == 2
+    assert cli.main(_new_args(tmp_path, "phonon", gender="male", force=True)) == 1
     assert (tmp_path / "picked.json").read_text(encoding="utf-8") == "{}"
 
 
@@ -277,6 +274,18 @@ def test_render_records_the_level_and_fills_it_in_for_older_results(tmp_path):
     assert again["tone-a"]["level_dbfs"] == entry["level_dbfs"]
     assert again["tone-a"]["ttfa_ms"] == entry["ttfa_ms"]
     assert json.loads(results_path.read_text(encoding="utf-8")) == again
+
+
+def test_cache_key_keeps_its_definition():
+    # Pinned: a changed key would re-render, and re-pay for, every candidate
+    # of every existing audition after an upgrade.
+    assert audition.cache_key("Hello there.", {"type": "tone"}) == "5caed706fd961138"
+    assert (
+        audition.cache_key(
+            "Héllo — there.", {"type": "tone", "voice": "b", "api_key_env": "X"}
+        )
+        == "5f82aea02f298940"
+    )
 
 
 def test_render_only_renders_again_what_changed(tmp_path, monkeypatch):
@@ -327,7 +336,7 @@ def test_render_skips_an_unset_key_and_records_a_failing_config(tmp_path, monkey
         },
     )
     assert (
-        audition.main(["render", str(path), "--runs", "1"]) == 1
+        cli.main(["render", str(path), "--runs", "1"]) == 1
     )  # an error fails the command
 
     results = json.loads(
@@ -379,7 +388,7 @@ def test_page_embeds_the_data_without_secrets(tmp_path):
             ],
         },
     )
-    assert audition.main(["page", str(path)]) == 0
+    assert cli.main(["page", str(path)]) == 0
     page = (tmp_path / "secret.audition" / "index.html").read_text(encoding="utf-8")
 
     assert "sk-123" not in page
@@ -393,12 +402,73 @@ def test_page_embeds_the_data_without_secrets(tmp_path):
     assert 'const KEY = "voice-audition:" + DATA.name;' in page
     assert data["target_dbfs"] == audition.DEFAULT_TARGET_DBFS
 
-    assert audition.main(["page", str(path), "--target", "-18"]) == 0
+    assert cli.main(["page", str(path), "--target", "-18"]) == 0
     page = (tmp_path / "secret.audition" / "index.html").read_text(encoding="utf-8")
     assert _embedded_data(page)["target_dbfs"] == -18.0
 
 
-def test_example_audition_is_valid():
-    example = _AUDITION_PY.parent / "examples" / "demo.json"
-    loaded = audition.load_audition(example)
+def test_page_shows_the_description(tmp_path):
+    path = _tone_audition(tmp_path, description="For a robot.\n\n[Credits](CREDITS.md)")
+    assert cli.main(["page", str(path)]) == 0
+    page = (tmp_path / "trial.audition" / "index.html").read_text(encoding="utf-8")
+    assert (
+        _embedded_data(page)["description"] == "For a robot.\n\n[Credits](CREDITS.md)"
+    )
+
+
+def _choices(tmp_path: Path, data: dict) -> str:
+    return str(_write(tmp_path / "choices.json", data))
+
+
+def test_page_starts_from_the_given_choices(tmp_path):
+    path = _tone_audition(tmp_path)
+    choices = _choices(
+        tmp_path,
+        {"audition": "trial", "yes": ["tone-b"], "maybe": [], "no": ["tone-a"]},
+    )
+    assert cli.main(["page", str(path), "--choices", choices]) == 0
+    page = (tmp_path / "trial.audition" / "index.html").read_text(encoding="utf-8")
+    assert _embedded_data(page)["choices"] == {"tone-b": "yes", "tone-a": "no"}
+
+    assert cli.main(["page", str(path)]) == 0  # without --choices: none
+    page = (tmp_path / "trial.audition" / "index.html").read_text(encoding="utf-8")
+    assert _embedded_data(page)["choices"] == {}
+
+
+@pytest.mark.parametrize(
+    ("data", "message"),
+    [
+        ({"audition": "other", "yes": ["tone-a"]}, "belong to the audition 'other'"),
+        ({"yes": ["ghost"]}, "no candidate 'ghost'"),
+        ({"yes": ["tone-a"], "no": ["tone-a"]}, "both 'yes' and 'no'"),
+        ({"maybe": "tone-a"}, "'maybe' must be a list"),
+    ],
+)
+def test_choices_file_is_refused_naming_the_field(tmp_path, data, message, capsys):
+    path = _tone_audition(tmp_path)
+    choices = _choices(tmp_path, data)
+    assert cli.main(["render", str(path), "--choices", choices]) == 2
+    assert message in capsys.readouterr().err
+    assert not (tmp_path / "trial.audition").exists()  # stopped before any synthesis
+
+
+# --- packaging and examples -----------------------------------------------------
+
+
+def test_template_is_package_data_and_the_command_is_declared():
+    assert "/*AUDITION_DATA*/null" in audition._TEMPLATE.read_text(encoding="utf-8")
+    pyproject = tomllib.loads((_REPO_ROOT / "pyproject.toml").read_text("utf-8"))
+    scripts = pyproject["project"]["scripts"]
+    assert scripts["tts-engine-audition"] == "tts_engine.audition.cli:main"
+
+
+@pytest.mark.parametrize("name", ["demo", "reachy-mini"])
+def test_example_audition_is_valid(name):
+    loaded = audition.load_audition(_EXAMPLES / f"{name}.json")
     assert loaded["candidates"]
+
+
+def test_reachy_mini_choices_match_their_audition():
+    loaded = audition.load_audition(_EXAMPLES / "reachy-mini.json")
+    choices = audition.load_choices(_EXAMPLES / "reachy-mini-choices.json", loaded)
+    assert set(choices) == {c["id"] for c in loaded["candidates"]}  # all decided

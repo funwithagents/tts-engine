@@ -37,12 +37,12 @@ The metadata is uneven: phonon, pocket, piper and qwen3 give no gender, so a fil
 
 ## 4. How do they sound?
 
-Only listening decides. The [voice audition tool](../tools/voice-audition/README.md) turns the previous steps into a page:
+Only listening decides. The [voice audition](voice-audition.md), `tts-engine-audition`, turns the previous steps into a page:
 
 1. `new` builds a candidate file from the catalogs, filtered by gender, language or text, a few voices per backend;
 2. `render` speaks one sentence with every candidate through `TTSEngine` and measures its time to first audio on your machine;
 3. the page plays them one by one and lets you mark each Yes, Maybe or No, then export the choices.
 
-[`examples/demo.json`](../tools/voice-audition/examples/demo.json) is a hand-picked starting point with two or three conversational voices per backend. The latency the audition shows is your machine's, three runs on one sentence; it is not comparable to the benchmark's controlled numbers, and both are right for what they measure.
+[`examples/auditions/demo.json`](../examples/auditions/demo.json) is a hand-picked starting point with two or three conversational voices per backend, and [`reachy-mini.json`](../examples/auditions/reachy-mini.json) a worked example: the audition that chose a robot's voices, [hosted](https://funwithagents.github.io/tts-engine/auditions/reachy-mini/) with its choices. The latency the audition shows is your machine's, three runs on one sentence; it is not comparable to the benchmark's controlled numbers, and both are right for what they measure.
 
 A candidate's `config` is a complete `module` block: the voice you keep goes into your engine configuration as is ([configuration.md](configuration.md)). The page also shows each voice's level and the `gain_db` that brings it to a common target, for an application that plays several voices one after another. For the voice you keep, `tts-engine-level` gives a firmer value from three sentences ([configuration.md](configuration.md#finding-the-value)).
