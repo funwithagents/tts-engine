@@ -132,17 +132,6 @@ Start at [docs/index.md](docs/index.md), the documentation by task. The pages us
 
 [examples/](examples/) holds one complete, runnable config per module (`config.<type>.json`), plus a variant for ElevenLabs v4 and one for Deepgram Flux. They are in the MCP server's format (an `engine` block and a `server` block), so with the `mcp` extra installed, `uv run tts-engine-mcp --config examples/config.tone.json` starts a server as is; the `engine` block is what a library config takes. They hold no secrets: a hosted module reads its key from the environment variable named in `api_key_env`.
 
-## Commands
-
-Installing the package also installs two commands:
-
-| Command | What it does |
-|---|---|
-| `tts-engine-level --config engine.json` | Measures how loud a voice speaks and prints the `gain_db` that brings it to a common level, so voices played one after another sound equally loud ([docs/configuration.md](docs/configuration.md#finding-the-value)) |
-| `tts-engine-mcp --config config.json` | Starts the MCP server, with the `mcp` extra ([docs/agents-and-mcp.md](docs/agents-and-mcp.md)) |
-
-Each needs the extra of the module its config names. Inside a project, run them with `uv run`.
-
 ## Latency benchmark
 
 [benchmarks/latency/](benchmarks/latency/README.md) measures how long each module and model makes you wait before the first sound, and whether the audio then keeps up, through the same `TTSEngine` API you use. Where to look:
@@ -154,6 +143,16 @@ Each needs the extra of the module its config names. Inside a project, run them 
 ## Voice audition
 
 [tools/voice-audition/](tools/voice-audition/README.md) helps pick a voice: it builds a list of candidates from the backends' catalogs, has each one say the same sentence while measuring its time to first audio on your machine and its level, and writes a page to listen to them one by one, mark each Yes, Maybe or No, and read the `gain_db` that levels it with the others. It runs from a checkout; [its README](tools/voice-audition/README.md) has the commands, and [choosing a backend and a voice](docs/choosing-a-backend-and-voice.md) shows where it fits.
+
+## Level
+
+Each backend, model and voice speaks at its own level, and the engine plays it as it is: an application that switches voices, or plays several one after another, hears a volume jump at every change. The engine block's optional `gain_db` sets one static gain per engine, and `tts-engine-level`, installed with the package, finds its value for a voice:
+
+```bash
+uv run tts-engine-level --config engine.json
+```
+
+It has the engine say three sentences, measures the level of the speech with the silences left out, and prints the `gain_db` that brings the voice to a target level (−22 dBFS by default, `--target` to change it). Copy that value into the engine block next to the voice's `module`, and use the same target for every voice you want to match. The same measure is available from Python as `tts_engine.level.calibrate`, and the voice audition shows it for every candidate. [Output gain](docs/configuration.md#output-gain) has the details: running it with nothing installed, its options, clipping.
 
 ## Feedback and contributions
 
