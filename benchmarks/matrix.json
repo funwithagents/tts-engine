@@ -652,6 +652,19 @@
       ]
     },
     {
+      "id": "phonon/31m-en@cpu+t1",
+      "type": "phonon",
+      "config": {
+        "device": "cpu",
+        "threads": 1
+      },
+      "tags": [
+        "local",
+        "threads"
+      ],
+      "notes": "threads=1: the floor, the model's single-thread speed; on a Pi, whether it keeps real time while leaving three cores to everything else. Compare with phonon/31m-en@cpu."
+    },
+    {
       "id": "phonon/31m-en@cpu+t2",
       "type": "phonon",
       "config": {
@@ -688,6 +701,20 @@
         "local"
       ],
       "notes": "ptts quants: f32, q8_0, q8_1, q8k, q6k, q5_0, q5_1, q5k, q4_0, q4_1, q4k (CPU only)."
+    },
+    {
+      "id": "phonon/31m-en@cpu+q8_0+t1",
+      "type": "phonon",
+      "config": {
+        "device": "cpu",
+        "quant": "q8_0",
+        "threads": 1
+      },
+      "tags": [
+        "local",
+        "threads"
+      ],
+      "notes": "threads=1: the floor, the model's single-thread speed; on a Pi, whether it keeps real time while leaving three cores to everything else. Compare with phonon/31m-en@cpu+q8_0."
     },
     {
       "id": "phonon/31m-en@cpu+q8_0+t2",
@@ -969,6 +996,19 @@
       "notes": "Pinned fastrtc/kokoro-onnx files (kokoro-v1.0.onnx 325 MB fp32 + voices-v1.0.bin)."
     },
     {
+      "id": "kokoro/v1.0-fp32+t1",
+      "type": "kokoro",
+      "config": {
+        "voice": "af_heart",
+        "threads": 1
+      },
+      "tags": [
+        "local",
+        "threads"
+      ],
+      "notes": "threads=1: the floor, the model's single-thread speed; on a Pi, whether it keeps real time while leaving three cores to everything else. Compare with kokoro/v1.0-fp32."
+    },
+    {
       "id": "kokoro/v1.0-fp32+t2",
       "type": "kokoro",
       "config": {
@@ -1007,6 +1047,22 @@
         "manual-download"
       ],
       "notes": "Download kokoro-v1.0.int8.onnx (114 MB) from the thewh1teagle/kokoro-onnx GitHub release 'model-files-v1.1' into models/ first."
+    },
+    {
+      "id": "kokoro/v1.0-int8+t1",
+      "type": "kokoro",
+      "config": {
+        "voice": "af_heart",
+        "model": "benchmarks/models/kokoro-v1.0.int8.onnx",
+        "threads": 1
+      },
+      "enabled": false,
+      "tags": [
+        "local",
+        "manual-download",
+        "threads"
+      ],
+      "notes": "threads=1: the floor, the model's single-thread speed; on a Pi, whether it keeps real time while leaving three cores to everything else. Compare with kokoro/v1.0-int8."
     },
     {
       "id": "kokoro/v1.0-int8+t2",
@@ -1067,6 +1123,19 @@
       "notes": "Module default (public domain)."
     },
     {
+      "id": "piper/en_US-ljspeech-medium+t1",
+      "type": "piper",
+      "config": {
+        "voice": "en_US-ljspeech-medium",
+        "threads": 1
+      },
+      "tags": [
+        "local",
+        "threads"
+      ],
+      "notes": "threads=1: the floor, the model's single-thread speed; on a Pi, whether it keeps real time while leaving three cores to everything else. Compare with piper/en_US-ljspeech-medium."
+    },
+    {
       "id": "piper/en_US-ljspeech-medium+t2",
       "type": "piper",
       "config": {
@@ -1113,6 +1182,19 @@
         "local"
       ],
       "notes": "lessac low/medium/high: same speaker, quality tier is the only variable (16 kHz for low, 22.05 kHz otherwise)."
+    },
+    {
+      "id": "piper/en_US-lessac-low+t1",
+      "type": "piper",
+      "config": {
+        "voice": "en_US-lessac-low",
+        "threads": 1
+      },
+      "tags": [
+        "local",
+        "threads"
+      ],
+      "notes": "threads=1: the floor, the model's single-thread speed; on a Pi, whether it keeps real time while leaving three cores to everything else. Compare with piper/en_US-lessac-low."
     },
     {
       "id": "piper/en_US-lessac-low+t2",

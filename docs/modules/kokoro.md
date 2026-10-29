@@ -43,6 +43,7 @@ The module emits mono PCM at 24,000 Hz. It synthesizes one sentence per call, fo
 - Ensure the `kokoro` extra is installed. It does not install on Intel Macs or on Python 3.14, because `kokoro-onnx` does not support them yet.
 - Allow network access for the first download (about 350 MB). A `TTSError` reporting a model load failure usually means the Hugging Face Hub was unreachable and the files are not cached yet.
 - A `ConfigError` naming `voice` means the voice is not in the voices file. A `ConfigError` naming `language` means espeak-ng does not know that code. A custom voice whose first letter is not a known language needs an explicit `language`.
+- The int8 model returns no audio with `threads: 1` (a `TTSError` about an empty array): give it 2 or more.
 
 ## See also
 
