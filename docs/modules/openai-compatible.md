@@ -32,7 +32,7 @@ pip install "tts-engine[openai-compatible]"
 | `sample_rate` | no | `24000` | The rate of the server's `pcm` output. OpenAI's is always 24,000 Hz; set it only with `base_url`, to match the server. |
 | `timeout` | no | `30` | Seconds to wait for the provider before a stalled request fails; also how long a cancel issued during such a stall can take. |
 
-The module emits mono PCM at `sample_rate`. A text stream is synthesized one request per sentence. Time to first audio differs by model: in the latency benchmark's result [`20261027-1453_mac-m5-pro`](../../benchmarks/latency/results/20261027-1453_mac-m5-pro/summary.md) (one short sentence, median of 20), the default `2025-03-20` snapshot answers in 367 ms, the `gpt-4o-mini-tts` alias in 516 ms, `tts-1` in 1.1 s and `tts-1-hd` in 2.0 s. The alias has also stalled for tens of seconds on other days, which is why the default is pinned to the snapshot. OpenAI has announced the shutdown of these speech models for 2027-01-06; after that date the module serves compatible servers only. Their successor, OpenAI's Realtime API, is the [`openai`](openai.md) module.
+The module emits mono PCM at `sample_rate`. A text stream is synthesized one request per sentence. Time to first audio differs by model: in the latency benchmark's result [`20261027-1453_mac-m5-pro`](../../benchmarks/results/20261027-1453_mac-m5-pro/summary.md) (one short sentence, median of 20), the default `2025-03-20` snapshot answers in 367 ms, the `gpt-4o-mini-tts` alias in 516 ms, `tts-1` in 1.1 s and `tts-1-hd` in 2.0 s. The alias has also stalled for tens of seconds on other days, which is why the default is pinned to the snapshot. OpenAI has announced the shutdown of these speech models for 2027-01-06; after that date the module serves compatible servers only. Their successor, OpenAI's Realtime API, is the [`openai`](openai.md) module.
 
 ## Troubleshooting
 
@@ -45,4 +45,4 @@ The module emits mono PCM at `sample_rate`. A text stream is synthesized one req
 
 - [specs/modules/openai-compatible.md](../../specs/modules/openai-compatible.md): the module's contract: every field's validation, the audio format, cancellation, errors and what it was validated against.
 - [examples/config.openai-compatible.json](../../examples/config.openai-compatible.json): a complete MCP-server config.
-- [Latency benchmark](../../benchmarks/latency/RESULTS.md): measured time to first audio for each of its models.
+- [Latency benchmark](../../benchmarks/RESULTS.md): measured time to first audio for each of its models.

@@ -919,7 +919,7 @@
       "type": "kokoro",
       "config": {
         "voice": "af_heart",
-        "model": "benchmarks/latency/models/kokoro-v1.0.int8.onnx"
+        "model": "benchmarks/models/kokoro-v1.0.int8.onnx"
       },
       "enabled": false,
       "tags": [
@@ -933,7 +933,7 @@
       "type": "kokoro",
       "config": {
         "voice": "af_heart",
-        "model": "benchmarks/latency/models/kokoro-v1.0.fp16.onnx"
+        "model": "benchmarks/models/kokoro-v1.0.fp16.onnx"
       },
       "enabled": false,
       "tags": [

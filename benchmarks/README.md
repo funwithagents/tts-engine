@@ -1,6 +1,6 @@
-# Latency benchmark — every module and model, through the public API
+# Benchmark — latency and resource usage of every module and model, through the public API
 
-How long does a caller wait between asking to speak and the first sound, per backend and model, and does the audio then keep up? `bench.py` drives every entry of `matrix.json` through `TTSEngine` with an injected timing sink, records every chunk's arrival, and derives time to first audio, time to first voice, stalls and real-time factor afterwards. Design: [specs/benchmark.md](../../specs/benchmark.md). Findings so far: [RESULTS.md](RESULTS.md). Numbers: `results/<result>/summary.md`.
+How long does a caller wait between asking to speak and the first sound, per backend and model, does the audio then keep up, and what does it cost the machine? `bench.py` drives every entry of `matrix.json` through `TTSEngine` with an injected timing sink, records every chunk's arrival, samples the worker's own CPU use during every call and reads its peak memory, and derives time to first audio, time to first voice, stalls, real-time factor and CPU peak afterwards. Design: [specs/benchmark.md](../specs/benchmark.md). Findings so far: [RESULTS.md](RESULTS.md). Numbers: `results/<result>/summary.md`.
 
 ## What is measured, and why this way
 
@@ -15,8 +15,11 @@ The engine's whole point is low-latency streaming: audio reaches the sink chunk 
 | load s | `TTSEngine(...)` construction: client setup or socket handshake for an API, weight load for a local model (**includes the download on a first-ever run**) |
 | max gap / median gap | longest and typical wait between two consecutive chunks: a stall mid-utterance that TTFA alone would hide |
 | speed × | audio seconds produced per wall second after the first chunk (the real-time factor; below 1 playback starves) |
+| CPU peak | CPU use in the call's busiest sampling window (`--cpu-window-ms`, 50 by default), every thread of the engine's process, user + system: what the synthesis grabs at its peak. Percent of one core, top's convention: 230 % on a four-core Pi leaves 170 % for the rest |
+| CPU mean | CPU seconds over wall seconds of the call, from the process clock; needs no sampler, so it is recorded even with the sampler off |
+| peak MB | peak resident memory of the entry's process after every run: the model, its runtime, its buffers (`load_mb` in `results.csv` is the same reading right after construction) |
 
-**Everything is recorded raw, and the metrics are derived afterwards.** A run's record is the complete timeline: every chunk as `[arrival ms since the call, bytes, peak amplitude]`, plus when the first sentence and the last word were sent (stream mode) and when the call returned. `derive_metrics()` turns that into the metrics above at summary time, and `results.csv` carries the full distribution (n, mean, median, stdev, min, p90, max) of each for every entry × mode × text; `summary.csv` / `summary.md` keep one row per entry with the numbers a reader decides on (TTFA p50 and p90, the stream and long-text TTFA, max gap, speed, load, first call), a Local table then a Hosted one. Every record and every CSV row names the module's `kind` (`hosted`, `local` or `fixture`), read from the library's registry. A new metric is one function line, and `summarize` recomputes it for past results without re-running anything.
+**Everything is recorded raw, and the metrics are derived afterwards.** A run's record is the complete timeline: every chunk as `[arrival ms since the call, bytes, peak amplitude]`, every CPU window as `[end ms, percent of one core]` and the call's CPU seconds, plus when the first sentence and the last word were sent (stream mode) and when the call returned. `derive_metrics()` turns that into the metrics above at summary time, and `results.csv` carries the full distribution (n, mean, median, stdev, min, p90, max) of each for every entry × mode × text; `summary.csv` / `summary.md` keep one row per entry with the numbers a reader decides on (TTFA p50 and p90, the stream and long-text TTFA, max gap, speed, CPU peak p50 and p90, load, first call, peak memory), a Local table then a Hosted one. Every record and every CSV row names the module's `kind` (`hosted`, `local` or `fixture`), read from the library's registry. A new metric is one function line, and `summarize` recomputes it for past results without re-running anything.
 
 Design choices:
 
@@ -28,6 +31,7 @@ Design choices:
 - **Two texts.** `short` is one sentence (57 chars), `medium` is three sentences (237 chars). Several modules synthesize per sentence, so the length of the first sentence matters more than the total.
 - **Warm-up, then repeats.** By default each mode × text gets 1 discarded warm-up + 5 measured runs (24 syntheses per entry). A result meant to be kept uses `--runs 20`: local models are near-deterministic, API latency is not, and p90 only means something from twenty samples up.
 - **Constant voice per provider.** Only the model varies within a provider. Voices come from `tests-e2e/support.py` / `examples/`.
+- **CPU and memory from the worker's own process, in percent of one core and MB.** One subprocess per entry means the process counters are the engine's cost alone: the module, its runtime or SDK, the loop, the sink; for a hosted provider that is the client side (TLS, JSON, ElevenLabs' MP3 decode), which a Pi pays too. A sampler thread records the process's CPU time (every thread) over 50 ms windows during each call; the busiest window is the call's CPU peak, and the per-run median and p90 of it are the summary's columns, in the unit top and htop show on the board (100 = one core, every thread summed). Peak resident memory is a high-water mark, read after construction and after the entry's runs (on a Raspberry Pi the `usage` record also carries the SoC temperature and throttle flags). Nothing to install: the standard library's process clock and `resource`. The sampler is Python, so it takes the interpreter lock for a few microseconds per window; measured on the Mac (`say` on the short text, n = 20, sampler off and on, twice each): TTFA p50 moved by at most 1 ms for phonon 31m on the CPU (19.3 and 19.9 ms off, 20.2 and 20.4 on) and piper lessac-low (48.8 and 48.4 off, 48.7 and 49.3 on), and kokoro fp32's two sampled runs bracketed its unsampled ones (482.0 and 487.9 ms on, 482.1 and 483.2 off): inside the spread between two identical runs, so the sampler stays on by default. `--cpu-window-ms 0` turns it off and keeps the per-call average. Windows' process clock ticks every 15.6 ms, so windows under ~100 ms are coarse there, and `resource` is missing, so memory reads `—`.
 
 ## Configurations (`matrix.json`)
 
@@ -50,16 +54,18 @@ Design choices:
 | kokoro | `v1.0-fp32` (default), ○ `v1.0-int8`, ○ `v1.0-fp16` | `kokoro` extra | int8/fp16 exist only as GitHub release assets (`model-files-v1.1`): put them in `models/` (git-ignored) first, then `--include-disabled` |
 | piper | `en_US-ljspeech-medium` (default), `en_US-ljspeech-high`, `en_US-lessac-{low,medium,high}` | `piper` extra | same speaker across quality tiers isolates the model-size effect |
 
-To add or change a config, edit `matrix.json`. Each entry is `{id, type, config}`, where `config` is the `engine.module` block without `type`. Optional keys: `modes`, `pause_s`, `timeout_s`, `requires_env`, `enabled`, `tags`, `notes`. Relative paths resolve against the repo root. A new backend in the library gets its rows here ([AGENTS.md](../../AGENTS.md), "Adding a new TTS module").
+To add or change a config, edit `matrix.json`. Each entry is `{id, type, config}`, where `config` is the `engine.module` block without `type`. Optional keys: `modes`, `pause_s`, `timeout_s`, `requires_env`, `enabled`, `tags`, `notes`. Relative paths resolve against the repo root. A new backend in the library gets its rows here ([AGENTS.md](../AGENTS.md), "Adding a new TTS module").
 
 ## Runs and results
 
 Two trees under this folder:
 
-- **`runs/<timestamp>/`** — every run as it happened: `env.json` (platform, git SHA, library versions, settings, selection), the plain `raw.jsonl` the workers append to, `logs/<entry>.log`. Working data, **git-ignored**. Run as many as you like.
+- **`runs/<timestamp>/`** — every run as it happened: `env.json` (platform, core count, git SHA, library versions, settings, selection, and `measures`: what the workers recorded beyond the timeline, the CPU window, whether memory is readable, the GPU reader, none yet), the plain `raw.jsonl` the workers append to, `logs/<entry>.log`. Working data, **git-ignored**. Run as many as you like.
 - **`results/<YYYYMMDD-HHMM>_<name>/`** — a benchmark worth keeping, merged from any number of runs on one host: `description.md` (yours: device, network, what it covers, what affects comparability), `runs.json` (every run merged so far, its environment, the entries it currently supplies), `raw.jsonl.gz` (the merged records, each tagged with its run) and the generated `results.csv` (everything, per cell), `summary.csv` and `summary.md` (one row per entry, local backends then hosted). **Committed.**
 
-Merging rule: for each entry, the latest run that **completed** it (a `done` record) supplies every record, so a newer run overrides an older measurement and an interrupted re-run never shadows a complete one; an entry no run completed keeps its latest attempt, so the summary can say why it is missing. Superseded measurements leave the result (they stay in `runs/` locally and in git history). Re-merging a run replaces what it had contributed.
+Merging rule: for each entry, the latest run that **completed** it (a `done` record) supplies every record, so a newer run overrides an older measurement and an interrupted re-run never shadows a complete one; an entry no run completed keeps its latest attempt, so the summary can say why it is missing. Finished is not measured: the `done` record is written only when every cell has at least one successful run, so a worker whose every synthesis failed (a revoked key, a retired model) is recorded as an abort naming the empty cells and never replaces a good measurement. Superseded measurements leave the result (they stay in `runs/` locally and in git history). Re-merging a run replaces what it had contributed.
+
+Because the merge is per entry, a metric added later (CPU, memory) cannot be attached to an existing measurement: the entry is re-measured whole. Until then its cells read `—` (empty in the CSVs), and the summary's Runs table says in its `measures` column what each run recorded, so a dash from a run that predates the metric is told from a platform with nothing to read.
 
 ## Running it
 
@@ -67,20 +73,20 @@ From the repo root. The API keys live in `~/.zshrc`, so source it (as for `tests
 
 ```bash
 # Dry check: which entries would run or skip, and why. Synthesizes nothing.
-zsh -ic 'source ~/.zshrc >/dev/null 2>&1; uv run python benchmarks/latency/bench.py list'
+zsh -ic 'source ~/.zshrc >/dev/null 2>&1; uv run python benchmarks/bench.py list'
 
 # Smoke test of the harness: the tone fixture, no network, no audio device, ~10 s
-uv run python benchmarks/latency/bench.py run --only tone --runs 2
+uv run python benchmarks/bench.py run --only tone --runs 2
 
 # A result to keep: create it from its first run, then merge runs into it as they come.
 # 1. the first run, unattended (kept awake, detached, logged), 20 runs per cell
-nohup caffeinate -i zsh -ic 'source ~/.zshrc >/dev/null 2>&1; uv run python benchmarks/latency/bench.py run --runs 20 --exclude "gemini/*"' > benchmarks/latency/pass.log 2>&1 &
+nohup caffeinate -i zsh -ic 'source ~/.zshrc >/dev/null 2>&1; uv run python benchmarks/bench.py run --runs 20 --exclude "gemini/*"' > benchmarks/pass.log 2>&1 &
 # 2. the result folder, dated from that run, with a description to fill in
-uv run python benchmarks/latency/bench.py new mac-m5-pro --from-run benchmarks/latency/runs/<timestamp>
-uv run python benchmarks/latency/bench.py merge benchmarks/latency/results/<result> benchmarks/latency/runs/<timestamp>
+uv run python benchmarks/bench.py new mac-m5-pro --from-run benchmarks/runs/<timestamp>
+uv run python benchmarks/bench.py merge benchmarks/results/<result> benchmarks/runs/<timestamp>
 # 3. later runs merge on completion (latest completed measurement of an entry wins)
-zsh -ic 'source ~/.zshrc >/dev/null 2>&1; uv run python benchmarks/latency/bench.py run --into benchmarks/latency/results/<result> --runs 20 --only "gemini/*"'
-... bench.py run --into benchmarks/latency/results/<result> --runs 20 --only "openai/*"   # after a module change
+zsh -ic 'source ~/.zshrc >/dev/null 2>&1; uv run python benchmarks/bench.py run --into benchmarks/results/<result> --runs 20 --only "gemini/*"'
+... bench.py run --into benchmarks/results/<result> --runs 20 --only "openai/*"   # after a module change
 
 # Quick pass: every module's default model only
 ... bench.py run --tags default
@@ -91,17 +97,17 @@ zsh -ic 'source ~/.zshrc >/dev/null 2>&1; uv run python benchmarks/latency/bench
 ... bench.py run --tags api --runs 10 --modes stream --texts medium
 
 # Rebuild a result's summary (or a single run's, for a look before merging)
-uv run python benchmarks/latency/bench.py summarize benchmarks/latency/results/<result>
-uv run python benchmarks/latency/bench.py summarize benchmarks/latency/runs/<timestamp>
+uv run python benchmarks/bench.py summarize benchmarks/results/<result>
+uv run python benchmarks/bench.py summarize benchmarks/runs/<timestamp>
 ```
 
 **Stopping and resuming.** Every run's record is appended to the run's `raw.jsonl` the moment it completes, and an entry gets a `done` record when its worker finishes, so nothing measured is ever lost:
 
-- clean stop: `touch benchmarks/latency/runs/<timestamp>/STOP` — the running entry finishes, the summary is written (and the run merged if `--into` was given), the script exits;
+- clean stop: `touch benchmarks/runs/<timestamp>/STOP` — the running entry finishes, the summary is written (and the run merged if `--into` was given), the script exits;
 - immediate stop: Ctrl-C, or `kill <pid>` of the `bench.py` parent (`pkill -f "bench.py run"` kills parent and worker together) — the current entry is dropped and recorded as `interrupted`;
-- resume: `bench.py run --resume benchmarks/latency/runs/<timestamp>` — same settings and selection (read back from `env.json`), entries with a `done` record are kept, the others run again from scratch (a half-measured entry's partial records are discarded first, so it is never counted twice). Merge it again afterwards: a re-merged run replaces its earlier contribution.
+- resume: `bench.py run --resume benchmarks/runs/<timestamp>` — same settings and selection (read back from `env.json`), entries with a `done` record are kept, the others run again from scratch (a half-measured entry's partial records are discarded first, so it is never counted twice). Merge it again afterwards: a re-merged run replaces its earlier contribution.
 
-`run` options: `--only` / `--exclude` (id globs), `--tags` / `--exclude-tags`, `--runs` (5), `--warmup` (1), `--modes say stream`, `--texts short medium`, `--token-delay-ms` (0; e.g. 30 for LLM pacing), `--pause-s` (0.5), `--run-timeout-s` (120), `--entry-timeout-s` (600: the load/download allowance; each run adds `run_timeout_s` + pause to the entry's budget, so it scales with `--runs`), `--include-disabled`, `--into`, `--resume`, `--runs-dir`.
+`run` options: `--only` / `--exclude` (id globs), `--tags` / `--exclude-tags`, `--runs` (5), `--warmup` (1), `--modes say stream`, `--texts short medium`, `--token-delay-ms` (0; e.g. 30 for LLM pacing), `--pause-s` (0.5), `--run-timeout-s` (120), `--entry-timeout-s` (600: the load/download allowance; each run adds `run_timeout_s` + pause to the entry's budget, so it scales with `--runs`), `--cpu-window-ms` (50; 0 turns the sampler off and keeps the per-call average), `--include-disabled`, `--into`, `--resume`, `--runs-dir`.
 
 ## Before running: caveats
 
@@ -110,6 +116,7 @@ uv run python benchmarks/latency/bench.py summarize benchmarks/latency/runs/<tim
 - **API cost and credits.** Each entry makes 24 syntheses at n=5 (84 at n=20) of 57 + 237 characters: 3,528 / 12,348 characters per entry. The enabled API entries come to ≈ 95 k characters at n=5 and ≈ 330 k at `--runs 20`. ElevenLabs' seven enabled entries are 24,696 / 86,436 characters: on USD billing ($0.04 per 1k for Flash, Turbo, v3 Conversational and v4 Turbo; $0.08 per 1k for Multilingual v2, v3 and v4) ≈ $1.41 / ≈ $4.94; on a subscription's included characters, where the $0.04 models count half, ≈ 17.6 k / ≈ 62 k credits. **Check the account's remaining credits before an unattended run**: the first Mac run exhausted them 4 minutes in. OpenAI Realtime is billed per token (≈ $20 per 1M audio tokens), a few cents per entry. The other providers are not priced here.
 - **Duration.** Each run lasts TTFA plus the backend's generation of the whole utterance (≈ 4 s and ≈ 15 s of speech), plus the pause. At `--runs 20`: API entries 2–5 min each, local entries 1–5 min plus model load, Gemini ≈ 35 min per entry at its 20 s pause (`--texts short` halves it); the Mac result's first run took 2h12 for 43 entries.
 - **Network-bound numbers** reflect your connection and the provider region at that moment. Run API rows a couple of times at different hours before drawing conclusions; a result keeps the latest, `runs/` keeps them all.
+- **Resource numbers are the engine's process only.** CPU and memory count the worker: not the audio player (none runs here), not whatever else the host runs (a robot's daemon), which the result's `description.md` should name.
 - **Only merge runs made on merged code.** A run made on a branch measures that branch; `env.json` records the git SHA, and the result's "Runs" table shows it.
 
 ## Model catalog (verified 2026-10-27/28)

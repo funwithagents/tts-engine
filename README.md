@@ -132,13 +132,13 @@ Start at [docs/index.md](docs/index.md), the documentation by task. The pages us
 
 [examples/](examples/) holds one complete, runnable config per module (`config.<type>.json`), plus a variant for ElevenLabs v4 and one for Deepgram Flux. They are in the MCP server's format (an `engine` block and a `server` block), so with the `mcp` extra installed, `uv run tts-engine-mcp --config examples/config.tone.json` starts a server as is; the `engine` block is what a library config takes. They hold no secrets: a hosted module reads its key from the environment variable named in `api_key_env`.
 
-## Latency benchmark
+## Benchmark
 
-[benchmarks/latency/](benchmarks/latency/README.md) measures how long each module and model makes you wait before the first sound, and whether the audio then keeps up, through the same `TTSEngine` API you use. Where to look:
+[benchmarks/](benchmarks/README.md) measures how long each module and model makes you wait before the first sound, whether the audio then keeps up, and what it costs the machine (the CPU it keeps busy, the memory it holds), through the same `TTSEngine` API you use. Where to look:
 
-- [the Mac result's summary](benchmarks/latency/results/20261027-1453_mac-m5-pro/summary.md): the numbers, one row per model, local backends then hosted ones, with the device and network in its `description.md`;
-- [RESULTS.md](benchmarks/latency/RESULTS.md): what stood out, and the decisions it led to;
-- [its README](benchmarks/latency/README.md): what each metric means, and how to run it on your own machine and connection.
+- [the Mac result's summary](benchmarks/results/20261027-1453_mac-m5-pro/summary.md): the numbers, one row per model, local backends then hosted ones, with the device and network in its `description.md`;
+- [RESULTS.md](benchmarks/RESULTS.md): what stood out, and the decisions it led to;
+- [its README](benchmarks/README.md): what each metric means, and how to run it on your own machine and connection.
 
 ## Voice audition
 

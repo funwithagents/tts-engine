@@ -22,7 +22,7 @@ Then check the platform and the licenses on the module's page:
 
 ## 2. How fast does it answer?
 
-The engine exists for low latency, and backends differ by an order of magnitude. The [latency benchmark](../benchmarks/latency/RESULTS.md) measures every module and model through the same `TTSEngine` API: its headline table groups them into tiers by time to first audio, and the result's `summary.md` has every number, on the machine and connection its `description.md` names. Hosted numbers depend on your network and the hour; local ones on your hardware.
+The engine exists for low latency, and backends differ by an order of magnitude. The [latency benchmark](../benchmarks/RESULTS.md) measures every module and model through the same `TTSEngine` API: its headline table groups them into tiers by time to first audio, and the result's `summary.md` has every number, on the machine and connection its `description.md` names. Hosted numbers depend on your network and the hour; local ones on your hardware.
 
 Two things the headline does not show but matter for an agent:
 

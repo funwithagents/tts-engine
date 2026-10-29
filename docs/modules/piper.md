@@ -2,7 +2,7 @@
 
 **Kind:** `local` · **Synthesis:** In-process model · **Install:** `tts-engine[piper]` · **Credentials:** None · **Voice listing:** yes
 
-The piper module runs [Piper](https://github.com/OHF-Voice/piper1-gpl) voices in process through the `piper-tts` package: small VITS models on onnxruntime, with espeak-ng built in. It needs no API key and no PyTorch, and it is light: in the latency benchmark's result [`20261027-1453_mac-m5-pro`](../../benchmarks/latency/results/20261027-1453_mac-m5-pro/summary.md) (an Apple M5 Pro, CPU), the default voice's first audio comes after 67 ms (median), and the `high` voices' after 331–377 ms. The Piper project targets real time on a Raspberry Pi; that is not measured here yet. There are 178 voices in 58 locales in [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) ([samples](https://rhasspy.github.io/piper-samples/)). They sound less natural than Kokoro. The first use of a voice downloads it into the Hugging Face cache (63 MB for the default). It installs on Linux (x86_64 and arm64), Apple-silicon macOS and Windows, but not on Intel Macs, which have no onnxruntime wheel.
+The piper module runs [Piper](https://github.com/OHF-Voice/piper1-gpl) voices in process through the `piper-tts` package: small VITS models on onnxruntime, with espeak-ng built in. It needs no API key and no PyTorch, and it is light: in the latency benchmark's result [`20261027-1453_mac-m5-pro`](../../benchmarks/results/20261027-1453_mac-m5-pro/summary.md) (an Apple M5 Pro, CPU), the default voice's first audio comes after 67 ms (median), and the `high` voices' after 331–377 ms. The Piper project targets real time on a Raspberry Pi; that is not measured here yet. There are 178 voices in 58 locales in [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) ([samples](https://rhasspy.github.io/piper-samples/)). They sound less natural than Kokoro. The first use of a voice downloads it into the Hugging Face cache (63 MB for the default). It installs on Linux (x86_64 and arm64), Apple-silicon macOS and Windows, but not on Intel Macs, which have no onnxruntime wheel.
 
 ```bash
 uv sync --no-dev --extra piper
@@ -45,4 +45,4 @@ Catalog voices are pinned to one commit of the repository. The module emits mono
 
 - [specs/modules/piper.md](../../specs/modules/piper.md): the module's contract: every field's validation, the audio format, cancellation, errors and what it was validated against.
 - [examples/config.piper.json](../../examples/config.piper.json): a complete MCP-server config.
-- [Latency benchmark](../../benchmarks/latency/RESULTS.md): measured time to first audio for each of its models.
+- [Latency benchmark](../../benchmarks/RESULTS.md): measured time to first audio for each of its models.

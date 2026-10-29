@@ -36,7 +36,7 @@ Good to know:
 - **Rendering again only renders what changed** (the text or a candidate's config); `--force` re-measures everything.
 - **A missing key or extra skips a candidate**, it does not fail the pass. A catalog without gender or language metadata (phonon, pocket, piper, qwen3) only passes those filters with `--keep-unknown`. Gemini, OpenAI Realtime and `openai-compatible` cannot list voices: write their candidates by hand.
 - **Hosted renders are paid calls**: one warm-up plus `--runs` syntheses of the sentence per candidate.
-- **The latency shown is this machine's**, three runs on one sentence after a warm-up. It is not comparable to the controlled numbers of the [latency benchmark](../../benchmarks/latency/RESULTS.md) and is not meant to be quoted.
+- **The latency shown is this machine's**, three runs on one sentence after a warm-up. It is not comparable to the controlled numbers of the [latency benchmark](../../benchmarks/RESULTS.md) and is not meant to be quoted.
 - **The level column** is the RMS of each sample's active speech (silences left out), with the engine `gain_db` that brings the voice to the target and the peak after it, flagged when it would clip. It is `tts_engine.level`'s measure, the one `tts-engine-level` uses. Change the target on the page; put the chosen value in the engine block next to the voice ([docs/configuration.md](../../docs/configuration.md#output-gain)).
 - **Choices stay in the browser** (`localStorage`); export them as `<name>-choices.json` to keep them, share them or hand them to an agent, and import them on another machine.
 - **Rendered folders (`*.audition/`) are git-ignored**; an `api_key` in a config is never shown on the page.

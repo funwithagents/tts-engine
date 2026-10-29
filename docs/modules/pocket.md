@@ -50,4 +50,4 @@ Preset voices work out of the box. Cloning a voice from an audio file needs the 
 
 - [specs/modules/pocket.md](../../specs/modules/pocket.md): the module's contract: every field's validation, the audio format, cancellation, errors and what it was validated against.
 - [examples/config.pocket.json](../../examples/config.pocket.json): a complete MCP-server config.
-- [Latency benchmark](../../benchmarks/latency/RESULTS.md): measured time to first audio for each of its models.
+- [Latency benchmark](../../benchmarks/RESULTS.md): measured time to first audio for each of its models.

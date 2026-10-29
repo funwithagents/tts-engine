@@ -1,6 +1,6 @@
 # Latency benchmark — findings
 
-The human reading of the results under [`results/`](results/). Each result's `summary.md` holds the numbers (one row per entry, every run merged, the latest completed measurement of each entry winning, each row naming its run; `results.csv` has every statistic per mode × text) and its `description.md` says on what device and what it covers; this file says what stood out and which decisions it fed. Updated in the same change as a run that changes a conclusion, and so is the result's hand-written `description.md` whenever a merge changes what the result covers. Method and options: [README.md](README.md); design: [specs/benchmark.md](../../specs/benchmark.md).
+The human reading of the results under [`results/`](results/). Each result's `summary.md` holds the numbers (one row per entry, every run merged, the latest completed measurement of each entry winning, each row naming its run; `results.csv` has every statistic per mode × text) and its `description.md` says on what device and what it covers; this file says what stood out and which decisions it fed. Updated in the same change as a run that changes a conclusion, and so is the result's hand-written `description.md` whenever a merge changes what the result covers. Method and options: [README.md](README.md); design: [specs/benchmark.md](../specs/benchmark.md).
 
 ## Result `20261027-1453_mac-m5-pro`
 
@@ -51,12 +51,13 @@ An earlier run with a 30 ms/word fake-LLM pacing was discarded: it put a ≈340 
 
 ### What this result changed
 
-- OpenAI Realtime holds its socket across utterances (`440c60e`; [openai spec](../../specs/modules/openai.md)).
-- openai-compatible defaults to the `gpt-4o-mini-tts-2025-03-20` snapshot, and the live row follows it (`c362ca3`, `f69efdf`; [openai-compatible spec](../../specs/modules/openai-compatible.md)).
+- OpenAI Realtime holds its socket across utterances (`440c60e`; [openai spec](../specs/modules/openai.md)).
+- openai-compatible defaults to the `gpt-4o-mini-tts-2025-03-20` snapshot, and the live row follows it (`c362ca3`, `f69efdf`; [openai-compatible spec](../specs/modules/openai-compatible.md)).
 - Deepgram keeps `aura-2-thalia-en` as its default over Flux (`c362ca3`), decided on per-utterance numbers; with the held socket Flux leads on TTFA and trails on generation speed, so the choice is worth a second look.
 
 ## Still to do
 
-1. **Gemini 3.8-flash and 3.8-flash-lite** on a fresh day (the daily quota resets about 19 h after it was hit): `bench.py run --into benchmarks/latency/results/20261027-1453_mac-m5-pro --runs 10 --only "gemini/gemini-3.8-flash-tts" "gemini/gemini-3.8-flash-lite-tts"`; a higher billing tier would allow n=20.
+1. **Gemini 3.8-flash and 3.8-flash-lite** on a fresh day (the daily quota resets about 19 h after it was hit): `bench.py run --into benchmarks/results/20261027-1453_mac-m5-pro --runs 10 --only "gemini/gemini-3.8-flash-tts" "gemini/gemini-3.8-flash-lite-tts"`; a higher billing tier would allow n=20.
 2. **A Raspberry Pi result** for the Reachy Mini target (CM4-class CPU): phonon 31m/40m quantized, piper low/medium, pocket 2m/7m/18m with and without `quantize`, kokoro int8, plus a small API subset for the Wi-Fi path; the planning notes are local for now.
-3. Cross-bench comparison and charts (spec open questions).
+3. **Resource usage on the Mac.** Every run of the Mac result predates the CPU sampler and the memory reading (2026-10-29), so its CPU and memory columns read `—`. The merge replaces an entry whole, so the local entries have to be re-measured: `bench.py run --into benchmarks/results/20261027-1453_mac-m5-pro --runs 20 --tags local` (about 80 min: qwen3's seven entries ~37 min, kokoro's three and the 24-layer pocket ~10 min, the rest a minute each), plus `--include-disabled --only "kokoro/v1.0-int8" "kokoro/v1.0-fp16"` for the hand-downloaded exports and ElevenLabs `eleven_flash_v2_5` / `eleven_v4_turbo` for the MP3 decode cost of a hosted path (~4 min). The other hosted entries stay as they are: credits, and another hour's network. A first reading from the sampler's own check (2026-10-29, `say` on the short text, n = 20, not a kept result): on the M5 Pro phonon 31m on the CPU averages about 570 % of a core over a call (top's unit: 5.7 cores), piper lessac-low 620 % and kokoro fp32 660 %, more cores than a Pi has, so the Pi numbers will not follow from the Mac's by clock speed alone.
+4. Cross-bench comparison and charts (spec open questions); GPU usage is deferred (spec open question 4).

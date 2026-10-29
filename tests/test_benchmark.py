@@ -1,6 +1,7 @@
-"""Unit tier for benchmarks/latency/bench.py: the pure parts (metric
-derivation, statistics, matrix selection, run merging, results, summaries).
-No backend, no subprocess, no network."""
+"""Unit tier for benchmarks/bench.py: the pure parts (metric derivation,
+statistics, the CPU sampler and memory reading, matrix selection, the
+measured-cells rule, run merging, results, summaries). No backend, no
+subprocess, no network."""
 
 from __future__ import annotations
 
@@ -9,12 +10,14 @@ import csv
 import gzip
 import importlib.util
 import json
+import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
-_BENCH_PY = Path(__file__).resolve().parents[1] / "benchmarks" / "latency" / "bench.py"
+_BENCH_PY = Path(__file__).resolve().parents[1] / "benchmarks" / "bench.py"
 _spec = importlib.util.spec_from_file_location("latency_bench", _BENCH_PY)
 assert _spec and _spec.loader
 bench = importlib.util.module_from_spec(_spec)
@@ -34,8 +37,13 @@ def test_derive_metrics_from_a_chunk_log():
         "first_sentence_sent_ms": 40.0,
         # [arrival ms, bytes, peak]: the first chunk is leading silence.
         "chunk_log": [[100.0, 4800, 0], [150.0, 4800, 900], [300.0, 4800, 900]],
+        # CPU: [window end ms, % of a core in the window], and the call's CPU seconds.
+        "cpu_log": [[50.0, 120.0], [100.0, 250.0], [150.0, 40.0]],
+        "cpu_s": 0.16,
     }
     m = bench.derive_metrics(run)
+    assert m["cpu_peak_pct"] == 250.0  # the busiest window
+    assert m["cpu_mean_pct"] == pytest.approx(100 * 0.16 / 0.32)  # CPU over the call
     assert m["ttfa_ms"] == 100.0
     assert m["ttfv_ms"] == 150.0  # first chunk with a sample above VOICE_THRESHOLD
     assert m["after_first_sentence_ms"] == 60.0
@@ -48,10 +56,48 @@ def test_derive_metrics_from_a_chunk_log():
     )  # audio over wall time after the first chunk
 
 
+def test_derive_metrics_before_cpu_was_recorded_is_none_for_cpu_only():
+    # A record from a run that predates the sampler: the timing metrics are
+    # unchanged, the CPU ones are None ("not measured"), not an error.
+    run = {"sample_rate": 24000, "end_ms": 50.0, "chunk_log": [[20.0, 4800, 900]]}
+    m = bench.derive_metrics(run)
+    assert m["ttfa_ms"] == 20.0 and m["audio_s"] == pytest.approx(0.1)
+    assert m["cpu_peak_pct"] is None and m["cpu_mean_pct"] is None
+    # A sampler disabled (`--cpu-window-ms 0`) writes cpu_log None: average only.
+    m = bench.derive_metrics({**run, "cpu_log": None, "cpu_s": 0.025})
+    assert m["cpu_peak_pct"] is None and m["cpu_mean_pct"] == pytest.approx(50.0)
+
+
 def test_derive_metrics_without_audio_is_all_none():
     m = bench.derive_metrics({"sample_rate": 24000, "end_ms": 5.0, "chunk_log": []})
     assert set(m) == set(bench.METRICS)
     assert all(v is None for v in m.values())
+
+
+def test_cpu_sampler_logs_windows_in_percent_of_a_core():
+    # Six windows expected; generous, so a loaded CI runner that wakes the
+    # sampler late (one sample in 50 ms was seen on macOS) still gets two.
+    sampler = bench.CpuSampler(window_s=0.025)
+    sampler.start()
+    t0 = time.perf_counter()
+    while time.perf_counter() - t0 < 0.15:  # busy: about one core, ~100 %
+        pass
+    sampler.stop()
+    assert len(sampler.log) >= 2
+    ends = [t for t, _ in sampler.log]
+    assert ends == sorted(ends) and all(pct >= 0 for _, pct in sampler.log)
+    assert max(pct for _, pct in sampler.log) > 20
+    # Restarting starts a fresh log; stopping at once keeps a sub-window tail
+    # only from 10 ms up, so a call shorter than that has no sample.
+    sampler.start()
+    sampler.stop()
+    assert sampler.log == []
+
+
+def test_peak_rss_mb_and_host_state_on_this_platform():
+    rss = bench.peak_rss_mb()
+    assert rss is None if os.name == "nt" else 1.0 < rss < 1e5  # MB of this process
+    assert isinstance(bench.host_state(), dict)  # empty off a Raspberry Pi
 
 
 def test_stats_p90_and_empty():
@@ -123,6 +169,8 @@ def test_cli_subcommands_parse():
     ]
     assert bench.parse_args(["new", "pi", "--from-run", "runs/a"]).from_run == "runs/a"
     assert bench.parse_args(["summarize", "results/x"]).target == "results/x"
+    assert args.cpu_window_ms == 50.0
+    assert bench.parse_args(["run", "--cpu-window-ms", "0"]).cpu_window_ms == 0.0
 
 
 # --- runs, merging and results -----------------------------------------------
@@ -132,9 +180,31 @@ def test_cli_subcommands_parse():
 _KIND = {"m": "hosted", "l": "local", "tone": "fixture"}
 
 
-def _run_record(entry: str, mode: str, ttfa: float, seq: int = 1) -> dict:
+def _run_record(
+    entry: str,
+    mode: str,
+    ttfa: float,
+    seq: int = 1,
+    ok: bool = True,
+    cpu_pct: float | None = None,
+) -> dict:
     """A run record as the worker writes it: the raw timeline plus the derived
-    metrics appended. seq 0 is the warm-up (the first call after construction)."""
+    metrics appended. seq 0 is the warm-up (the first call after construction);
+    `cpu_pct` adds a CPU log and CPU seconds, as a run with the sampler has."""
+    if not ok:
+        return {
+            "entry": entry,
+            "type": entry.split("/")[0],
+            "kind": _KIND[entry.split("/")[0]],
+            "record": "run",
+            "mode": mode,
+            "text": "short",
+            "phase": "warmup" if seq == 0 else "measured",
+            "iteration": seq,
+            "seq": seq,
+            "ok": False,
+            "error": "TTSError: boom",
+        }
     record = {
         "entry": entry,
         "type": entry.split("/")[0],
@@ -153,8 +223,21 @@ def _run_record(entry: str, mode: str, ttfa: float, seq: int = 1) -> dict:
         "drains": 1,
         "chunk_log": [[ttfa, 4800, 900], [ttfa + 50, 4800, 900]],
     }
+    if cpu_pct is not None:
+        record["cpu_log"] = [[ttfa, cpu_pct / 2], [ttfa + 50, cpu_pct]]
+        record["cpu_s"] = cpu_pct / 100 * (ttfa + 100) / 1000 / 2
     record.update(bench.derive_metrics(record))
     return record
+
+
+def _usage(entry: str, rss_mb: float) -> dict:
+    return {
+        "entry": entry,
+        "type": entry.split("/")[0],
+        "kind": _KIND[entry.split("/")[0]],
+        "record": "usage",
+        "rss_mb": rss_mb,
+    }
 
 
 def _load(entry: str) -> dict:
@@ -194,6 +277,7 @@ def _write_run(
     run_id: str,
     records: list[dict],
     started: str = "2026-10-28T10:00:00+0100",
+    measures: dict | None = None,
 ) -> Path:
     d = runs_root / run_id
     d.mkdir(parents=True)
@@ -208,9 +292,41 @@ def _write_run(
         "selection": {},
         "texts": bench.TEXTS,
     }
+    if measures is not None:  # absent from a run made before resource usage
+        env["measures"] = measures
     (d / "env.json").write_text(json.dumps(env))
     (d / "raw.jsonl").write_text("".join(json.dumps(r) + "\n" for r in records))
     return d
+
+
+def test_unmeasured_cells_finished_is_not_measured():
+    """The merge fix: a worker whose every synthesis failed ran to the end but
+    measured nothing, so the parent must not write the `done` record that
+    would let the attempt supersede an older, complete measurement."""
+    entry = {"id": "m/a", "type": "m", "config": {}}
+    settings = {"modes": ["say", "stream"], "texts": ["short"]}
+    all_failed = [_load("m/a")] + [
+        _run_record("m/a", mode, 0.0, seq=i, ok=False)
+        for mode in ("say", "stream")
+        for i in range(3)
+    ]
+    assert bench.unmeasured_cells(all_failed, entry, settings) == [
+        "say/short",
+        "stream/short",
+    ]
+    # One successful measured run per cell is enough; a warm-up (seq 0) or a
+    # failure is not; other entries' records do not count.
+    partial = all_failed + [
+        _run_record("m/a", "say", 10.0, seq=0),
+        _run_record("m/a", "say", 11.0, seq=1),
+        _run_record("m/b", "stream", 11.0, seq=1),
+    ]
+    assert bench.unmeasured_cells(partial, entry, settings) == ["stream/short"]
+    complete = partial + [_run_record("m/a", "stream", 12.0, seq=4)]
+    assert bench.unmeasured_cells(complete, entry, settings) == []
+    # An entry restricted to one mode is complete without the other.
+    say_only = {**entry, "modes": ["say"]}
+    assert bench.unmeasured_cells(partial, say_only, settings) == []
 
 
 def test_merge_runs_latest_completed_run_wins_and_aborts_never_shadow():
@@ -282,16 +398,19 @@ def test_merge_into_builds_a_result_then_a_newer_run_overrides(tmp_path: Path):
         [
             _load("m/a"),
             _run_record("m/a", "say", 20.0, seq=0),
-            _run_record("m/a", "say", 22.0),
+            _run_record("m/a", "say", 22.0, cpu_pct=200.0),
+            _usage("m/a", 123.4),
             _done("m/a"),
             _skip("m/b"),
             _load("tone"),
             _run_record("tone", "say", 0.5),
             _done("tone"),
             _load("l/x"),
-            _run_record("l/x", "say", 5.0),
+            _run_record("l/x", "say", 5.0, cpu_pct=350.0),
+            _usage("l/x", 456.7),
             _done("l/x"),
         ],
+        measures={"cpu_window_ms": 50, "rss": True, "gpu": None},
     )
     bench.merge_into(result, [r2])
 
@@ -344,6 +463,17 @@ def test_merge_into_builds_a_result_then_a_newer_run_overrides(tmp_path: Path):
         and compact["m/c"]["run"] == "20261028-100000"
     )
     assert "| TTFA p50 |" in md and "| m/c | 0 | 0 | — | — |" in md
+    # Resource usage: the sampled run's peak memory and CPU, a dash and an
+    # empty cell for the older run that predates them, and the Runs table
+    # saying which run measured what.
+    assert compact["m/a"]["peak_mb"] == "123" and compact["m/c"]["peak_mb"] == ""
+    assert rows[("l/x", "say")]["peak_mb"] == "456.7"
+    assert float(rows[("l/x", "say")]["cpu_peak_pct__median"]) == 350.0
+    assert rows[("m/c", "stream")]["cpu_peak_pct__median"] == ""
+    assert "| CPU peak p50 | CPU peak p90 | load s | first call | peak MB | run |" in md
+    assert "| l/x | 1 | 0 | 5 | 5 | — | — | — | — | — | — | 0.50 | — | 457 |" in md
+    assert "| 20261028-100000 |" in md and "| — |\n" in md  # r1: no measures
+    assert "| cpu (50 ms windows), memory, no gpu |" in md  # r2
     assert (
         "tone" not in compact and "| tone |" not in md
     )  # fixtures stay in results.csv only
