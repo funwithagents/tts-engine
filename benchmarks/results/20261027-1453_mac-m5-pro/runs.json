@@ -677,6 +677,85 @@
         "gemini/gemini-2.5-pro-preview-tts",
         "gemini/gemini-3.1-flash-tts-preview"
       ]
+    },
+    {
+      "run": "20261029-103910",
+      "started": "2026-10-29T10:39:10+0100",
+      "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+      "machine": "arm64",
+      "processor": "arm",
+      "cpu_count": 15,
+      "python": "3.13.14",
+      "git_sha": "cfd9e20",
+      "versions": {
+        "tts-engine": "0.1.0",
+        "elevenlabs": "2.74.1",
+        "pocket-tts": "4.0.1",
+        "torch": "2.14.0",
+        "gradium": "0.6.4",
+        "ptts": "0.5.0",
+        "mistralai": "3.5.0",
+        "deepgram-sdk": "7.15.0",
+        "google-genai": "2.33.0",
+        "cartesia": "4.2.0",
+        "openai": "3.37.0",
+        "qwentts-cpp-python": "0.5.0",
+        "kokoro-onnx": "0.6.1",
+        "piper-tts": "1.8.0",
+        "onnxruntime": "1.31.0"
+      },
+      "measures": {
+        "cpu_window_ms": 50.0,
+        "rss": true,
+        "gpu": null
+      },
+      "settings": {
+        "runs": 20,
+        "warmup": 1,
+        "modes": [
+          "say",
+          "stream"
+        ],
+        "texts": [
+          "short",
+          "medium"
+        ],
+        "token_delay_ms": 0.0,
+        "pause_s": 0.5,
+        "run_timeout_s": 120.0,
+        "entry_timeout_s": 600.0,
+        "max_consecutive_failures": 3,
+        "cpu_window_ms": 50.0
+      },
+      "selection": {
+        "only": null,
+        "exclude": null,
+        "tags": [
+          "threads"
+        ],
+        "exclude_tags": null,
+        "include_disabled": true
+      },
+      "supplies": [
+        "kokoro/v1.0-fp32+t1",
+        "kokoro/v1.0-fp32+t2",
+        "kokoro/v1.0-fp32+t4",
+        "kokoro/v1.0-int8+t1",
+        "kokoro/v1.0-int8+t2",
+        "kokoro/v1.0-int8+t4",
+        "phonon/31m-en@cpu+q8_0+t1",
+        "phonon/31m-en@cpu+q8_0+t2",
+        "phonon/31m-en@cpu+q8_0+t4",
+        "phonon/31m-en@cpu+t1",
+        "phonon/31m-en@cpu+t2",
+        "phonon/31m-en@cpu+t4",
+        "piper/en_US-lessac-low+t1",
+        "piper/en_US-lessac-low+t2",
+        "piper/en_US-lessac-low+t4",
+        "piper/en_US-ljspeech-medium+t1",
+        "piper/en_US-ljspeech-medium+t2",
+        "piper/en_US-ljspeech-medium+t4"
+      ]
     }
   ]
 }
