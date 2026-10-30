@@ -1,0 +1,311 @@
+{
+  "result": "20261029-1124_pi4-1500-nodaemon",
+  "runs": [
+    {
+      "run": "20261029-112459",
+      "started": "2026-10-29T11:24:59+0100",
+      "platform": "Linux-6.18.50+rpt-rpi-v8-aarch64-with-glibc2.41",
+      "machine": "aarch64",
+      "processor": "",
+      "cpu_count": 4,
+      "python": "3.13.5",
+      "git_sha": "bb505e7",
+      "versions": {
+        "tts-engine": "0.1.0",
+        "elevenlabs": "2.74.1",
+        "pocket-tts": "4.0.1",
+        "torch": "2.14.1+cpu",
+        "gradium": "0.6.4",
+        "ptts": "0.5.0",
+        "mistralai": "3.5.0",
+        "deepgram-sdk": "7.15.0",
+        "google-genai": "2.33.0",
+        "cartesia": "4.2.0",
+        "openai": "3.37.0",
+        "kokoro-onnx": "0.6.1",
+        "piper-tts": "1.8.0",
+        "onnxruntime": "1.31.0"
+      },
+      "measures": {
+        "cpu_window_ms": 50.0,
+        "rss": true,
+        "gpu": null
+      },
+      "settings": {
+        "runs": 10,
+        "warmup": 1,
+        "modes": [
+          "say",
+          "stream"
+        ],
+        "texts": [
+          "short",
+          "medium"
+        ],
+        "token_delay_ms": 0.0,
+        "pause_s": 0.5,
+        "run_timeout_s": 120.0,
+        "entry_timeout_s": 600.0,
+        "max_consecutive_failures": 3,
+        "cpu_window_ms": 50.0
+      },
+      "selection": {
+        "only": [
+          "tone",
+          "audiofile",
+          "phonon/31m-en@*",
+          "phonon/40m-multilingual@cpu*",
+          "phonon/40m-en@cpu+q8_0",
+          "piper/en_US-lessac-low*",
+          "piper/en_US-lessac-medium",
+          "piper/en_US-ljspeech-medium*",
+          "pocket/english_2m_2026-10*",
+          "pocket/english_7m_2026-10*",
+          "pocket/english_18m_2026-10*",
+          "pocket/english_2026-10",
+          "kokoro/v1.0-int8",
+          "kokoro/v1.0-int8+t2",
+          "kokoro/v1.0-int8+t4"
+        ],
+        "exclude": null,
+        "tags": null,
+        "exclude_tags": null,
+        "include_disabled": true
+      },
+      "supplies": [
+        "audiofile",
+        "pocket/english_2026-10",
+        "tone"
+      ]
+    },
+    {
+      "run": "20261029-120644",
+      "started": "2026-10-29T12:06:44+0100",
+      "platform": "Linux-6.18.50+rpt-rpi-v8-aarch64-with-glibc2.41",
+      "machine": "aarch64",
+      "processor": "",
+      "cpu_count": 4,
+      "python": "3.13.5",
+      "git_sha": "bb505e7",
+      "versions": {
+        "tts-engine": "0.1.0",
+        "elevenlabs": "2.74.1",
+        "pocket-tts": "4.0.1",
+        "torch": "2.14.1+cpu",
+        "gradium": "0.6.4",
+        "ptts": "0.5.0",
+        "mistralai": "3.5.0",
+        "deepgram-sdk": "7.15.0",
+        "google-genai": "2.33.0",
+        "cartesia": "4.2.0",
+        "openai": "3.37.0",
+        "kokoro-onnx": "0.6.1",
+        "piper-tts": "1.8.0",
+        "onnxruntime": "1.31.0"
+      },
+      "measures": {
+        "cpu_window_ms": 50.0,
+        "rss": true,
+        "gpu": null
+      },
+      "settings": {
+        "runs": 10,
+        "warmup": 1,
+        "modes": [
+          "say",
+          "stream"
+        ],
+        "texts": [
+          "short",
+          "medium"
+        ],
+        "token_delay_ms": 0.0,
+        "pause_s": 0.5,
+        "run_timeout_s": 120.0,
+        "entry_timeout_s": 600.0,
+        "max_consecutive_failures": 3,
+        "cpu_window_ms": 50.0
+      },
+      "selection": {
+        "only": [
+          "phonon/31m-en@*",
+          "phonon/40m-multilingual@cpu*",
+          "phonon/40m-en@cpu+q8_0",
+          "piper/en_US-lessac-low*",
+          "piper/en_US-lessac-medium",
+          "piper/en_US-ljspeech-medium*",
+          "kokoro/v1.0-int8",
+          "kokoro/v1.0-int8+t2",
+          "kokoro/v1.0-int8+t4"
+        ],
+        "exclude": null,
+        "tags": null,
+        "exclude_tags": null,
+        "include_disabled": true
+      },
+      "supplies": [
+        "kokoro/v1.0-int8",
+        "kokoro/v1.0-int8+t2",
+        "kokoro/v1.0-int8+t4",
+        "phonon/31m-en@auto",
+        "phonon/31m-en@cpu",
+        "phonon/31m-en@cpu+q4k",
+        "phonon/31m-en@cpu+q8_0",
+        "phonon/31m-en@cpu+q8_0+t1",
+        "phonon/31m-en@cpu+q8_0+t2",
+        "phonon/31m-en@cpu+q8_0+t4",
+        "phonon/31m-en@cpu+t1",
+        "phonon/31m-en@cpu+t2",
+        "phonon/31m-en@cpu+t4",
+        "phonon/40m-en@cpu+q8_0",
+        "phonon/40m-multilingual@cpu",
+        "phonon/40m-multilingual@cpu+q4k",
+        "phonon/40m-multilingual@cpu+q8_0",
+        "piper/en_US-lessac-low",
+        "piper/en_US-lessac-low+t1",
+        "piper/en_US-lessac-low+t2",
+        "piper/en_US-lessac-low+t4",
+        "piper/en_US-lessac-medium",
+        "piper/en_US-ljspeech-medium",
+        "piper/en_US-ljspeech-medium+t1",
+        "piper/en_US-ljspeech-medium+t2",
+        "piper/en_US-ljspeech-medium+t4"
+      ]
+    },
+    {
+      "run": "20261029-143506",
+      "started": "2026-10-29T14:35:07+0100",
+      "platform": "Linux-6.18.50+rpt-rpi-v8-aarch64-with-glibc2.41",
+      "machine": "aarch64",
+      "processor": "",
+      "cpu_count": 4,
+      "python": "3.13.5",
+      "git_sha": "bb505e7",
+      "versions": {
+        "tts-engine": "0.1.0",
+        "elevenlabs": "2.74.1",
+        "pocket-tts": "4.0.1",
+        "torch": "2.14.1+cpu",
+        "gradium": "0.6.4",
+        "ptts": "0.5.0",
+        "mistralai": "3.5.0",
+        "deepgram-sdk": "7.15.0",
+        "google-genai": "2.33.0",
+        "cartesia": "4.2.0",
+        "openai": "3.37.0",
+        "kokoro-onnx": "0.6.1",
+        "piper-tts": "1.8.0",
+        "onnxruntime": "1.31.0"
+      },
+      "measures": {
+        "cpu_window_ms": 50.0,
+        "rss": true,
+        "gpu": null
+      },
+      "settings": {
+        "runs": 10,
+        "warmup": 1,
+        "modes": [
+          "say",
+          "stream"
+        ],
+        "texts": [
+          "short",
+          "medium"
+        ],
+        "token_delay_ms": 0.0,
+        "pause_s": 0.5,
+        "run_timeout_s": 120.0,
+        "entry_timeout_s": 600.0,
+        "max_consecutive_failures": 3,
+        "cpu_window_ms": 50.0
+      },
+      "selection": {
+        "only": [
+          "pocket/english_2m_2026-10*",
+          "pocket/english_7m_2026-10*",
+          "pocket/english_18m_2026-10*"
+        ],
+        "exclude": null,
+        "tags": null,
+        "exclude_tags": null,
+        "include_disabled": true
+      },
+      "supplies": [
+        "pocket/english_18m_2026-10",
+        "pocket/english_18m_2026-10+quantize",
+        "pocket/english_2m_2026-10",
+        "pocket/english_2m_2026-10+quantize",
+        "pocket/english_7m_2026-10",
+        "pocket/english_7m_2026-10+quantize"
+      ]
+    },
+    {
+      "run": "20261029-152235",
+      "started": "2026-10-29T15:22:35+0100",
+      "platform": "Linux-6.18.50+rpt-rpi-v8-aarch64-with-glibc2.41",
+      "machine": "aarch64",
+      "processor": "",
+      "cpu_count": 4,
+      "python": "3.13.5",
+      "git_sha": "32458a5",
+      "versions": {
+        "tts-engine": "0.1.0",
+        "elevenlabs": "2.74.1",
+        "pocket-tts": "4.0.1",
+        "torch": "2.14.1+cpu",
+        "gradium": "0.6.4",
+        "ptts": "0.5.0",
+        "mistralai": "3.5.0",
+        "deepgram-sdk": "7.15.0",
+        "google-genai": "2.33.0",
+        "cartesia": "4.2.0",
+        "openai": "3.37.0",
+        "kokoro-onnx": "0.6.1",
+        "piper-tts": "1.8.0",
+        "onnxruntime": "1.31.0"
+      },
+      "measures": {
+        "cpu_window_ms": 50.0,
+        "rss": true,
+        "gpu": null
+      },
+      "settings": {
+        "runs": 10,
+        "warmup": 1,
+        "modes": [
+          "say",
+          "stream"
+        ],
+        "texts": [
+          "short",
+          "medium"
+        ],
+        "token_delay_ms": 0.0,
+        "pause_s": 0.5,
+        "run_timeout_s": 120.0,
+        "entry_timeout_s": 600.0,
+        "max_consecutive_failures": 3,
+        "cpu_window_ms": 50.0
+      },
+      "selection": {
+        "only": [
+          "phonon/31m-en@cpu+q4k+t*",
+          "phonon/40m-multilingual@cpu+q4k+t*"
+        ],
+        "exclude": null,
+        "tags": null,
+        "exclude_tags": null,
+        "include_disabled": true
+      },
+      "supplies": [
+        "phonon/31m-en@cpu+q4k+t1",
+        "phonon/31m-en@cpu+q4k+t2",
+        "phonon/31m-en@cpu+q4k+t4",
+        "phonon/40m-multilingual@cpu+q4k+t1",
+        "phonon/40m-multilingual@cpu+q4k+t2",
+        "phonon/40m-multilingual@cpu+q4k+t4"
+      ]
+    }
+  ]
+}
