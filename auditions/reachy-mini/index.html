@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice audition</title>
+<!-- Template of tts_engine/audition/audition.py: `page` replaces the data
+     placeholder below with the audition's JSON and writes index.html. -->
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1d1d1f; --muted: #666; --line: #ddd; --panel: #f4f4f4;
+    --on-bg: #222; --on-fg: #fff; --yes: #2a9d4b; --maybe: #e0a100; --playing: #fff6d6; --err: #b00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161618; --fg: #eee; --muted: #9a9aa1; --line: #333; --panel: #26262a;
+      --on-bg: #eee; --on-fg: #161618; --playing: #3a3320; --err: #ff8a80;
+    }
+  }
+  body { font: 15px system-ui, sans-serif; margin: 24px; background: var(--bg); color: var(--fg); }
+  h1 { font-size: 24px; margin: 0 0 6px; }
+  .sentence { margin: 0 0 4px; }
+  .description { max-width: 900px; }
+  .description p { margin: 0 0 8px; }
+  .description a { color: inherit; }
+  .hint { color: var(--muted); font-size: 13px; margin: 0; }
+  .bar { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 10px 0;
+         border-bottom: 1px solid var(--line); margin: 12px 0 0; }
+  .bar button { font: inherit; padding: 6px 14px; margin-right: 6px; border: 1px solid #bbb;
+                border-radius: 6px; background: var(--panel); color: var(--fg); cursor: pointer; }
+  .bar button.on { background: var(--on-bg); color: var(--on-fg); border-color: var(--on-bg); }
+  .bar .tools { float: right; }
+  .bar .tools button { margin: 0 0 0 6px; }
+  .bar label { font-size: 14px; }
+  table { border-collapse: collapse; width: 100%; max-width: 1400px; table-layout: fixed; }
+  col.c-voice { width: 15%; } col.c-notes { width: 20%; } col.c-ttfa { width: 7%; } col.c-level { width: 10%; }
+  col.c-audio { width: 20%; } col.c-choice { width: 8%; } col.c-config { width: 20%; }
+  th, td { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: middle;
+           overflow-wrap: anywhere; }
+  thead th { font-size: 13px; color: var(--muted); position: sticky; top: 52px; background: var(--bg); z-index: 1; }
+  tr.section th { font-size: 17px; color: var(--fg); padding-top: 24px; border-bottom: 2px solid var(--line); }
+  td.ttfa, td.level { text-align: right; font-variant-numeric: tabular-nums; }
+  td.level .gain { display: block; font-weight: 600; }
+  td.level .peak { display: block; color: var(--muted); font-size: 12px; }
+  td.level .peak.clips { color: var(--err); }
+  .bar input[type=number] { font: inherit; width: 5em; }
+  td.notes { color: var(--muted); font-size: 13px; }
+  td.config code { font-size: 11px; color: var(--muted); }
+  td.choice label { display: block; white-space: nowrap; font-size: 13px; }
+  audio { width: 100%; }
+  .status { color: var(--err); font-size: 13px; }
+  tr[data-choice=yes] td:first-child { box-shadow: inset 4px 0 var(--yes); }
+  tr[data-choice=maybe] td:first-child { box-shadow: inset 4px 0 var(--maybe); }
+  tr[data-choice=no] { opacity: .45; }
+  tr.playing { background: var(--playing); }
+  .hidden { display: none; }
+  .empty { color: var(--muted); }
+</style>
+</head>
+<body>
+  <h1 id="title">Voice audition</h1>
+  <div class="description" id="description"></div>
+  <p class="sentence"><i id="sentence"></i></p>
+  <p class="hint">Latency: time to first audio measured while rendering (median of the runs after a warm-up; hover for the range).</p>
+  <p class="hint">Level: RMS of the sample's active speech (20 ms frames above −40 dBFS). Below it, the engine's <code>gain_db</code> that brings the voice to the target level, and the sample's peak after that gain.</p>
+  <div class="bar">
+    <button data-tab="all" class="on">All</button>
+    <button data-tab="yes">Yes (<span id="n-yes">0</span>)</button>
+    <button data-tab="maybe">Maybe (<span id="n-maybe">0</span>)</button>
+    <span class="tools">
+      <label>target <input type="number" id="target" step="0.5" min="-60" max="0"> dBFS</label>
+      <label><input type="checkbox" id="chain" checked> play the next sample when one ends</label>
+      <button id="export">Export choices</button>
+      <button id="import">Import choices</button>
+    </span>
+    <input type="file" id="import-file" accept="application/json,.json" class="hidden">
+  </div>
+  <table>
+    <colgroup><col class="c-voice"><col class="c-notes"><col class="c-ttfa"><col class="c-level"><col class="c-audio"><col class="c-choice"><col class="c-config"></colgroup>
+    <thead><tr><th>Voice</th><th>Notes</th><th>Latency</th><th>Level</th><th>Audio</th><th>Choice</th><th>Module config</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <p class="empty hidden" id="empty">No voice in this tab yet.</p>
+<script>
+const DATA = {"name": "reachy-mini", "description": "Choosing a voice for Reachy Mini, a small conversational robot: English, male or gender-neutral, young, possibly a touch robotic. The page opens on our choices; yours stay in this browser.\n\nAI-generated samples, for non-commercial comparison only ([credits](https://github.com/funwithagents/tts-engine/blob/gh-pages/auditions/reachy-mini/CREDITS.md)). Latency is one Mac's, not a benchmark figure. [Source](https://github.com/funwithagents/tts-engine/blob/main/docs/voice-audition.md).", "text": "Hi, I'm Reachy! It's really nice to meet you. What would you like to talk about today?", "target_dbfs": -22.0, "choices": {"phonon-31m-micah": "yes", "pocket-george": "yes", "piper-ryan-medium": "yes", "qwen3-1.7b-aiden-bf16": "yes", "kokoro-am-fenrir": "yes", "cartesia-zeke-happy": "yes", "elevenlabs-will-v3c": "yes", "gradium-micah": "yes", "deepgram-aries": "yes", "mistral-hugo": "yes", "gemini-achird": "yes", "openai-verse": "yes", "phonon-31m-easton": "maybe", "phonon-31m-trevor": "maybe", "pocket-paul": "maybe", "piper-arctic-bdl": "maybe", "qwen3-voicedesign-companion": "maybe", "kokoro-am-puck": "maybe", "cartesia-jake": "maybe", "cartesia-liam": "maybe", "elevenlabs-liam-v3c": "maybe", "gradium-alfie": "maybe", "mistral-james": "maybe", "mistral-rob": "maybe", "gemini-puck": "maybe", "openai-alloy": "maybe", "openai-compatible-fable": "maybe", "phonon-31m-micah-flat": "no", "phonon-40m-micah": "no", "phonon-31m-alfie": "no", "phonon-31m-teddy": "no", "phonon-31m-spencer": "no", "phonon-31m-hugh": "no", "phonon-31m-fennick": "no", "pocket-michael": "no", "pocket-charles": "no", "pocket-marius": "no", "pocket-18m-michael": "no", "piper-arctic-rms": "no", "piper-joe-medium": "no", "piper-ryan-low": "no", "piper-sam-medium": "no", "kokoro-am-michael": "no", "kokoro-bm-george": "no", "cartesia-zeke": "no", "cartesia-eden": "no", "cartesia-corey": "no", "cartesia-henry": "no", "cartesia-daniel": "no", "elevenlabs-river-v3c": "no", "elevenlabs-river-flash-flat": "no", "elevenlabs-charlie-v4t": "no", "gradium-spencer": "no", "deepgram-apollo": "no", "mistral-howard": "no", "mistral-fred": "no", "mistral-david": "no", "gemini-fenrir": "no", "openai-cedar": "no", "openai-compatible-ash-robotic": "no"}, "sections": ["Phonon (local)", "Pocket (local)", "Piper (local)", "Qwen3-TTS (local)", "Kokoro int8 (local)", "Cartesia (API)", "ElevenLabs (API)", "Gradium (API)", "Deepgram (API)", "Mistral voxtral-mini-tts-3-0 (API)", "Gemini (API)", "OpenAI Realtime (API)", "OpenAI speech (API)"], "candidates": [{"id": "phonon-31m-micah", "label": "Micah", "section": "Phonon (local)", "notes": "Buoyant, playful lift at phrase ends (listen: gender guessed)", "config": {"type": "phonon", "voice": "Micah"}, "result": {"status": "ok", "ttfa_ms": [4.0], "ttfa_median_ms": 4.0, "duration_s": 5.04, "sample_rate": 24000, "rendered_at": "2026-10-28T13:44:19+00:00", "level_dbfs": -22.0, "peak_dbfs": -4.3}}, {"id": "phonon-31m-micah-flat", "label": "Micah, temperature 0.05", "section": "Phonon (local)", "notes": "Same voice, flatter and more mechanical", "config": {"type": "phonon", "voice": "Micah", "temperature": 0.05}, "result": {"status": "ok", "ttfa_ms": [4.0], "ttfa_median_ms": 4.0, "duration_s": 5.12, "sample_rate": 24000, "rendered_at": "2026-10-28T13:44:20+00:00", "level_dbfs": -21.7, "peak_dbfs": -4.2}}, {"id": "phonon-40m-micah", "label": "Micah on 40m-en", "section": "Phonon (local)", "notes": "Same voice, bigger checkpoint (non-commercial)", "config": {"type": "phonon", "model": "hf://gradium/phonon-40m-en", "voice": "Micah"}, "result": {"status": "ok", "ttfa_ms": [5.0], "ttfa_median_ms": 5.0, "duration_s": 5.2, "sample_rate": 24000, "rendered_at": "2026-10-28T13:44:21+00:00", "level_dbfs": -21.5, "peak_dbfs": -3.5}}, {"id": "phonon-31m-easton", "label": "Easton", "section": "Phonon (local)", "notes": "Punchy, close in, pitch lifts across each line", "config": {"type": "phonon", "voice": "Easton"}, "result": {"status": "ok", "ttfa_ms": [5.0], "ttfa_median_ms": 5.0, "duration_s": 4.56, "sample_rate": 24000, "rendered_at": "2026-10-28T13:44:22+00:00", "level_dbfs": -20.5, "peak_dbfs": -6.9}}, {"id": "phonon-31m-alfie", "label": "Alfie", "section": "Phonon (local)", "notes": "Punchy and forward, sits high", "config": {"type": "phonon", "voice": "Alfie"}, "result": {"status": "ok", "ttfa_ms": [4.0], "ttfa_median_ms": 4.0, "duration_s": 5.2, "sample_rate": 24000, "rendered_at": "2026-10-28T13:44:23+00:00", "level_dbfs": -20.1, "peak_dbfs": -3.9}}, {"id": "phonon-31m-teddy", "label": "Teddy", "section": "Phonon (local)", "notes": "Sparky, quick off the mark", "config": {"type": "phonon", "voice": "Teddy"}, "result": {"status": "ok", "ttfa_ms": [4.0], "ttfa_median_ms": 4.0, "duration_s": 5.44, "sample_rate": 24000, "rendered_at": "2026-10-28T13:44:25+00:00", "level_dbfs": -22.2, "peak_dbfs": -6.9}}, {"id": "phonon-31m-trevor", "label": "Trevor", "section": "Phonon (local)", "notes": "Buoyant over a resonant mid-low core", "config": {"type": "phonon", "voice": "Trevor"}, "result": {"status": "ok", "ttfa_ms": [4.0], "ttfa_median_ms": 4.0, "duration_s": 6.08, "sample_rate": 24000, "rendered_at": "2026-10-28T13:44:26+00:00", "level_dbfs": -21.7, "peak_dbfs": -5.4}}, {"id": "phonon-31m-spencer", "label": "Spencer", "section": "Phonon (local)", "notes": "Light and airy, a touch higher, patient", "config": {"type": "phonon", "voice": "Spencer"}, "result": {"status": "ok", "ttfa_ms": [4.0], "ttfa_median_ms": 4.0, "duration_s": 5.84, "sample_rate": 24000, "rendered_at": "2026-10-28T13:44:28+00:00", "level_dbfs": -19.6, "peak_dbfs": -6.5}}, {"id": "phonon-31m-hugh", "label": "Hugh", "section": "Phonon (local)", "notes": "Soft, close, airy, lively pitch", "config": {"type": "phonon", "voice": "Hugh"}, "result": {"status": "ok", "ttfa_ms": [5.0], "ttfa_median_ms": 5.0, "duration_s": 5.68, "sample_rate": 24000, "rendered_at": "2026-10-28T13:44:29+00:00", "level_dbfs": -18.6, "peak_dbfs": -5.3}}, {"id": "phonon-31m-fennick", "label": "Fennick the Young Elf", "section": "Phonon (local)", "notes": "A boy of about ten, warm, never squeaky", "config": {"type": "phonon", "voice": "Fennick the Young Elf"}, "result": {"status": "ok", "ttfa_ms": [4.0], "ttfa_median_ms": 4.0, "duration_s": 6.16, "sample_rate": 24000, "rendered_at": "2026-10-28T13:44:31+00:00", "level_dbfs": -20.7, "peak_dbfs": -7.2}}, {"id": "pocket-michael", "label": "michael", "section": "Pocket (local)", "notes": "American male, 19 (VCTK p360)", "config": {"type": "pocket", "voice": "michael", "language": "english_2026-10"}, "result": {"status": "ok", "ttfa_ms": [24.0], "ttfa_median_ms": 24.0, "duration_s": 5.36, "sample_rate": 24000, "rendered_at": "2026-10-28T13:44:35+00:00", "level_dbfs": -17.8, "peak_dbfs": -3.9}}, {"id": "pocket-george", "label": "george", "section": "Pocket (local)", "notes": "Male, 18 (VCTK p315); the bridge's current voice", "config": {"type": "pocket", "voice": "george", "language": "english_2026-10"}, "result": {"status": "ok", "ttfa_ms": [23.0], "ttfa_median_ms": 23.0, "duration_s": 4.4, "sample_rate": 24000, "rendered_at": "2026-10-28T13:44:37+00:00", "level_dbfs": -18.6, "peak_dbfs": -1.0}}, {"id": "pocket-charles", "label": "charles", "section": "Pocket (local)", "notes": "English male, 21 (VCTK p254)", "config": {"type": "pocket", "voice": "charles", "language": "english_2026-10"}, "result": {"status": "ok", "ttfa_ms": [23.0], "ttfa_median_ms": 23.0, "duration_s": 5.04, "sample_rate": 24000, "rendered_at": "2026-10-28T13:44:39+00:00", "level_dbfs": -19.1, "peak_dbfs": -1.8}}, {"id": "pocket-paul", "label": "paul", "section": "Pocket (local)", "notes": "English male, 23 (VCTK p259)", "config": {"type": "pocket", "voice": "paul", "language": "english_2026-10"}, "result": {"status": "ok", "ttfa_ms": [23.0], "ttfa_median_ms": 23.0, "duration_s": 5.68, "sample_rate": 24000, "rendered_at": "2026-10-28T13:44:41+00:00", "level_dbfs": -17.0, "peak_dbfs": -2.1}}, {"id": "pocket-marius", "label": "marius", "section": "Pocket (local)", "notes": "Donated voice (listen: gender and age unknown)", "config": {"type": "pocket", "voice": "marius", "language": "english_2026-10"}, "result": {"status": "ok", "ttfa_ms": [23.0], "ttfa_median_ms": 23.0, "duration_s": 4.88, "sample_rate": 24000, "rendered_at": "2026-10-28T13:44:42+00:00", "level_dbfs": -24.5, "peak_dbfs": -6.0}}, {"id": "pocket-18m-michael", "label": "michael on english_18m", "section": "Pocket (local)", "notes": "Tiny model, same voice", "config": {"type": "pocket", "voice": "michael", "language": "english_18m_2026-10"}, "result": {"status": "ok", "ttfa_ms": [14.0], "ttfa_median_ms": 14.0, "duration_s": 5.28, "sample_rate": 24000, "rendered_at": "2026-10-28T13:44:44+00:00", "level_dbfs": -20.7, "peak_dbfs": -5.9}}, {"id": "piper-arctic-bdl", "label": "en_US-arctic-medium / bdl", "section": "Piper (local)", "notes": "CMU Arctic US male: classic synthetic assistant", "config": {"type": "piper", "voice": "en_US-arctic-medium", "speaker": "bdl"}, "result": {"status": "ok", "ttfa_ms": [18.0], "ttfa_median_ms": 18.0, "duration_s": 4.6, "sample_rate": 22050, "rendered_at": "2026-10-28T13:44:45+00:00", "level_dbfs": -15.1, "peak_dbfs": 0.0}}, {"id": "piper-arctic-rms", "label": "en_US-arctic-medium / rms", "section": "Piper (local)", "notes": "CMU Arctic US male, lower", "config": {"type": "piper", "voice": "en_US-arctic-medium", "speaker": "rms"}, "result": {"status": "ok", "ttfa_ms": [21.0], "ttfa_median_ms": 21.0, "duration_s": 5.67, "sample_rate": 22050, "rendered_at": "2026-10-28T13:44:45+00:00", "level_dbfs": -13.9, "peak_dbfs": 0.0}}, {"id": "piper-ryan-medium", "label": "en_US-ryan-medium", "section": "Piper (local)", "notes": "US male", "config": {"type": "piper", "voice": "en_US-ryan-medium"}, "result": {"status": "ok", "ttfa_ms": [24.0], "ttfa_median_ms": 24.0, "duration_s": 4.04, "sample_rate": 22050, "rendered_at": "2026-10-28T13:44:48+00:00", "level_dbfs": -13.9, "peak_dbfs": 0.0}}, {"id": "piper-joe-medium", "label": "en_US-joe-medium", "section": "Piper (local)", "notes": "US male", "config": {"type": "piper", "voice": "en_US-joe-medium"}, "result": {"status": "ok", "ttfa_ms": [19.0], "ttfa_median_ms": 19.0, "duration_s": 4.76, "sample_rate": 22050, "rendered_at": "2026-10-28T13:44:50+00:00", "level_dbfs": -18.0, "peak_dbfs": 0.0}}, {"id": "piper-ryan-low", "label": "en_US-ryan-low", "section": "Piper (local)", "notes": "US male, lo-fi", "config": {"type": "piper", "voice": "en_US-ryan-low"}, "result": {"status": "ok", "ttfa_ms": [14.0], "ttfa_median_ms": 14.0, "duration_s": 3.92, "sample_rate": 16000, "rendered_at": "2026-10-28T13:44:53+00:00", "level_dbfs": -14.2, "peak_dbfs": 0.0}}, {"id": "piper-sam-medium", "label": "en_US-sam-medium", "section": "Piper (local)", "notes": "Unknown gender (listen: possible neutral option)", "config": {"type": "piper", "voice": "en_US-sam-medium"}, "result": {"status": "ok", "ttfa_ms": [20.0], "ttfa_median_ms": 20.0, "duration_s": 5.18, "sample_rate": 22050, "rendered_at": "2026-10-28T13:44:59+00:00", "level_dbfs": -15.8, "peak_dbfs": 0.0}}, {"id": "qwen3-1.7b-aiden-bf16", "label": "Aiden 1.7B BF16", "section": "Qwen3-TTS (local)", "notes": "speech-to-speech's default setup: 1.7B CustomVoice, Aiden, BF16", "config": {"type": "qwen3", "model": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice", "quant": "BF16", "language": "english", "voice": "aiden"}, "result": {"status": "ok", "ttfa_ms": [240.5, 235.9, 239.7], "ttfa_median_ms": 239.7, "duration_s": 4.56, "sample_rate": 24000, "level_dbfs": -17.2, "peak_dbfs": -2.3, "rendered_at": "2026-10-30T10:14:11+00:00"}}, {"id": "qwen3-voicedesign-companion", "label": "Designed companion", "section": "Qwen3-TTS (local)", "notes": "The persona described in words", "config": {"type": "qwen3", "model": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign", "quant": "BF16", "language": "english", "instruct": "Friendly, concise, lightly witty companion robot"}, "result": {"status": "ok", "ttfa_ms": [247.9, 241.1, 237.8], "ttfa_median_ms": 241.1, "duration_s": 5.28, "sample_rate": 24000, "level_dbfs": -19.1, "peak_dbfs": -2.9, "rendered_at": "2026-10-30T10:15:16+00:00"}}, {"id": "kokoro-am-puck", "label": "am_puck", "section": "Kokoro int8 (local)", "notes": "Young, playful US male", "config": {"type": "kokoro", "voice": "am_puck", "model": "../../benchmarks/models/kokoro-v1.0.int8.onnx"}, "result": {"status": "ok", "ttfa_ms": [103.2, 105.1, 104.8], "ttfa_median_ms": 104.8, "duration_s": 4.71, "sample_rate": 24000, "level_dbfs": -18.7, "peak_dbfs": -2.3, "rendered_at": "2026-10-30T08:24:57+00:00"}}, {"id": "kokoro-am-fenrir", "label": "am_fenrir", "section": "Kokoro int8 (local)", "notes": "US male · Kokoro quality grade C+", "config": {"type": "kokoro", "voice": "am_fenrir", "model": "../../benchmarks/models/kokoro-v1.0.int8.onnx"}, "result": {"status": "ok", "ttfa_ms": [103.1, 105.3, 102.0], "ttfa_median_ms": 103.1, "duration_s": 4.63, "sample_rate": 24000, "level_dbfs": -20.0, "peak_dbfs": -3.1, "rendered_at": "2026-10-30T08:24:58+00:00"}}, {"id": "kokoro-am-michael", "label": "am_michael", "section": "Kokoro int8 (local)", "notes": "US male · Kokoro quality grade C+", "config": {"type": "kokoro", "voice": "am_michael", "model": "../../benchmarks/models/kokoro-v1.0.int8.onnx"}, "result": {"status": "ok", "ttfa_ms": [123.3, 121.0, 127.8], "ttfa_median_ms": 123.3, "duration_s": 5.72, "sample_rate": 24000, "level_dbfs": -23.4, "peak_dbfs": -7.7, "rendered_at": "2026-10-30T08:25:01+00:00"}}, {"id": "kokoro-bm-george", "label": "bm_george", "section": "Kokoro int8 (local)", "notes": "British male · Kokoro quality grade C", "config": {"type": "kokoro", "voice": "bm_george", "model": "../../benchmarks/models/kokoro-v1.0.int8.onnx"}, "result": {"status": "ok", "ttfa_ms": [131.8, 130.0, 130.9], "ttfa_median_ms": 130.9, "duration_s": 6.32, "sample_rate": 24000, "level_dbfs": -21.3, "peak_dbfs": -9.9, "rendered_at": "2026-10-30T08:25:03+00:00"}}, {"id": "cartesia-zeke", "label": "Zeke - Friendly Sidekick", "section": "Cartesia (API)", "notes": "High-pitched, friendly young adult male", "config": {"type": "cartesia", "api_key_env": "CARTESIA_API_KEY", "model": "sonic-3.6", "voice_id": "e00d0e4c-a5c8-443f-a8a3-473eb9a62355"}, "result": {"status": "ok", "ttfa_ms": [202.0], "ttfa_median_ms": 202.0, "duration_s": 4.8, "sample_rate": 24000, "rendered_at": "2026-10-28T13:45:23+00:00", "level_dbfs": -16.2, "peak_dbfs": -1.1}}, {"id": "cartesia-eden", "label": "Eden - Clear Advisor", "section": "Cartesia (API)", "notes": "Gender-neutral, young, clean", "config": {"type": "cartesia", "api_key_env": "CARTESIA_API_KEY", "model": "sonic-3.6", "voice_id": "83ae58a1-7e97-4b94-b03f-e4cc0a10d8af"}, "result": {"status": "ok", "ttfa_ms": [386.0], "ttfa_median_ms": 386.0, "duration_s": 4.88, "sample_rate": 24000, "rendered_at": "2026-10-28T13:45:25+00:00", "level_dbfs": -15.4, "peak_dbfs": -1.0}}, {"id": "cartesia-jake", "label": "Jake - Sidekick", "section": "Cartesia (API)", "notes": "Friendly young adult male", "config": {"type": "cartesia", "api_key_env": "CARTESIA_API_KEY", "model": "sonic-3.6", "voice_id": "729651dc-c6c3-4ee5-97fa-350da1f88600"}, "result": {"status": "ok", "ttfa_ms": [93.0], "ttfa_median_ms": 93.0, "duration_s": 4.56, "sample_rate": 24000, "rendered_at": "2026-10-28T13:45:27+00:00", "level_dbfs": -17.4, "peak_dbfs": -2.9}}, {"id": "cartesia-corey", "label": "Corey - Supportive Buddy", "section": "Cartesia (API)", "notes": "Cheerful young adult male", "config": {"type": "cartesia", "api_key_env": "CARTESIA_API_KEY", "model": "sonic-3.6", "voice_id": "630ed21c-2c5c-41cf-9d82-10a7fd668370"}, "result": {"status": "ok", "ttfa_ms": [77.0], "ttfa_median_ms": 77.0, "duration_s": 4.96, "sample_rate": 24000, "rendered_at": "2026-10-28T13:45:28+00:00", "level_dbfs": -15.8, "peak_dbfs": -1.3}}, {"id": "cartesia-liam", "label": "Liam - Guy Next Door", "section": "Cartesia (API)", "notes": "Casual, friendly young male", "config": {"type": "cartesia", "api_key_env": "CARTESIA_API_KEY", "model": "sonic-3.6", "voice_id": "41f3c367-e0a8-4a85-89e0-c27bae9c9b6d"}, "result": {"status": "ok", "ttfa_ms": [137.0], "ttfa_median_ms": 137.0, "duration_s": 4.56, "sample_rate": 24000, "rendered_at": "2026-10-28T13:45:30+00:00", "level_dbfs": -18.0, "peak_dbfs": -1.2}}, {"id": "cartesia-henry", "label": "Henry - Plainspoken Guy", "section": "Cartesia (API)", "notes": "Youthful, monotone, matter-of-fact (robot-ish)", "config": {"type": "cartesia", "api_key_env": "CARTESIA_API_KEY", "model": "sonic-3.6", "voice_id": "87286a8d-7ea7-4235-a41a-dd9fa6630feb"}, "result": {"status": "ok", "ttfa_ms": [84.0], "ttfa_median_ms": 84.0, "duration_s": 4.24, "sample_rate": 24000, "rendered_at": "2026-10-28T13:45:32+00:00", "level_dbfs": -16.5, "peak_dbfs": -3.1}}, {"id": "cartesia-daniel", "label": "Daniel - Modern Assistant", "section": "Cartesia (API)", "notes": "Clear, crisp male for digital assistants", "config": {"type": "cartesia", "api_key_env": "CARTESIA_API_KEY", "model": "sonic-3.6", "voice_id": "47c38ca4-5f35-497b-b1a3-415245fb35e1"}, "result": {"status": "ok", "ttfa_ms": [110.0], "ttfa_median_ms": 110.0, "duration_s": 4.56, "sample_rate": 24000, "rendered_at": "2026-10-28T13:45:34+00:00", "level_dbfs": -18.5, "peak_dbfs": -2.2}}, {"id": "cartesia-zeke-happy", "label": "Zeke, emotion happy, speed 1.1", "section": "Cartesia (API)", "notes": "Same voice, livelier", "config": {"type": "cartesia", "api_key_env": "CARTESIA_API_KEY", "model": "sonic-3.6", "voice_id": "e00d0e4c-a5c8-443f-a8a3-473eb9a62355", "emotion": "happy", "speed": 1.1}, "result": {"status": "ok", "ttfa_ms": [111.0], "ttfa_median_ms": 111.0, "duration_s": 4.32, "sample_rate": 24000, "rendered_at": "2026-10-28T13:45:35+00:00", "level_dbfs": -15.8, "peak_dbfs": -1.2}}, {"id": "elevenlabs-river-v3c", "label": "River, v3_conversational", "section": "ElevenLabs (API)", "notes": "Non-binary, relaxed", "config": {"type": "elevenlabs", "api_key_env": "ELEVENLABS_API_KEY", "model": "eleven_v3_conversational", "voice_id": "SAz9YHcvj6GT2YYXdXww"}, "result": {"status": "ok", "ttfa_ms": [118.0], "ttfa_median_ms": 118.0, "duration_s": 5.88, "sample_rate": 44100, "rendered_at": "2026-10-28T13:45:38+00:00", "level_dbfs": -18.2, "peak_dbfs": -1.9}}, {"id": "elevenlabs-river-flash-flat", "label": "River, flash_v2_5, stability 0.85", "section": "ElevenLabs (API)", "notes": "Same voice, flatter", "config": {"type": "elevenlabs", "api_key_env": "ELEVENLABS_API_KEY", "model": "eleven_flash_v2_5", "voice_id": "SAz9YHcvj6GT2YYXdXww", "stability": 0.85}, "result": {"status": "ok", "ttfa_ms": [137.0], "ttfa_median_ms": 137.0, "duration_s": 3.79, "sample_rate": 44100, "rendered_at": "2026-10-28T13:45:38+00:00", "level_dbfs": -19.4, "peak_dbfs": -2.6}}, {"id": "elevenlabs-liam-v3c", "label": "Liam, v3_conversational", "section": "ElevenLabs (API)", "notes": "Young, energetic US male", "config": {"type": "elevenlabs", "api_key_env": "ELEVENLABS_API_KEY", "model": "eleven_v3_conversational", "voice_id": "TX3LPaxmHKxFdv7VOQHJ"}, "result": {"status": "ok", "ttfa_ms": [130.0], "ttfa_median_ms": 130.0, "duration_s": 5.64, "sample_rate": 44100, "rendered_at": "2026-10-28T13:45:40+00:00", "level_dbfs": -20.1, "peak_dbfs": -4.6}}, {"id": "elevenlabs-will-v3c", "label": "Will, v3_conversational", "section": "ElevenLabs (API)", "notes": "Young, friendly US male", "config": {"type": "elevenlabs", "api_key_env": "ELEVENLABS_API_KEY", "model": "eleven_v3_conversational", "voice_id": "bIHbv24MWmeRgasZH58o"}, "result": {"status": "ok", "ttfa_ms": [99.0], "ttfa_median_ms": 99.0, "duration_s": 5.96, "sample_rate": 44100, "rendered_at": "2026-10-28T13:45:42+00:00", "level_dbfs": -16.9, "peak_dbfs": -1.2}}, {"id": "elevenlabs-charlie-v4t", "label": "Charlie, v4_turbo", "section": "ElevenLabs (API)", "notes": "Young Australian male, conversational", "config": {"type": "elevenlabs", "api_key_env": "ELEVENLABS_API_KEY", "model": "eleven_v4_turbo", "voice_id": "IKne3meq5aSn9XLyUdCD"}, "result": {"status": "ok", "ttfa_ms": [128.0], "ttfa_median_ms": 128.0, "duration_s": 5.41, "sample_rate": 44100, "rendered_at": "2026-10-28T13:45:44+00:00", "level_dbfs": -27.0, "peak_dbfs": -9.5}}, {"id": "gradium-spencer", "label": "Spencer", "section": "Gradium (API)", "notes": "Light and airy, a touch higher", "config": {"type": "gradium", "api_key_env": "GRADIUM_API_KEY", "voice_id": "JOW0vchyswkQUMDS"}, "result": {"status": "ok", "ttfa_ms": [173.0], "ttfa_median_ms": 173.0, "duration_s": 5.6, "sample_rate": 48000, "rendered_at": "2026-10-28T13:45:50+00:00", "level_dbfs": -19.7, "peak_dbfs": -4.1}}, {"id": "gradium-micah", "label": "Micah", "section": "Gradium (API)", "notes": "Buoyant, playful", "config": {"type": "gradium", "api_key_env": "GRADIUM_API_KEY", "voice_id": "40QrMVgAxFiUnP9f"}, "result": {"status": "ok", "ttfa_ms": [211.0], "ttfa_median_ms": 211.0, "duration_s": 4.88, "sample_rate": 48000, "rendered_at": "2026-10-28T13:45:54+00:00", "level_dbfs": -22.0, "peak_dbfs": -4.9}}, {"id": "gradium-alfie", "label": "Alfie", "section": "Gradium (API)", "notes": "Punchy and forward", "config": {"type": "gradium", "api_key_env": "GRADIUM_API_KEY", "voice_id": "X6NceqF285Gr04gb"}, "result": {"status": "ok", "ttfa_ms": [186.0], "ttfa_median_ms": 186.0, "duration_s": 5.04, "sample_rate": 48000, "rendered_at": "2026-10-28T13:46:00+00:00", "level_dbfs": -17.9, "peak_dbfs": -2.4}}, {"id": "deepgram-apollo", "label": "aura-2-apollo-en", "section": "Deepgram (API)", "notes": "Adult US male, confident, casual", "config": {"type": "deepgram", "api_key_env": "DEEPGRAM_API_KEY", "model": "aura-2-apollo-en"}, "result": {"status": "ok", "ttfa_ms": [130.0], "ttfa_median_ms": 130.0, "duration_s": 5.6, "sample_rate": 24000, "rendered_at": "2026-10-28T13:46:04+00:00", "level_dbfs": -19.3, "peak_dbfs": -3.5}}, {"id": "deepgram-aries", "label": "aura-2-aries-en", "section": "Deepgram (API)", "notes": "Adult US male, warm, energetic", "config": {"type": "deepgram", "api_key_env": "DEEPGRAM_API_KEY", "model": "aura-2-aries-en"}, "result": {"status": "ok", "ttfa_ms": [261.0], "ttfa_median_ms": 261.0, "duration_s": 4.48, "sample_rate": 24000, "rendered_at": "2026-10-28T13:46:09+00:00", "level_dbfs": -19.1, "peak_dbfs": -2.9}}, {"id": "mistral-james", "label": "James", "section": "Mistral voxtral-mini-tts-3-0 (API)", "notes": "US male", "config": {"type": "mistral", "api_key_env": "MISTRAL_API_KEY", "model": "voxtral-mini-tts-3-0", "voice_id": "01a14675-dc30-778a-8d01-b5dead5a522a"}, "result": {"status": "ok", "ttfa_ms": [494.0], "ttfa_median_ms": 494.0, "duration_s": 4.8, "sample_rate": 24000, "rendered_at": "2026-10-28T13:47:17+00:00", "level_dbfs": -21.3, "peak_dbfs": -6.8}}, {"id": "mistral-rob", "label": "Rob", "section": "Mistral voxtral-mini-tts-3-0 (API)", "notes": "US male", "config": {"type": "mistral", "api_key_env": "MISTRAL_API_KEY", "model": "voxtral-mini-tts-3-0", "voice_id": "01a0f318-4b11-7518-8ce9-69abeaf63255"}, "result": {"status": "ok", "ttfa_ms": [349.0], "ttfa_median_ms": 349.0, "duration_s": 4.48, "sample_rate": 24000, "rendered_at": "2026-10-28T13:47:18+00:00", "level_dbfs": -22.2, "peak_dbfs": -7.9}}, {"id": "mistral-hugo", "label": "Hugo", "section": "Mistral voxtral-mini-tts-3-0 (API)", "notes": "British male", "config": {"type": "mistral", "api_key_env": "MISTRAL_API_KEY", "model": "voxtral-mini-tts-3-0", "voice_id": "01a14675-dc1f-7473-9675-43fb05d7d230"}, "result": {"status": "ok", "ttfa_ms": [355.0], "ttfa_median_ms": 355.0, "duration_s": 4.32, "sample_rate": 24000, "rendered_at": "2026-10-28T13:47:27+00:00", "level_dbfs": -22.4, "peak_dbfs": -3.3}}, {"id": "mistral-howard", "label": "Howard", "section": "Mistral voxtral-mini-tts-3-0 (API)", "notes": "British male", "config": {"type": "mistral", "api_key_env": "MISTRAL_API_KEY", "model": "voxtral-mini-tts-3-0", "voice_id": "01a14675-dbff-7093-92e1-1116893dc11d"}, "result": {"status": "ok", "ttfa_ms": [337.0], "ttfa_median_ms": 337.0, "duration_s": 4.16, "sample_rate": 24000, "rendered_at": "2026-10-28T13:47:29+00:00", "level_dbfs": -21.2, "peak_dbfs": -7.8}}, {"id": "mistral-fred", "label": "Fred", "section": "Mistral voxtral-mini-tts-3-0 (API)", "notes": "British male", "config": {"type": "mistral", "api_key_env": "MISTRAL_API_KEY", "model": "voxtral-mini-tts-3-0", "voice_id": "01a14675-dbef-7259-af64-5d6d22bb3d2a"}, "result": {"status": "ok", "ttfa_ms": [556.0], "ttfa_median_ms": 556.0, "duration_s": 3.44, "sample_rate": 24000, "rendered_at": "2026-10-28T13:47:31+00:00", "level_dbfs": -20.8, "peak_dbfs": -3.3}}, {"id": "mistral-david", "label": "David", "section": "Mistral voxtral-mini-tts-3-0 (API)", "notes": "British male", "config": {"type": "mistral", "api_key_env": "MISTRAL_API_KEY", "model": "voxtral-mini-tts-3-0", "voice_id": "01a135c4-d8bc-76fa-8d12-6dc69a48abd1"}, "result": {"status": "ok", "ttfa_ms": [782.0], "ttfa_median_ms": 782.0, "duration_s": 4.24, "sample_rate": 24000, "rendered_at": "2026-10-28T13:47:33+00:00", "level_dbfs": -21.3, "peak_dbfs": -2.9}}, {"id": "gemini-puck", "label": "Puck", "section": "Gemini (API)", "notes": "Upbeat · 3.8 flash lite", "config": {"type": "gemini", "api_key_env": "GEMINI_API_KEY", "model": "gemini-3.8-flash-lite-tts", "voice": "Puck"}, "result": {"status": "ok", "ttfa_ms": [408.7, 388.2, 446.4], "ttfa_median_ms": 408.7, "duration_s": 5.52, "sample_rate": 24000, "level_dbfs": -17.4, "peak_dbfs": -2.1, "rendered_at": "2026-10-30T10:36:15+00:00"}}, {"id": "gemini-fenrir", "label": "Fenrir", "section": "Gemini (API)", "notes": "Excitable · 3.8 flash lite", "config": {"type": "gemini", "api_key_env": "GEMINI_API_KEY", "model": "gemini-3.8-flash-lite-tts", "voice": "Fenrir"}, "result": {"status": "ok", "ttfa_ms": [385.3, 476.9, 370.5], "ttfa_median_ms": 385.3, "duration_s": 5.08, "sample_rate": 24000, "level_dbfs": -15.4, "peak_dbfs": -0.9, "rendered_at": "2026-10-30T10:36:20+00:00"}}, {"id": "gemini-achird", "label": "Achird", "section": "Gemini (API)", "notes": "Friendly · 3.8 flash lite", "config": {"type": "gemini", "api_key_env": "GEMINI_API_KEY", "model": "gemini-3.8-flash-lite-tts", "voice": "Achird"}, "result": {"status": "ok", "ttfa_ms": [404.5, 1026.5, 469.2], "ttfa_median_ms": 469.2, "duration_s": 5.16, "sample_rate": 24000, "level_dbfs": -19.8, "peak_dbfs": -3.0, "rendered_at": "2026-10-30T10:36:25+00:00"}}, {"id": "openai-cedar", "label": "cedar", "section": "OpenAI Realtime (API)", "notes": "Realtime 2.1 mini", "config": {"type": "openai", "api_key_env": "OPENAI_API_KEY", "model": "gpt-realtime-2.1-mini", "voice": "cedar"}, "result": {"status": "ok", "ttfa_ms": [644.5, 574.6, 619.4], "ttfa_median_ms": 619.4, "duration_s": 5.15, "sample_rate": 24000, "level_dbfs": -19.1, "peak_dbfs": -3.0, "rendered_at": "2026-10-30T10:36:34+00:00"}}, {"id": "openai-alloy", "label": "alloy", "section": "OpenAI Realtime (API)", "notes": "Neutral · Realtime 2.1 mini", "config": {"type": "openai", "api_key_env": "OPENAI_API_KEY", "model": "gpt-realtime-2.1-mini", "voice": "alloy"}, "result": {"status": "ok", "ttfa_ms": [949.6, 557.2, 556.3], "ttfa_median_ms": 557.2, "duration_s": 5.0, "sample_rate": 24000, "level_dbfs": -16.4, "peak_dbfs": -3.1, "rendered_at": "2026-10-30T10:36:39+00:00"}}, {"id": "openai-verse", "label": "verse", "section": "OpenAI Realtime (API)", "notes": "Expressive · Realtime 2.1 mini", "config": {"type": "openai", "api_key_env": "OPENAI_API_KEY", "model": "gpt-realtime-2.1-mini", "voice": "verse"}, "result": {"status": "ok", "ttfa_ms": [570.1, 545.9, 552.0], "ttfa_median_ms": 552.0, "duration_s": 5.85, "sample_rate": 24000, "level_dbfs": -23.6, "peak_dbfs": -7.8, "rendered_at": "2026-10-30T10:36:44+00:00"}}, {"id": "openai-compatible-fable", "label": "fable", "section": "OpenAI speech (API)", "notes": "Light, slightly British · gpt-4o-mini-tts", "config": {"type": "openai-compatible", "api_key_env": "OPENAI_API_KEY", "model": "gpt-4o-mini-tts-2025-03-20", "voice": "fable"}, "result": {"status": "ok", "ttfa_ms": [625.5, 673.8, 338.9], "ttfa_median_ms": 625.5, "duration_s": 4.3, "sample_rate": 24000, "level_dbfs": -21.2, "peak_dbfs": -4.3, "rendered_at": "2026-10-30T10:36:50+00:00"}}, {"id": "openai-compatible-ash-robotic", "label": "ash, slightly mechanical", "section": "OpenAI speech (API)", "notes": "Asked for a slightly mechanical cadence · gpt-4o-mini-tts", "config": {"type": "openai-compatible", "api_key_env": "OPENAI_API_KEY", "model": "gpt-4o-mini-tts-2025-03-20", "voice": "ash", "instructions": "Speak brightly, with a slightly mechanical, evenly paced cadence."}, "result": {"status": "ok", "ttfa_ms": [408.8, 1673.8, 659.0], "ttfa_median_ms": 659.0, "duration_s": 5.5, "sample_rate": 24000, "level_dbfs": -20.8, "peak_dbfs": -4.4, "rendered_at": "2026-10-30T10:36:56+00:00"}}]};
+const CHOICES = [["yes", "Yes"], ["maybe", "Maybe"], ["no", "No"], ["notset", "NotSet"]];
+const KEY = "voice-audition:" + DATA.name;
+const ids = new Set(DATA.candidates.map(c => c.id));
+let state = {};
+let tab = "all";
+
+// The browser's stored choices; with none stored, the audition's starting ones.
+function load() {
+  let stored = null;
+  try { stored = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
+  state = stored && typeof stored === "object" ? stored : {...(DATA.choices || {})};
+}
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+}
+
+function el(tag, attrs, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") node.className = v; else node.setAttribute(k, v);
+  }
+  for (const child of children) node.append(child);
+  return node;
+}
+
+function ttfaCell(result) {
+  if (result.status !== "ok") return el("td", {class: "ttfa"}, "—");
+  const runs = result.ttfa_ms || [];
+  const cell = el("td", {class: "ttfa"}, Math.round(result.ttfa_median_ms) + " ms");
+  if (runs.length) cell.title = `${runs.length} runs: ${Math.round(Math.min(...runs))}–${Math.round(Math.max(...runs))} ms`;
+  return cell;
+}
+
+function fixed(value) { return (value > 0 ? "+" : value < 0 ? "−" : "") + Math.abs(value).toFixed(1); }
+
+function levelCell(result) {
+  const cell = el("td", {class: "level"});
+  if (result.status !== "ok" || typeof result.level_dbfs !== "number") { cell.append("—"); return cell; }
+  cell.dataset.level = result.level_dbfs;
+  if (typeof result.peak_dbfs === "number") cell.dataset.peak = result.peak_dbfs;
+  cell.append(fixed(result.level_dbfs) + " dBFS", el("span", {class: "gain"}), el("span", {class: "peak"}));
+  return cell;
+}
+
+// The gain to the target, and the peak once it is applied, for every level cell.
+function levels() {
+  const target = parseFloat(document.getElementById("target").value);
+  for (const cell of document.querySelectorAll("td.level[data-level]")) {
+    const gain = Math.round((target - parseFloat(cell.dataset.level)) * 10) / 10;
+    cell.querySelector(".gain").textContent = Number.isFinite(gain) ? "gain_db " + fixed(gain) : "";
+    const peak = cell.querySelector(".peak");
+    if (cell.dataset.peak === undefined || !Number.isFinite(gain)) { peak.textContent = ""; continue; }
+    const after = parseFloat(cell.dataset.peak) + gain;
+    peak.textContent = "peak " + fixed(after) + " dBFS" + (after > 0 ? ", clips" : "");
+    peak.classList.toggle("clips", after > 0);
+  }
+}
+
+function audioCell(c) {
+  const r = c.result || {};
+  if (r.status === "ok") return el("td", {}, el("audio", {controls: "", preload: "none", src: `samples/${c.id}.wav`}));
+  const text = r.status === "skipped" ? "skipped: " + r.reason
+    : r.status === "error" ? "failed: " + r.error : "not rendered yet";
+  return el("td", {}, el("span", {class: "status"}, text));
+}
+
+function row(c, index) {
+  const choices = el("td", {class: "choice"});
+  for (const [value, label] of CHOICES) {
+    const input = el("input", {type: "radio", name: "choice-" + index, value});
+    input.addEventListener("change", () => {
+      if (value === "notset") delete state[c.id]; else state[c.id] = value;
+      save(); render();
+    });
+    choices.append(el("label", {}, input, " " + label));
+  }
+  return el("tr", {"data-id": c.id, "data-section": c.section},
+    el("td", {}, c.label),
+    el("td", {class: "notes"}, c.notes || ""),
+    ttfaCell(c.result || {}),
+    levelCell(c.result || {}),
+    audioCell(c),
+    choices,
+    el("td", {class: "config"}, el("code", {}, JSON.stringify(c.config))),
+  );
+}
+
+// Plain text: paragraphs split on blank lines, [label](href) links when href
+// is http(s) or relative; anything else stays text.
+function description(text) {
+  const box = document.getElementById("description");
+  for (const para of (text || "").split(/\n\s*\n/)) {
+    if (!para.trim()) continue;
+    const p = el("p");
+    let last = 0;
+    for (const m of para.matchAll(/\[([^\]\n]+)\]\(([^)\s]+)\)/g)) {
+      p.append(para.slice(last, m.index));
+      const safe = /^https?:\/\//i.test(m[2]) || !/^[a-z][a-z0-9+.-]*:/i.test(m[2]);
+      p.append(safe ? el("a", {href: m[2]}, m[1]) : m[0]);
+      last = m.index + m[0].length;
+    }
+    p.append(para.slice(last));
+    box.append(p);
+  }
+}
+
+function build() {
+  document.title = "Voice audition: " + DATA.name;
+  document.getElementById("title").textContent = "Voice audition: " + DATA.name;
+  description(DATA.description);
+  document.getElementById("sentence").textContent = DATA.text;
+  const rows = document.getElementById("rows");
+  DATA.candidates.forEach((c, index) => c.index = index);
+  for (const section of DATA.sections) {
+    rows.append(el("tr", {class: "section", "data-heading": section}, el("th", {colspan: "7"}, section)));
+    for (const c of DATA.candidates.filter(c => c.section === section)) rows.append(row(c, c.index));
+  }
+}
+
+function render() {
+  const counts = {yes: 0, maybe: 0};
+  for (const v of Object.values(state)) if (v in counts) counts[v]++;
+  document.getElementById("n-yes").textContent = counts.yes;
+  document.getElementById("n-maybe").textContent = counts.maybe;
+  for (const tr of document.querySelectorAll("tr[data-id]")) {
+    const choice = state[tr.dataset.id] || "notset";
+    tr.dataset.choice = choice;
+    for (const r of tr.querySelectorAll("input[type=radio]")) r.checked = r.value === choice;
+    tr.classList.toggle("hidden", tab !== "all" && choice !== tab);
+  }
+  let visible = 0;
+  for (const heading of document.querySelectorAll("tr.section")) {
+    const shown = document.querySelectorAll(`tr[data-section="${CSS.escape(heading.dataset.heading)}"]:not(.hidden)`).length;
+    heading.classList.toggle("hidden", shown === 0);
+    visible += shown;
+  }
+  document.getElementById("empty").classList.toggle("hidden", visible > 0);
+  for (const b of document.querySelectorAll(".bar [data-tab]")) b.classList.toggle("on", b.dataset.tab === tab);
+}
+
+function exportChoices() {
+  const out = {audition: DATA.name, yes: [], maybe: [], no: []};
+  for (const c of DATA.candidates) { const v = state[c.id]; if (v in out && v !== "audition") out[v].push(c.id); }
+  const a = el("a", {download: DATA.name + "-choices.json"});
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], {type: "application/json"}));
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function importChoices(file) {
+  file.text().then(text => {
+    const data = JSON.parse(text);
+    if (data.audition !== undefined && data.audition !== DATA.name) {
+      alert(`These choices belong to the audition "${data.audition}", not "${DATA.name}".`);
+      return;
+    }
+    const next = {};
+    for (const value of ["yes", "maybe", "no"]) {
+      for (const id of Array.isArray(data[value]) ? data[value] : []) if (ids.has(id)) next[id] = value;
+    }
+    state = next; save(); render();
+  }).catch(e => alert("Cannot read the choices file: " + e.message));
+}
+
+function wirePlayback() {
+  const players = () => [...document.querySelectorAll("audio")];
+  for (const a of players()) {
+    a.addEventListener("play", () => {
+      for (const b of players()) {
+        if (b !== a) b.pause();
+        b.closest("tr").classList.toggle("playing", b === a);
+      }
+    });
+    a.addEventListener("ended", () => {
+      if (!document.getElementById("chain").checked) return;
+      const visible = players().filter(b => b.offsetParent !== null);
+      const next = visible[visible.indexOf(a) + 1];
+      if (next) { next.scrollIntoView({block: "center"}); next.play(); }
+    });
+  }
+}
+
+load();
+build();
+for (const b of document.querySelectorAll(".bar [data-tab]")) {
+  b.addEventListener("click", () => { tab = b.dataset.tab; render(); window.scrollTo(0, 0); });
+}
+document.getElementById("export").addEventListener("click", exportChoices);
+document.getElementById("import").addEventListener("click", () => document.getElementById("import-file").click());
+document.getElementById("import-file").addEventListener("change", e => {
+  if (e.target.files[0]) importChoices(e.target.files[0]);
+  e.target.value = "";
+});
+const target = document.getElementById("target");
+target.value = DATA.target_dbfs;
+target.addEventListener("input", levels);
+wirePlayback();
+levels();
+render();
+</script>
+</body>
+</html>
