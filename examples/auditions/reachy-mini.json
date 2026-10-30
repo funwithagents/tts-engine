@@ -1,6 +1,6 @@
 {
   "name": "reachy-mini",
-  "description": "Choosing a voice for Reachy Mini, a small conversational robot: English, male or gender-neutral, young, quick to answer. The page opens on our choices; yours stay in this browser.\n\nAI-generated samples, for non-commercial comparison only ([credits](https://github.com/funwithagents/tts-engine/blob/gh-pages/auditions/reachy-mini/CREDITS.md)). Latency is one Mac's, not a benchmark figure. [Source](https://github.com/funwithagents/tts-engine/blob/main/docs/voice-audition.md).",
+  "description": "Choosing a voice for Reachy Mini, a small conversational robot: English, male or gender-neutral, young, possibly a touch robotic. The page opens on our choices; yours stay in this browser.\n\nAI-generated samples, for non-commercial comparison only ([credits](https://github.com/funwithagents/tts-engine/blob/gh-pages/auditions/reachy-mini/CREDITS.md)). Latency is one Mac's, not a benchmark figure. [Source](https://github.com/funwithagents/tts-engine/blob/main/docs/voice-audition.md).",
   "text": "Hi, I'm Reachy! It's really nice to meet you. What would you like to talk about today?",
   "candidates": [
     {
@@ -299,7 +299,7 @@
     {
       "id": "kokoro-am-puck",
       "label": "am_puck",
-      "section": "Kokoro int8 (local, borderline)",
+      "section": "Kokoro int8 (local)",
       "notes": "Young, playful US male · benchmark TTFA p50 253 ms",
       "config": {
         "type": "kokoro",
@@ -310,7 +310,7 @@
     {
       "id": "kokoro-am-fenrir",
       "label": "am_fenrir",
-      "section": "Kokoro int8 (local, borderline)",
+      "section": "Kokoro int8 (local)",
       "notes": "US male · Kokoro quality grade C+",
       "config": {
         "type": "kokoro",
@@ -321,7 +321,7 @@
     {
       "id": "kokoro-am-michael",
       "label": "am_michael",
-      "section": "Kokoro int8 (local, borderline)",
+      "section": "Kokoro int8 (local)",
       "notes": "US male · Kokoro quality grade C+",
       "config": {
         "type": "kokoro",
@@ -332,7 +332,7 @@
     {
       "id": "kokoro-bm-george",
       "label": "bm_george",
-      "section": "Kokoro int8 (local, borderline)",
+      "section": "Kokoro int8 (local)",
       "notes": "British male · Kokoro quality grade C",
       "config": {
         "type": "kokoro",
@@ -557,7 +557,7 @@
     {
       "id": "mistral-james",
       "label": "James",
-      "section": "Mistral voxtral-mini-tts-3-0 (API, over budget)",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
       "notes": "US male · benchmark TTFA p50 453 ms",
       "config": {
         "type": "mistral",
@@ -569,7 +569,7 @@
     {
       "id": "mistral-rob",
       "label": "Rob",
-      "section": "Mistral voxtral-mini-tts-3-0 (API, over budget)",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
       "notes": "US male · benchmark TTFA p50 453 ms",
       "config": {
         "type": "mistral",
@@ -581,7 +581,7 @@
     {
       "id": "mistral-paul-neutral",
       "label": "Paul - Neutral",
-      "section": "Mistral voxtral-mini-tts-3-0 (API, over budget)",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
       "notes": "US male, 30: relaxed, balanced · benchmark TTFA p50 453 ms",
       "config": {
         "type": "mistral",
@@ -593,7 +593,7 @@
     {
       "id": "mistral-paul-cheerful",
       "label": "Paul - Cheerful",
-      "section": "Mistral voxtral-mini-tts-3-0 (API, over budget)",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
       "notes": "US male, 30: upbeat, breezy · benchmark TTFA p50 453 ms",
       "config": {
         "type": "mistral",
@@ -605,7 +605,7 @@
     {
       "id": "mistral-paul-excited",
       "label": "Paul - Excited",
-      "section": "Mistral voxtral-mini-tts-3-0 (API, over budget)",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
       "notes": "US male, 30: bouncy, spirited · benchmark TTFA p50 453 ms",
       "config": {
         "type": "mistral",
@@ -617,7 +617,7 @@
     {
       "id": "mistral-hugo",
       "label": "Hugo",
-      "section": "Mistral voxtral-mini-tts-3-0 (API, over budget)",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
       "notes": "British male · benchmark TTFA p50 453 ms",
       "config": {
         "type": "mistral",
@@ -629,7 +629,7 @@
     {
       "id": "mistral-howard",
       "label": "Howard",
-      "section": "Mistral voxtral-mini-tts-3-0 (API, over budget)",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
       "notes": "British male · benchmark TTFA p50 453 ms",
       "config": {
         "type": "mistral",
@@ -641,7 +641,7 @@
     {
       "id": "mistral-fred",
       "label": "Fred",
-      "section": "Mistral voxtral-mini-tts-3-0 (API, over budget)",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
       "notes": "British male · benchmark TTFA p50 453 ms",
       "config": {
         "type": "mistral",
@@ -653,7 +653,7 @@
     {
       "id": "mistral-david",
       "label": "David",
-      "section": "Mistral voxtral-mini-tts-3-0 (API, over budget)",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
       "notes": "British male · benchmark TTFA p50 453 ms",
       "config": {
         "type": "mistral",
@@ -665,7 +665,7 @@
     {
       "id": "mistral-oliver-neutral",
       "label": "Oliver - Neutral",
-      "section": "Mistral voxtral-mini-tts-3-0 (API, over budget)",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
       "notes": "British male, 30: calm, even · benchmark TTFA p50 453 ms",
       "config": {
         "type": "mistral",
@@ -677,7 +677,7 @@
     {
       "id": "mistral-oliver-cheerful",
       "label": "Oliver - Cheerful",
-      "section": "Mistral voxtral-mini-tts-3-0 (API, over budget)",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
       "notes": "British male, 30: bright, lively · benchmark TTFA p50 453 ms",
       "config": {
         "type": "mistral",
@@ -689,7 +689,7 @@
     {
       "id": "mistral-oliver-curious",
       "label": "Oliver - Curious",
-      "section": "Mistral voxtral-mini-tts-3-0 (API, over budget)",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
       "notes": "British male, 30: thoughtful, engaged · benchmark TTFA p50 453 ms",
       "config": {
         "type": "mistral",

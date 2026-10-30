@@ -53,7 +53,7 @@ The example auditions are in [`examples/auditions/`](../examples/auditions/), in
 
 ### `reachy-mini.json`
 
-[`reachy-mini.json`](../examples/auditions/reachy-mini.json) is the audition that chose the voices of the Reachy Mini robot, driven through `reachy-mini-bridge`. Its goal: an English voice for a small conversational robot, male or gender-neutral, young, possibly a touch robotic, with a time to first audio of at most 250 ms on the benchmark result `20261027-1453_mac-m5-pro`. 61 candidates across ten modules; the choices exported after listening, [`reachy-mini-choices.json`](../examples/auditions/reachy-mini-choices.json), are 10 Yes, 11 Maybe and 40 No.
+[`reachy-mini.json`](../examples/auditions/reachy-mini.json) is the audition that chose the voices of the Reachy Mini robot, driven through `reachy-mini-bridge`. Its goal: an English voice for a small conversational robot, male or gender-neutral, young, possibly a touch robotic. 61 candidates across ten modules; the choices exported after listening, [`reachy-mini-choices.json`](../examples/auditions/reachy-mini-choices.json), are 10 Yes, 11 Maybe and 40 No.
 
 **Hear it:** <https://funwithagents.github.io/tts-engine/auditions/reachy-mini/>. The page opens on those choices.
 
