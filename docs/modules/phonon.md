@@ -46,4 +46,4 @@ The module emits mono PCM at 24,000 Hz. The default English model is Apache-2.0.
 
 - [specs/modules/phonon.md](../../specs/modules/phonon.md): the module's contract: every field's validation, the audio format, cancellation, errors and what it was validated against.
 - [examples/config.phonon.json](../../examples/config.phonon.json): a complete MCP-server config.
-- [Latency benchmark](../../benchmarks/RESULTS.md): measured time to first audio for each of its models.
+- [Latency benchmark](../../benchmarks/README.md#results): measured time to first audio for each of its models.

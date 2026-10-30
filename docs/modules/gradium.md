@@ -51,4 +51,4 @@ The module emits mono PCM at the configured `sample_rate`. Voice-setting fields 
 
 - [specs/modules/gradium.md](../../specs/modules/gradium.md): the module's contract: every field's validation, the audio format, cancellation, errors and what it was validated against.
 - [examples/config.gradium.json](../../examples/config.gradium.json): a complete MCP-server config.
-- [Latency benchmark](../../benchmarks/RESULTS.md): measured time to first audio for each of its models.
+- [Latency benchmark](../../benchmarks/README.md#results): measured time to first audio for each of its models.

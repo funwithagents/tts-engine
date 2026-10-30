@@ -756,6 +756,48 @@
       ]
     },
     {
+      "id": "phonon/31m-en@cpu+q4k+t1",
+      "type": "phonon",
+      "config": {
+        "device": "cpu",
+        "quant": "q4k",
+        "threads": 1
+      },
+      "tags": [
+        "local",
+        "threads"
+      ],
+      "notes": "threads=1: the floor, the model's single-thread speed; on a Pi, whether it keeps real time while leaving three cores to everything else. Compare with phonon/31m-en@cpu+q4k."
+    },
+    {
+      "id": "phonon/31m-en@cpu+q4k+t2",
+      "type": "phonon",
+      "config": {
+        "device": "cpu",
+        "quant": "q4k",
+        "threads": 2
+      },
+      "tags": [
+        "local",
+        "threads"
+      ],
+      "notes": "threads=2: half a four-core Pi, the other half left to its daemon. Compare with phonon/31m-en@cpu+q4k."
+    },
+    {
+      "id": "phonon/31m-en@cpu+q4k+t4",
+      "type": "phonon",
+      "config": {
+        "device": "cpu",
+        "quant": "q4k",
+        "threads": 4
+      },
+      "tags": [
+        "local",
+        "threads"
+      ],
+      "notes": "threads=4: a Pi's whole CPU at this host's per-core speed. Compare with phonon/31m-en@cpu+q4k."
+    },
+    {
       "id": "phonon/40m-en@auto",
       "type": "phonon",
       "config": {
@@ -882,6 +924,63 @@
         "local",
         "gated"
       ]
+    },
+    {
+      "id": "phonon/40m-multilingual@cpu+q4k+t1",
+      "type": "phonon",
+      "config": {
+        "model": "hf://gradium/phonon-40m-multilingual",
+        "device": "cpu",
+        "quant": "q4k",
+        "threads": 1
+      },
+      "requires_env": [
+        "HF_TOKEN"
+      ],
+      "tags": [
+        "local",
+        "gated",
+        "threads"
+      ],
+      "notes": "threads=1: the floor, the model's single-thread speed; on a Pi, whether it keeps real time while leaving three cores to everything else. Compare with phonon/40m-multilingual@cpu+q4k."
+    },
+    {
+      "id": "phonon/40m-multilingual@cpu+q4k+t2",
+      "type": "phonon",
+      "config": {
+        "model": "hf://gradium/phonon-40m-multilingual",
+        "device": "cpu",
+        "quant": "q4k",
+        "threads": 2
+      },
+      "requires_env": [
+        "HF_TOKEN"
+      ],
+      "tags": [
+        "local",
+        "gated",
+        "threads"
+      ],
+      "notes": "threads=2: half a four-core Pi, the other half left to its daemon. Compare with phonon/40m-multilingual@cpu+q4k."
+    },
+    {
+      "id": "phonon/40m-multilingual@cpu+q4k+t4",
+      "type": "phonon",
+      "config": {
+        "model": "hf://gradium/phonon-40m-multilingual",
+        "device": "cpu",
+        "quant": "q4k",
+        "threads": 4
+      },
+      "requires_env": [
+        "HF_TOKEN"
+      ],
+      "tags": [
+        "local",
+        "gated",
+        "threads"
+      ],
+      "notes": "threads=4: a Pi's whole CPU at this host's per-core speed. Compare with phonon/40m-multilingual@cpu+q4k."
     },
     {
       "id": "qwen3/0.6B-CustomVoice-Q8_0",

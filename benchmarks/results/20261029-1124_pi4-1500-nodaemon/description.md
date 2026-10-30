@@ -1,0 +1,14 @@
+# pi4-1500-nodaemon
+
+**Device:** Raspberry Pi 4 Model B Rev 1.5 (BCM2711, 4× Cortex-A72), clock capped at 1.5 GHz (`arm_freq=1500`, the clock of the Reachy Mini Wireless's Compute Module 4), governor `ondemand`, 3.7 GB RAM, Debian 13 64-bit (Linux 6.18, aarch64), Python 3.13.5. It stands in for the robot's board: same SoC, cores and clock, RAM within 0.3 GB. The Reachy Mini daemon was **stopped** for the whole result, so the engine had the board to itself. Power supply clean: every load and usage record reads `throttled=0x0`.
+
+**Network:** none used. Only local modules ran; the Hugging Face Hub served the model downloads before the first runs.
+
+**What:** the local entries a Reachy Mini could run, at 1 warm-up + 10 measured runs per cell (`say`/`stream` × short/medium), stream token delay 0 ms. That is 10 rather than the 20 of the Mac result, to keep the pass within a day at the Pi's speed. The entries: phonon 31m-en at `cpu`, `cpu+q8_0` and `cpu+q4k`, each with its `+t1` / `+t2` / `+t4` thread caps, and at `auto`; phonon 40m-multilingual at `cpu`, `cpu+q8_0` and `cpu+q4k`, the last with its caps; phonon 40m-en at `cpu+q8_0`; piper lessac-low, lessac-medium and ljspeech-medium, with caps for lessac-low and ljspeech-medium; pocket 2m, 7m and 18m with and without `quantize`, and pocket 100M; kokoro int8. Four runs on 2026-10-29, listed in `runs.json`: pocket 100M first (git `bb505e7`); then phonon, kokoro and piper (`bb505e7`); then the tiny pockets (`bb505e7`); then the capped phonon q4k entries added to the matrix during the pass (`32458a5`). Between those two commits only the matrix, the docs and the Mac result changed, not the library or `bench.py`. The reading is in `findings.md`.
+
+**Notes:**
+
+- **Cooling.** A heatsink and the case's top off for every entry. A desk fan was added at 14:08, from `piper/en_US-ljspeech-medium+t1` on: every later entry ran with it (33–40 °C at its hottest, against 52–71 °C before). No entry throttled either way, and `phonon/31m-en@cpu+q4k+t4`, run with the fan, matches the uncapped `cpu+q4k` row run without it (127 against 128 ms). The robot's closed shell will run hotter than both, so a throttled run remains possible there.
+- **Not measured on purpose.** `kokoro/v1.0-int8+t2` and `+t4` were stopped by hand (SIGTERM, listed as aborted): uncapped int8 already took 15 s to first audio, and a cap can only be slower.
+- **Not in this result.** The expected-to-fail tier (pocket 100M `quantize` and 24-layer, kokoro fp32/fp16, piper `high`, kokoro int8 `+t1`, qwen3) was deferred. qwen3 has no wheel for Linux aarch64. A second pass with the daemon running was made, but is not kept: its daemon setup is not yet trusted.
+- **Resource numbers are the engine's process only.** With the daemon stopped, the rest of the board was idle (load 0.4 at the start).
