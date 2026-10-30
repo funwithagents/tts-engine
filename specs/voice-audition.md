@@ -65,6 +65,41 @@ The example auditions live in the repository under [`examples/auditions/`](../ex
 
 The rendered Reachy Mini page is published on GitHub Pages, from a `gh-pages` branch that holds only rendered auditions (`auditions/<name>/`, each with a `CREDITS.md` naming every sample's provider or model and its licence), so the WAVs never enter `main`'s history. Rendered folders stay git-ignored on `main`.
 
+## Publishing an audition
+
+For the maintainer: the page is static, so any static host works, and this repository publishes its auditions on GitHub Pages from the `gh-pages` branch (see "Examples"). Nothing is built automatically, because rendering needs keys and local models: changing an audition on `main` does not change its page.
+
+To publish or update one, from the repository root:
+
+```bash
+# 1. Render, with the choices the page should open on. Only what changed is rendered again;
+#    the rendered folder must be there for that (it is git-ignored, so it stays local).
+tts-engine-audition render examples/auditions/reachy-mini.json \
+    --choices examples/auditions/reachy-mini-choices.json
+
+# 2. Check out the branch next to the repository
+git fetch origin gh-pages
+git worktree add ../tts-engine-pages gh-pages
+
+# 3. Copy the rendered folder, keeping the credits, and remove samples of dropped candidates
+rsync -a --delete --exclude CREDITS.md --exclude .DS_Store \
+    examples/auditions/reachy-mini.audition/ ../tts-engine-pages/auditions/reachy-mini/
+
+# 4. Commit and push: Pages redeploys within a minute or so
+git -C ../tts-engine-pages add -A
+git -C ../tts-engine-pages commit -m "Reachy Mini voice audition: <what changed>"
+git -C ../tts-engine-pages push origin gh-pages
+git worktree remove ../tts-engine-pages
+```
+
+A new audition goes beside the others, in `auditions/<name>/`, and is served at `https://funwithagents.github.io/tts-engine/auditions/<name>/`.
+
+Before publishing, for every sample:
+
+- **Check its licence and update `CREDITS.md`**, next to the page: each sample's provider or model and its licence, that the samples are AI-generated, and that they are non-commercial comparison material. A candidate whose licence cannot be verified is removed from the audition, not published.
+- **State the context in the audition's `description`**: a visitor sees only the page, so it should say the samples are AI-generated and link the credits.
+- **Check for secrets**: the page redacts `api_key`, and `results.json` holds no config, but rendered folders are published whole.
+
 ## The audition file
 
 ```json
