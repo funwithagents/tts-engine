@@ -4,13 +4,13 @@
     "phonon-31m-micah",
     "pocket-george",
     "piper-ryan-medium",
-    "qwen3-1.7b-aiden-robotic",
     "kokoro-am-fenrir",
     "cartesia-zeke-happy",
     "elevenlabs-will-v3c",
     "gradium-micah",
     "deepgram-aries",
-    "mistral-hugo"
+    "mistral-hugo",
+    "qwen3-1.7b-aiden-bf16"
   ],
   "maybe": [
     "phonon-31m-easton",
@@ -23,7 +23,8 @@
     "elevenlabs-liam-v3c",
     "gradium-alfie",
     "mistral-james",
-    "mistral-rob"
+    "mistral-rob",
+    "qwen3-voicedesign-companion"
   ],
   "no": [
     "phonon-31m-micah-flat",
@@ -41,9 +42,6 @@
     "piper-joe-medium",
     "piper-ryan-low",
     "piper-sam-medium",
-    "qwen3-voicedesign-robot",
-    "qwen3-0.6b-aiden",
-    "qwen3-1.7b-ryan",
     "kokoro-am-michael",
     "kokoro-bm-george",
     "cartesia-zeke",
