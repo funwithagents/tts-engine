@@ -234,56 +234,29 @@
       }
     },
     {
-      "id": "qwen3-voicedesign-robot",
-      "label": "1.7B VoiceDesign Q8_0",
+      "id": "qwen3-1.7b-aiden-bf16",
+      "label": "Aiden 1.7B BF16",
       "section": "Qwen3-TTS (local)",
-      "notes": "The persona described in words",
+      "notes": "speech-to-speech's default setup: 1.7B CustomVoice, Aiden, BF16",
       "config": {
         "type": "qwen3",
-        "model": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
-        "quant": "Q8_0",
-        "language": "english",
-        "instruct": "A young, gender-neutral robot companion: bright, curious and friendly, with a light, slightly synthetic, evenly paced voice."
-      }
-    },
-    {
-      "id": "qwen3-0.6b-aiden",
-      "label": "aiden, 0.6B Q4_K_M",
-      "section": "Qwen3-TTS (local)",
-      "notes": "Sunny American male",
-      "config": {
-        "type": "qwen3",
-        "model": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
-        "quant": "Q4_K_M",
+        "model": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+        "quant": "BF16",
         "language": "english",
         "voice": "aiden"
       }
     },
     {
-      "id": "qwen3-1.7b-aiden-robotic",
-      "label": "aiden, 1.7B Q4_K_M + instruct",
+      "id": "qwen3-voicedesign-companion",
+      "label": "Designed companion",
       "section": "Qwen3-TTS (local)",
-      "notes": "Same voice, asked for a slightly mechanical cadence",
+      "notes": "The persona described in words",
       "config": {
         "type": "qwen3",
-        "model": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
-        "quant": "Q4_K_M",
+        "model": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+        "quant": "BF16",
         "language": "english",
-        "voice": "aiden",
-        "instruct": "Speak brightly, with a slightly mechanical, evenly paced cadence."
-      }
-    },
-    {
-      "id": "qwen3-1.7b-ryan",
-      "label": "ryan, 1.7B Q4_K_M",
-      "section": "Qwen3-TTS (local)",
-      "notes": "Dynamic male, strong rhythm",
-      "config": {
-        "type": "qwen3",
-        "model": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
-        "quant": "Q4_K_M",
-        "language": "english",
-        "voice": "ryan"
+        "instruct": "Friendly, concise, lightly witty companion robot"
       }
     },
     {
