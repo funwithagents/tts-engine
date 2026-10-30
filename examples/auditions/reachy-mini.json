@@ -7,7 +7,7 @@
       "id": "phonon-31m-micah",
       "label": "Micah",
       "section": "Phonon (local)",
-      "notes": "Buoyant, playful lift at phrase ends (listen: gender guessed) · benchmark TTFA p50 13 ms",
+      "notes": "Buoyant, playful lift at phrase ends (listen: gender guessed)",
       "config": {
         "type": "phonon",
         "voice": "Micah"
@@ -17,7 +17,7 @@
       "id": "phonon-31m-micah-flat",
       "label": "Micah, temperature 0.05",
       "section": "Phonon (local)",
-      "notes": "Same voice, flatter and more mechanical · benchmark TTFA p50 13 ms",
+      "notes": "Same voice, flatter and more mechanical",
       "config": {
         "type": "phonon",
         "voice": "Micah",
@@ -28,7 +28,7 @@
       "id": "phonon-40m-micah",
       "label": "Micah on 40m-en",
       "section": "Phonon (local)",
-      "notes": "Same voice, bigger checkpoint (non-commercial) · benchmark TTFA p50 14 ms",
+      "notes": "Same voice, bigger checkpoint (non-commercial)",
       "config": {
         "type": "phonon",
         "model": "hf://gradium/phonon-40m-en",
@@ -39,7 +39,7 @@
       "id": "phonon-31m-easton",
       "label": "Easton",
       "section": "Phonon (local)",
-      "notes": "Punchy, close in, pitch lifts across each line · benchmark TTFA p50 13 ms",
+      "notes": "Punchy, close in, pitch lifts across each line",
       "config": {
         "type": "phonon",
         "voice": "Easton"
@@ -49,7 +49,7 @@
       "id": "phonon-31m-alfie",
       "label": "Alfie",
       "section": "Phonon (local)",
-      "notes": "Punchy and forward, sits high · benchmark TTFA p50 13 ms",
+      "notes": "Punchy and forward, sits high",
       "config": {
         "type": "phonon",
         "voice": "Alfie"
@@ -59,7 +59,7 @@
       "id": "phonon-31m-teddy",
       "label": "Teddy",
       "section": "Phonon (local)",
-      "notes": "Sparky, quick off the mark · benchmark TTFA p50 13 ms",
+      "notes": "Sparky, quick off the mark",
       "config": {
         "type": "phonon",
         "voice": "Teddy"
@@ -69,7 +69,7 @@
       "id": "phonon-31m-trevor",
       "label": "Trevor",
       "section": "Phonon (local)",
-      "notes": "Buoyant over a resonant mid-low core · benchmark TTFA p50 13 ms",
+      "notes": "Buoyant over a resonant mid-low core",
       "config": {
         "type": "phonon",
         "voice": "Trevor"
@@ -79,7 +79,7 @@
       "id": "phonon-31m-spencer",
       "label": "Spencer",
       "section": "Phonon (local)",
-      "notes": "Light and airy, a touch higher, patient · benchmark TTFA p50 13 ms",
+      "notes": "Light and airy, a touch higher, patient",
       "config": {
         "type": "phonon",
         "voice": "Spencer"
@@ -89,7 +89,7 @@
       "id": "phonon-31m-hugh",
       "label": "Hugh",
       "section": "Phonon (local)",
-      "notes": "Soft, close, airy, lively pitch · benchmark TTFA p50 13 ms",
+      "notes": "Soft, close, airy, lively pitch",
       "config": {
         "type": "phonon",
         "voice": "Hugh"
@@ -99,7 +99,7 @@
       "id": "phonon-31m-fennick",
       "label": "Fennick the Young Elf",
       "section": "Phonon (local)",
-      "notes": "A boy of about ten, warm, never squeaky · benchmark TTFA p50 13 ms",
+      "notes": "A boy of about ten, warm, never squeaky",
       "config": {
         "type": "phonon",
         "voice": "Fennick the Young Elf"
@@ -109,7 +109,7 @@
       "id": "pocket-michael",
       "label": "michael",
       "section": "Pocket (local)",
-      "notes": "American male, 19 (VCTK p360) · benchmark TTFA p50 38 ms",
+      "notes": "American male, 19 (VCTK p360)",
       "config": {
         "type": "pocket",
         "voice": "michael",
@@ -120,7 +120,7 @@
       "id": "pocket-george",
       "label": "george",
       "section": "Pocket (local)",
-      "notes": "Male, 18 (VCTK p315); the bridge's current voice · benchmark TTFA p50 38 ms",
+      "notes": "Male, 18 (VCTK p315); the bridge's current voice",
       "config": {
         "type": "pocket",
         "voice": "george",
@@ -131,7 +131,7 @@
       "id": "pocket-charles",
       "label": "charles",
       "section": "Pocket (local)",
-      "notes": "English male, 21 (VCTK p254) · benchmark TTFA p50 38 ms",
+      "notes": "English male, 21 (VCTK p254)",
       "config": {
         "type": "pocket",
         "voice": "charles",
@@ -142,7 +142,7 @@
       "id": "pocket-paul",
       "label": "paul",
       "section": "Pocket (local)",
-      "notes": "English male, 23 (VCTK p259) · benchmark TTFA p50 38 ms",
+      "notes": "English male, 23 (VCTK p259)",
       "config": {
         "type": "pocket",
         "voice": "paul",
@@ -153,7 +153,7 @@
       "id": "pocket-marius",
       "label": "marius",
       "section": "Pocket (local)",
-      "notes": "Donated voice (listen: gender and age unknown) · benchmark TTFA p50 38 ms",
+      "notes": "Donated voice (listen: gender and age unknown)",
       "config": {
         "type": "pocket",
         "voice": "marius",
@@ -164,7 +164,7 @@
       "id": "pocket-18m-michael",
       "label": "michael on english_18m",
       "section": "Pocket (local)",
-      "notes": "Tiny model, same voice · benchmark TTFA p50 26 ms",
+      "notes": "Tiny model, same voice",
       "config": {
         "type": "pocket",
         "voice": "michael",
@@ -175,7 +175,7 @@
       "id": "piper-arctic-bdl",
       "label": "en_US-arctic-medium / bdl",
       "section": "Piper (local)",
-      "notes": "CMU Arctic US male: classic synthetic assistant · benchmark TTFA p50 60 ms",
+      "notes": "CMU Arctic US male: classic synthetic assistant",
       "config": {
         "type": "piper",
         "voice": "en_US-arctic-medium",
@@ -186,7 +186,7 @@
       "id": "piper-arctic-rms",
       "label": "en_US-arctic-medium / rms",
       "section": "Piper (local)",
-      "notes": "CMU Arctic US male, lower · benchmark TTFA p50 60 ms",
+      "notes": "CMU Arctic US male, lower",
       "config": {
         "type": "piper",
         "voice": "en_US-arctic-medium",
@@ -197,7 +197,7 @@
       "id": "piper-ryan-medium",
       "label": "en_US-ryan-medium",
       "section": "Piper (local)",
-      "notes": "US male · benchmark TTFA p50 60 ms",
+      "notes": "US male",
       "config": {
         "type": "piper",
         "voice": "en_US-ryan-medium"
@@ -207,7 +207,7 @@
       "id": "piper-joe-medium",
       "label": "en_US-joe-medium",
       "section": "Piper (local)",
-      "notes": "US male · benchmark TTFA p50 60 ms",
+      "notes": "US male",
       "config": {
         "type": "piper",
         "voice": "en_US-joe-medium"
@@ -217,7 +217,7 @@
       "id": "piper-ryan-low",
       "label": "en_US-ryan-low",
       "section": "Piper (local)",
-      "notes": "US male, lo-fi · benchmark TTFA p50 50 ms",
+      "notes": "US male, lo-fi",
       "config": {
         "type": "piper",
         "voice": "en_US-ryan-low"
@@ -227,7 +227,7 @@
       "id": "piper-sam-medium",
       "label": "en_US-sam-medium",
       "section": "Piper (local)",
-      "notes": "Unknown gender (listen: possible neutral option) · benchmark TTFA p50 60 ms",
+      "notes": "Unknown gender (listen: possible neutral option)",
       "config": {
         "type": "piper",
         "voice": "en_US-sam-medium"
@@ -237,7 +237,7 @@
       "id": "qwen3-voicedesign-robot",
       "label": "1.7B VoiceDesign Q8_0",
       "section": "Qwen3-TTS (local)",
-      "notes": "The persona described in words · benchmark TTFA p50 215 ms",
+      "notes": "The persona described in words",
       "config": {
         "type": "qwen3",
         "model": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
@@ -250,7 +250,7 @@
       "id": "qwen3-0.6b-aiden",
       "label": "aiden, 0.6B Q4_K_M",
       "section": "Qwen3-TTS (local)",
-      "notes": "Sunny American male · benchmark TTFA p50 168 ms",
+      "notes": "Sunny American male",
       "config": {
         "type": "qwen3",
         "model": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
@@ -263,7 +263,7 @@
       "id": "qwen3-1.7b-aiden-robotic",
       "label": "aiden, 1.7B Q4_K_M + instruct",
       "section": "Qwen3-TTS (local)",
-      "notes": "Same voice, asked for a slightly mechanical cadence · benchmark TTFA p50 184 ms",
+      "notes": "Same voice, asked for a slightly mechanical cadence",
       "config": {
         "type": "qwen3",
         "model": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
@@ -277,7 +277,7 @@
       "id": "qwen3-1.7b-ryan",
       "label": "ryan, 1.7B Q4_K_M",
       "section": "Qwen3-TTS (local)",
-      "notes": "Dynamic male, strong rhythm · benchmark TTFA p50 184 ms",
+      "notes": "Dynamic male, strong rhythm",
       "config": {
         "type": "qwen3",
         "model": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
@@ -290,7 +290,7 @@
       "id": "kokoro-am-puck",
       "label": "am_puck",
       "section": "Kokoro int8 (local)",
-      "notes": "Young, playful US male · benchmark TTFA p50 253 ms",
+      "notes": "Young, playful US male",
       "config": {
         "type": "kokoro",
         "voice": "am_puck",
@@ -334,7 +334,7 @@
       "id": "cartesia-zeke",
       "label": "Zeke - Friendly Sidekick",
       "section": "Cartesia (API)",
-      "notes": "High-pitched, friendly young adult male · benchmark TTFA p50 85 ms",
+      "notes": "High-pitched, friendly young adult male",
       "config": {
         "type": "cartesia",
         "api_key_env": "CARTESIA_API_KEY",
@@ -346,7 +346,7 @@
       "id": "cartesia-eden",
       "label": "Eden - Clear Advisor",
       "section": "Cartesia (API)",
-      "notes": "Gender-neutral, young, clean · benchmark TTFA p50 85 ms",
+      "notes": "Gender-neutral, young, clean",
       "config": {
         "type": "cartesia",
         "api_key_env": "CARTESIA_API_KEY",
@@ -358,7 +358,7 @@
       "id": "cartesia-jake",
       "label": "Jake - Sidekick",
       "section": "Cartesia (API)",
-      "notes": "Friendly young adult male · benchmark TTFA p50 85 ms",
+      "notes": "Friendly young adult male",
       "config": {
         "type": "cartesia",
         "api_key_env": "CARTESIA_API_KEY",
@@ -370,7 +370,7 @@
       "id": "cartesia-corey",
       "label": "Corey - Supportive Buddy",
       "section": "Cartesia (API)",
-      "notes": "Cheerful young adult male · benchmark TTFA p50 85 ms",
+      "notes": "Cheerful young adult male",
       "config": {
         "type": "cartesia",
         "api_key_env": "CARTESIA_API_KEY",
@@ -382,7 +382,7 @@
       "id": "cartesia-liam",
       "label": "Liam - Guy Next Door",
       "section": "Cartesia (API)",
-      "notes": "Casual, friendly young male · benchmark TTFA p50 85 ms",
+      "notes": "Casual, friendly young male",
       "config": {
         "type": "cartesia",
         "api_key_env": "CARTESIA_API_KEY",
@@ -394,7 +394,7 @@
       "id": "cartesia-henry",
       "label": "Henry - Plainspoken Guy",
       "section": "Cartesia (API)",
-      "notes": "Youthful, monotone, matter-of-fact (robot-ish) · benchmark TTFA p50 85 ms",
+      "notes": "Youthful, monotone, matter-of-fact (robot-ish)",
       "config": {
         "type": "cartesia",
         "api_key_env": "CARTESIA_API_KEY",
@@ -406,7 +406,7 @@
       "id": "cartesia-daniel",
       "label": "Daniel - Modern Assistant",
       "section": "Cartesia (API)",
-      "notes": "Clear, crisp male for digital assistants · benchmark TTFA p50 85 ms",
+      "notes": "Clear, crisp male for digital assistants",
       "config": {
         "type": "cartesia",
         "api_key_env": "CARTESIA_API_KEY",
@@ -418,7 +418,7 @@
       "id": "cartesia-zeke-happy",
       "label": "Zeke, emotion happy, speed 1.1",
       "section": "Cartesia (API)",
-      "notes": "Same voice, livelier · benchmark TTFA p50 85 ms",
+      "notes": "Same voice, livelier",
       "config": {
         "type": "cartesia",
         "api_key_env": "CARTESIA_API_KEY",
@@ -432,7 +432,7 @@
       "id": "elevenlabs-river-v3c",
       "label": "River, v3_conversational",
       "section": "ElevenLabs (API)",
-      "notes": "Non-binary, relaxed · benchmark TTFA p50 112 ms",
+      "notes": "Non-binary, relaxed",
       "config": {
         "type": "elevenlabs",
         "api_key_env": "ELEVENLABS_API_KEY",
@@ -444,7 +444,7 @@
       "id": "elevenlabs-river-flash-flat",
       "label": "River, flash_v2_5, stability 0.85",
       "section": "ElevenLabs (API)",
-      "notes": "Same voice, flatter · benchmark TTFA p50 125 ms",
+      "notes": "Same voice, flatter",
       "config": {
         "type": "elevenlabs",
         "api_key_env": "ELEVENLABS_API_KEY",
@@ -457,7 +457,7 @@
       "id": "elevenlabs-liam-v3c",
       "label": "Liam, v3_conversational",
       "section": "ElevenLabs (API)",
-      "notes": "Young, energetic US male · benchmark TTFA p50 112 ms",
+      "notes": "Young, energetic US male",
       "config": {
         "type": "elevenlabs",
         "api_key_env": "ELEVENLABS_API_KEY",
@@ -469,7 +469,7 @@
       "id": "elevenlabs-will-v3c",
       "label": "Will, v3_conversational",
       "section": "ElevenLabs (API)",
-      "notes": "Young, friendly US male · benchmark TTFA p50 112 ms",
+      "notes": "Young, friendly US male",
       "config": {
         "type": "elevenlabs",
         "api_key_env": "ELEVENLABS_API_KEY",
@@ -481,7 +481,7 @@
       "id": "elevenlabs-charlie-v4t",
       "label": "Charlie, v4_turbo",
       "section": "ElevenLabs (API)",
-      "notes": "Young Australian male, conversational · benchmark TTFA p50 136 ms",
+      "notes": "Young Australian male, conversational",
       "config": {
         "type": "elevenlabs",
         "api_key_env": "ELEVENLABS_API_KEY",
@@ -493,7 +493,7 @@
       "id": "gradium-spencer",
       "label": "Spencer",
       "section": "Gradium (API)",
-      "notes": "Light and airy, a touch higher · benchmark TTFA p50 165 ms",
+      "notes": "Light and airy, a touch higher",
       "config": {
         "type": "gradium",
         "api_key_env": "GRADIUM_API_KEY",
@@ -504,7 +504,7 @@
       "id": "gradium-micah",
       "label": "Micah",
       "section": "Gradium (API)",
-      "notes": "Buoyant, playful · benchmark TTFA p50 165 ms",
+      "notes": "Buoyant, playful",
       "config": {
         "type": "gradium",
         "api_key_env": "GRADIUM_API_KEY",
@@ -515,7 +515,7 @@
       "id": "gradium-alfie",
       "label": "Alfie",
       "section": "Gradium (API)",
-      "notes": "Punchy and forward · benchmark TTFA p50 165 ms",
+      "notes": "Punchy and forward",
       "config": {
         "type": "gradium",
         "api_key_env": "GRADIUM_API_KEY",
@@ -526,7 +526,7 @@
       "id": "deepgram-apollo",
       "label": "aura-2-apollo-en",
       "section": "Deepgram (API)",
-      "notes": "Adult US male, confident, casual · benchmark TTFA p50 213 ms",
+      "notes": "Adult US male, confident, casual",
       "config": {
         "type": "deepgram",
         "api_key_env": "DEEPGRAM_API_KEY",
@@ -537,7 +537,7 @@
       "id": "deepgram-aries",
       "label": "aura-2-aries-en",
       "section": "Deepgram (API)",
-      "notes": "Adult US male, warm, energetic · benchmark TTFA p50 213 ms",
+      "notes": "Adult US male, warm, energetic",
       "config": {
         "type": "deepgram",
         "api_key_env": "DEEPGRAM_API_KEY",
@@ -548,7 +548,7 @@
       "id": "mistral-james",
       "label": "James",
       "section": "Mistral voxtral-mini-tts-3-0 (API)",
-      "notes": "US male · benchmark TTFA p50 453 ms",
+      "notes": "US male",
       "config": {
         "type": "mistral",
         "api_key_env": "MISTRAL_API_KEY",
@@ -560,7 +560,7 @@
       "id": "mistral-rob",
       "label": "Rob",
       "section": "Mistral voxtral-mini-tts-3-0 (API)",
-      "notes": "US male · benchmark TTFA p50 453 ms",
+      "notes": "US male",
       "config": {
         "type": "mistral",
         "api_key_env": "MISTRAL_API_KEY",
@@ -572,7 +572,7 @@
       "id": "mistral-paul-neutral",
       "label": "Paul - Neutral",
       "section": "Mistral voxtral-mini-tts-3-0 (API)",
-      "notes": "US male, 30: relaxed, balanced · benchmark TTFA p50 453 ms",
+      "notes": "US male, 30: relaxed, balanced",
       "config": {
         "type": "mistral",
         "api_key_env": "MISTRAL_API_KEY",
@@ -584,7 +584,7 @@
       "id": "mistral-paul-cheerful",
       "label": "Paul - Cheerful",
       "section": "Mistral voxtral-mini-tts-3-0 (API)",
-      "notes": "US male, 30: upbeat, breezy · benchmark TTFA p50 453 ms",
+      "notes": "US male, 30: upbeat, breezy",
       "config": {
         "type": "mistral",
         "api_key_env": "MISTRAL_API_KEY",
@@ -596,7 +596,7 @@
       "id": "mistral-paul-excited",
       "label": "Paul - Excited",
       "section": "Mistral voxtral-mini-tts-3-0 (API)",
-      "notes": "US male, 30: bouncy, spirited · benchmark TTFA p50 453 ms",
+      "notes": "US male, 30: bouncy, spirited",
       "config": {
         "type": "mistral",
         "api_key_env": "MISTRAL_API_KEY",
@@ -608,7 +608,7 @@
       "id": "mistral-hugo",
       "label": "Hugo",
       "section": "Mistral voxtral-mini-tts-3-0 (API)",
-      "notes": "British male · benchmark TTFA p50 453 ms",
+      "notes": "British male",
       "config": {
         "type": "mistral",
         "api_key_env": "MISTRAL_API_KEY",
@@ -620,7 +620,7 @@
       "id": "mistral-howard",
       "label": "Howard",
       "section": "Mistral voxtral-mini-tts-3-0 (API)",
-      "notes": "British male · benchmark TTFA p50 453 ms",
+      "notes": "British male",
       "config": {
         "type": "mistral",
         "api_key_env": "MISTRAL_API_KEY",
@@ -632,7 +632,7 @@
       "id": "mistral-fred",
       "label": "Fred",
       "section": "Mistral voxtral-mini-tts-3-0 (API)",
-      "notes": "British male · benchmark TTFA p50 453 ms",
+      "notes": "British male",
       "config": {
         "type": "mistral",
         "api_key_env": "MISTRAL_API_KEY",
@@ -644,7 +644,7 @@
       "id": "mistral-david",
       "label": "David",
       "section": "Mistral voxtral-mini-tts-3-0 (API)",
-      "notes": "British male · benchmark TTFA p50 453 ms",
+      "notes": "British male",
       "config": {
         "type": "mistral",
         "api_key_env": "MISTRAL_API_KEY",
@@ -656,7 +656,7 @@
       "id": "mistral-oliver-neutral",
       "label": "Oliver - Neutral",
       "section": "Mistral voxtral-mini-tts-3-0 (API)",
-      "notes": "British male, 30: calm, even · benchmark TTFA p50 453 ms",
+      "notes": "British male, 30: calm, even",
       "config": {
         "type": "mistral",
         "api_key_env": "MISTRAL_API_KEY",
@@ -668,7 +668,7 @@
       "id": "mistral-oliver-cheerful",
       "label": "Oliver - Cheerful",
       "section": "Mistral voxtral-mini-tts-3-0 (API)",
-      "notes": "British male, 30: bright, lively · benchmark TTFA p50 453 ms",
+      "notes": "British male, 30: bright, lively",
       "config": {
         "type": "mistral",
         "api_key_env": "MISTRAL_API_KEY",
@@ -680,7 +680,7 @@
       "id": "mistral-oliver-curious",
       "label": "Oliver - Curious",
       "section": "Mistral voxtral-mini-tts-3-0 (API)",
-      "notes": "British male, 30: thoughtful, engaged · benchmark TTFA p50 453 ms",
+      "notes": "British male, 30: thoughtful, engaged",
       "config": {
         "type": "mistral",
         "api_key_env": "MISTRAL_API_KEY",
