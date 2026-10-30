@@ -13,7 +13,7 @@ Implements the updated `specs/voice-audition.md` ("Packaging", "Examples", the `
 - `pyproject.toml` — the `tts-engine-audition` script; pyright no longer includes `tools`
 - `tests/audition/test_audition.py` — moved from `tests/test_voice_audition.py`: imports the package, the pinned cache key, the description, `--choices` and its refusals, the packaging, the examples
 - `examples/auditions/demo.json` — moved from `tools/voice-audition/examples/demo.json`
-- `examples/auditions/reachy-mini.json`, `examples/auditions/reachy-mini-choices.json` — from the untracked `analysis/reachy-voices/`: renamed `reachy-mini`, a description, `gradium-fennick` (rejected by Gradium) and nine kokoro voices (all "no") dropped, the kokoro model path pointed at `benchmarks/models/`
+- `examples/auditions/reachy-mini.json`, `examples/auditions/reachy-mini-choices.json` — from the untracked `analysis/reachy-voices/`: renamed `reachy-mini`, a description, `gradium-fennick` (rejected by Gradium), nine kokoro voices (all "no") and `piper-danny-low` (a "no" whose data licence could not be verified) dropped, the kokoro model path pointed at `benchmarks/models/`
 - `docs/voice-audition.md` — moved from `tools/voice-audition/README.md`, rewritten for the installed command, with the examples
 - `README.md`, `docs/choosing-a-backend-and-voice.md`, `docs/configuration.md`, `docs/index.md` — the command and the new links
 - `AGENTS.md`, `specs/project.md`, `specs/ci.md`, `.github/workflows/ci.yml`, `tests/test_docs.py`, `.gitignore` — `tools/` gone: map rows, the format-check directories, the third entry point and the subpackage rule

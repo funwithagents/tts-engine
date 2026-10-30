@@ -224,16 +224,6 @@
       }
     },
     {
-      "id": "piper-danny-low",
-      "label": "en_US-danny-low",
-      "section": "Piper (local)",
-      "notes": "US male, lo-fi · benchmark TTFA p50 50 ms",
-      "config": {
-        "type": "piper",
-        "voice": "en_US-danny-low"
-      }
-    },
-    {
       "id": "piper-sam-medium",
       "label": "en_US-sam-medium",
       "section": "Piper (local)",
