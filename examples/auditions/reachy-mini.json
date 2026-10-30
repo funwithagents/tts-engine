@@ -542,42 +542,6 @@
       }
     },
     {
-      "id": "mistral-paul-neutral",
-      "label": "Paul - Neutral",
-      "section": "Mistral voxtral-mini-tts-3-0 (API)",
-      "notes": "US male, 30: relaxed, balanced",
-      "config": {
-        "type": "mistral",
-        "api_key_env": "MISTRAL_API_KEY",
-        "model": "voxtral-mini-tts-3-0",
-        "voice_id": "c69964a6-ab8b-4f8a-9465-ec0925096ec8"
-      }
-    },
-    {
-      "id": "mistral-paul-cheerful",
-      "label": "Paul - Cheerful",
-      "section": "Mistral voxtral-mini-tts-3-0 (API)",
-      "notes": "US male, 30: upbeat, breezy",
-      "config": {
-        "type": "mistral",
-        "api_key_env": "MISTRAL_API_KEY",
-        "model": "voxtral-mini-tts-3-0",
-        "voice_id": "01d985cd-5e0c-4457-bfd8-80ba31a5bc03"
-      }
-    },
-    {
-      "id": "mistral-paul-excited",
-      "label": "Paul - Excited",
-      "section": "Mistral voxtral-mini-tts-3-0 (API)",
-      "notes": "US male, 30: bouncy, spirited",
-      "config": {
-        "type": "mistral",
-        "api_key_env": "MISTRAL_API_KEY",
-        "model": "voxtral-mini-tts-3-0",
-        "voice_id": "5940190b-f58a-4c3e-8264-a40d63fd6883"
-      }
-    },
-    {
       "id": "mistral-hugo",
       "label": "Hugo",
       "section": "Mistral voxtral-mini-tts-3-0 (API)",
@@ -626,39 +590,100 @@
       }
     },
     {
-      "id": "mistral-oliver-neutral",
-      "label": "Oliver - Neutral",
-      "section": "Mistral voxtral-mini-tts-3-0 (API)",
-      "notes": "British male, 30: calm, even",
+      "id": "gemini-puck",
+      "label": "Puck",
+      "section": "Gemini (API)",
+      "notes": "Upbeat · 3.8 flash lite",
       "config": {
-        "type": "mistral",
-        "api_key_env": "MISTRAL_API_KEY",
-        "model": "voxtral-mini-tts-3-0",
-        "voice_id": "e3596645-b1af-469e-b857-f18ddedc7652"
+        "type": "gemini",
+        "api_key_env": "GEMINI_API_KEY",
+        "model": "gemini-3.8-flash-lite-tts",
+        "voice": "Puck"
       }
     },
     {
-      "id": "mistral-oliver-cheerful",
-      "label": "Oliver - Cheerful",
-      "section": "Mistral voxtral-mini-tts-3-0 (API)",
-      "notes": "British male, 30: bright, lively",
+      "id": "gemini-fenrir",
+      "label": "Fenrir",
+      "section": "Gemini (API)",
+      "notes": "Excitable · 3.8 flash lite",
       "config": {
-        "type": "mistral",
-        "api_key_env": "MISTRAL_API_KEY",
-        "model": "voxtral-mini-tts-3-0",
-        "voice_id": "5ad5d44e-6b4e-4a57-a8a8-4cae088034ed"
+        "type": "gemini",
+        "api_key_env": "GEMINI_API_KEY",
+        "model": "gemini-3.8-flash-lite-tts",
+        "voice": "Fenrir"
       }
     },
     {
-      "id": "mistral-oliver-curious",
-      "label": "Oliver - Curious",
-      "section": "Mistral voxtral-mini-tts-3-0 (API)",
-      "notes": "British male, 30: thoughtful, engaged",
+      "id": "gemini-achird",
+      "label": "Achird",
+      "section": "Gemini (API)",
+      "notes": "Friendly · 3.8 flash lite",
       "config": {
-        "type": "mistral",
-        "api_key_env": "MISTRAL_API_KEY",
-        "model": "voxtral-mini-tts-3-0",
-        "voice_id": "390c8a2b-60a6-4882-8437-c49a8bd33b63"
+        "type": "gemini",
+        "api_key_env": "GEMINI_API_KEY",
+        "model": "gemini-3.8-flash-lite-tts",
+        "voice": "Achird"
+      }
+    },
+    {
+      "id": "openai-cedar",
+      "label": "cedar",
+      "section": "OpenAI Realtime (API)",
+      "notes": "Realtime 2.1 mini",
+      "config": {
+        "type": "openai",
+        "api_key_env": "OPENAI_API_KEY",
+        "model": "gpt-realtime-2.1-mini",
+        "voice": "cedar"
+      }
+    },
+    {
+      "id": "openai-alloy",
+      "label": "alloy",
+      "section": "OpenAI Realtime (API)",
+      "notes": "Neutral · Realtime 2.1 mini",
+      "config": {
+        "type": "openai",
+        "api_key_env": "OPENAI_API_KEY",
+        "model": "gpt-realtime-2.1-mini",
+        "voice": "alloy"
+      }
+    },
+    {
+      "id": "openai-verse",
+      "label": "verse",
+      "section": "OpenAI Realtime (API)",
+      "notes": "Expressive · Realtime 2.1 mini",
+      "config": {
+        "type": "openai",
+        "api_key_env": "OPENAI_API_KEY",
+        "model": "gpt-realtime-2.1-mini",
+        "voice": "verse"
+      }
+    },
+    {
+      "id": "openai-compatible-fable",
+      "label": "fable",
+      "section": "OpenAI speech (API)",
+      "notes": "Light, slightly British · gpt-4o-mini-tts",
+      "config": {
+        "type": "openai-compatible",
+        "api_key_env": "OPENAI_API_KEY",
+        "model": "gpt-4o-mini-tts-2025-03-20",
+        "voice": "fable"
+      }
+    },
+    {
+      "id": "openai-compatible-ash-robotic",
+      "label": "ash, slightly mechanical",
+      "section": "OpenAI speech (API)",
+      "notes": "Asked for a slightly mechanical cadence · gpt-4o-mini-tts",
+      "config": {
+        "type": "openai-compatible",
+        "api_key_env": "OPENAI_API_KEY",
+        "model": "gpt-4o-mini-tts-2025-03-20",
+        "voice": "ash",
+        "instructions": "Speak brightly, with a slightly mechanical, evenly paced cadence."
       }
     }
   ]

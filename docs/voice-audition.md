@@ -53,7 +53,7 @@ The example auditions are in [`examples/auditions/`](../examples/auditions/), in
 
 ### `reachy-mini.json`
 
-[`reachy-mini.json`](../examples/auditions/reachy-mini.json) is the audition that chose the voices of the Reachy Mini robot, driven through `reachy-mini-bridge`. Its goal: an English voice for a small conversational robot, male or gender-neutral, young, possibly a touch robotic. 58 candidates across ten modules; the choices exported after listening, [`reachy-mini-choices.json`](../examples/auditions/reachy-mini-choices.json), are 10 Yes, 12 Maybe and 36 No.
+[`reachy-mini.json`](../examples/auditions/reachy-mini.json) is the audition that chose the voices of the Reachy Mini robot, driven through `reachy-mini-bridge`. Its goal: an English voice for a small conversational robot, male or gender-neutral, young, possibly a touch robotic. 60 candidates across thirteen modules; the choices exported after listening, [`reachy-mini-choices.json`](../examples/auditions/reachy-mini-choices.json), are 12 Yes, 15 Maybe and 33 No.
 
 **Hear it:** <https://funwithagents.github.io/tts-engine/auditions/reachy-mini/>. The page opens on those choices.
 
@@ -64,6 +64,6 @@ tts-engine-audition render examples/auditions/reachy-mini.json \
     --choices examples/auditions/reachy-mini-choices.json
 ```
 
-- It needs the keys of the hosted backends (Cartesia, ElevenLabs, Gradium, Deepgram, Mistral) and the extras of the local ones (phonon, pocket, piper, qwen3, kokoro); what is missing is skipped.
+- It needs the keys of the hosted backends (Cartesia, ElevenLabs, Gradium, Deepgram, Mistral, Gemini, OpenAI) and the extras of the local ones (phonon, pocket, piper, qwen3, kokoro); what is missing is skipped.
 - The kokoro candidates use the int8 export of Kokoro-82M, which is not on the Hugging Face Hub: download `kokoro-v1.0.int8.onnx` (114 MB) from the `model-files-v1.1` release of [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx/releases) into `benchmarks/models/`, where their `model` path points (the latency benchmark expects it there too).
 - Without `--choices`, open the page and use **Import choices** with `reachy-mini-choices.json` to load the decision.
