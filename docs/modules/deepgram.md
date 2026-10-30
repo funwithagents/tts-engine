@@ -43,4 +43,4 @@ The module emits mono PCM at the configured `sample_rate`. A text stream goes to
 - [specs/modules/deepgram.md](../../specs/modules/deepgram.md): the module's contract: every field's validation, the audio format, cancellation, errors and what it was validated against.
 - [examples/config.deepgram.json](../../examples/config.deepgram.json): a complete MCP-server config, with the module's defaults.
 - [examples/config.deepgram-flux.json](../../examples/config.deepgram-flux.json): the same with a Flux voice (speak v2).
-- [Latency benchmark](../../benchmarks/RESULTS.md): measured time to first audio for each of its models.
+- [Latency benchmark](../../benchmarks/README.md#results): measured time to first audio for each of its models.

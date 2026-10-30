@@ -35,4 +35,4 @@ The module emits mono PCM at 24,000 Hz. The Realtime API is a conversation model
 
 - [specs/modules/openai.md](../../specs/modules/openai.md): the module's contract: every field's validation, the audio format, cancellation, errors and what it was validated against.
 - [examples/config.openai.json](../../examples/config.openai.json): a complete MCP-server config.
-- [Latency benchmark](../../benchmarks/RESULTS.md): measured time to first audio for each of its models.
+- [Latency benchmark](../../benchmarks/README.md#results): measured time to first audio for each of its models.

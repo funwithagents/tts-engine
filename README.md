@@ -136,8 +136,8 @@ Start at [docs/index.md](docs/index.md), the documentation by task. The pages us
 
 [benchmarks/](benchmarks/README.md) measures how long each module and model makes you wait before the first sound, whether the audio then keeps up, and what it costs the machine (the CPU it keeps busy, the memory it holds), through the same `TTSEngine` API you use. Where to look:
 
-- [the Mac result's summary](benchmarks/results/20261027-1453_mac-m5-pro/summary.md): the numbers, one row per model, local backends then hosted ones, with the device and network in its `description.md`;
-- [RESULTS.md](benchmarks/RESULTS.md): what stood out, and the decisions it led to;
+- [the Mac result's summary](benchmarks/results/20261027-1453_mac-m5-pro/summary.md): the numbers, one row per model, local backends then hosted ones, with the device and network in its `description.md`, and what stood out in its [findings](benchmarks/results/20261027-1453_mac-m5-pro/findings.md);
+- [the Raspberry Pi result's findings](benchmarks/results/20261029-1124_pi4-1500-nodaemon/findings.md): which local models keep up on a four-core board;
 - [its README](benchmarks/README.md): what each metric means, and how to run it on your own machine and connection.
 
 ## Voice audition

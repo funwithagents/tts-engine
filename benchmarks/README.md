@@ -1,6 +1,6 @@
 # Benchmark — latency and resource usage of every module and model, through the public API
 
-How long does a caller wait between asking to speak and the first sound, per backend and model, does the audio then keep up, and what does it cost the machine? `bench.py` drives every entry of `matrix.json` through `TTSEngine` with an injected timing sink, records every chunk's arrival, samples the worker's own CPU use during every call and reads its peak memory, and derives time to first audio, time to first voice, stalls, real-time factor and CPU peak afterwards. Design: [specs/benchmark.md](../specs/benchmark.md). Findings so far: [RESULTS.md](RESULTS.md). Numbers: `results/<result>/summary.md`.
+How long does a caller wait between asking to speak and the first sound, per backend and model, does the audio then keep up, and what does it cost the machine? `bench.py` drives every entry of `matrix.json` through `TTSEngine` with an injected timing sink, records every chunk's arrival, samples the worker's own CPU use during every call and reads its peak memory, and derives time to first audio, time to first voice, stalls, real-time factor and CPU peak afterwards. Design: [specs/benchmark.md](../specs/benchmark.md). The results so far, each with its numbers and its reading: [Results](#results).
 
 ## What is measured, and why this way
 
@@ -56,12 +56,21 @@ Design choices:
 
 To add or change a config, edit `matrix.json`. Each entry is `{id, type, config}`, where `config` is the `engine.module` block without `type`. Optional keys: `modes`, `pause_s`, `timeout_s`, `requires_env`, `enabled`, `tags`, `notes`. Relative paths resolve against the repo root. A new backend in the library gets its rows here ([AGENTS.md](../AGENTS.md), "Adding a new TTS module").
 
+## Results
+
+Each result is read on its own, in the `findings.md` next to its numbers. There is no merged reading across results yet.
+
+| result | device | numbers | reading |
+|---|---|---|---|
+| `20261027-1453_mac-m5-pro` | Apple M5 Pro, the development machine; every module and model, hosted ones over a home fibre connection | [summary](results/20261027-1453_mac-m5-pro/summary.md) | [findings](results/20261027-1453_mac-m5-pro/findings.md) |
+| `20261029-1124_pi4-1500-nodaemon` | Raspberry Pi 4 at 1.5 GHz, the Reachy Mini stand-in, daemon stopped; the local modules only | [summary](results/20261029-1124_pi4-1500-nodaemon/summary.md) | [findings](results/20261029-1124_pi4-1500-nodaemon/findings.md) |
+
 ## Runs and results
 
 Two trees under this folder:
 
 - **`runs/<timestamp>/`** — every run as it happened: `env.json` (platform, core count, git SHA, library versions, settings, selection, and `measures`: what the workers recorded beyond the timeline, the CPU window, whether memory is readable, the GPU reader, none yet), the plain `raw.jsonl` the workers append to, `logs/<entry>.log`. Working data, **git-ignored**. Run as many as you like.
-- **`results/<YYYYMMDD-HHMM>_<name>/`** — a benchmark worth keeping, merged from any number of runs on one host: `description.md` (yours: device, network, what it covers, what affects comparability), `runs.json` (every run merged so far, its environment, the entries it currently supplies), `raw.jsonl.gz` (the merged records, each tagged with its run) and the generated `results.csv` (everything, per cell), `summary.csv` and `summary.md` (one row per entry, local backends then hosted). **Committed.**
+- **`results/<YYYYMMDD-HHMM>_<name>/`** — a benchmark worth keeping, merged from any number of runs on one host: `description.md` (yours: device, network, what it covers, what affects comparability), `findings.md` (yours too, once there is a reading: what stood out, the decisions it fed, what remains), `runs.json` (every run merged so far, its environment, the entries it currently supplies), `raw.jsonl.gz` (the merged records, each tagged with its run) and the generated `results.csv` (everything, per cell), `summary.csv` and `summary.md` (one row per entry, local backends then hosted). **Committed.**
 
 Merging rule: for each entry, the latest run that **completed** it (a `done` record) supplies every record, so a newer run overrides an older measurement and an interrupted re-run never shadows a complete one; an entry no run completed keeps its latest attempt, so the summary can say why it is missing. Finished is not measured: the `done` record is written only when every cell has at least one successful run, so a worker whose every synthesis failed (a revoked key, a retired model) is recorded as an abort naming the empty cells and never replaces a good measurement. Superseded measurements leave the result (they stay in `runs/` locally and in git history). Re-merging a run replaces what it had contributed.
 

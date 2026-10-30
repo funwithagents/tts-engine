@@ -45,4 +45,4 @@ The module emits mono PCM at 24,000 Hz. Text is sent verbatim as the prompt, so 
 
 - [specs/modules/gemini.md](../../specs/modules/gemini.md): the module's contract: every field's validation, the audio format, cancellation, errors and what it was validated against.
 - [examples/config.gemini.json](../../examples/config.gemini.json): a complete MCP-server config.
-- [Latency benchmark](../../benchmarks/RESULTS.md): measured time to first audio for each of its models.
+- [Latency benchmark](../../benchmarks/README.md#results): measured time to first audio for each of its models.
