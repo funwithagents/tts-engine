@@ -4,19 +4,22 @@
     "phonon-31m-micah",
     "pocket-george",
     "piper-ryan-medium",
+    "qwen3-1.7b-aiden-bf16",
     "kokoro-am-fenrir",
     "cartesia-zeke-happy",
     "elevenlabs-will-v3c",
     "gradium-micah",
     "deepgram-aries",
     "mistral-hugo",
-    "qwen3-1.7b-aiden-bf16"
+    "gemini-achird",
+    "openai-verse"
   ],
   "maybe": [
     "phonon-31m-easton",
     "phonon-31m-trevor",
     "pocket-paul",
     "piper-arctic-bdl",
+    "qwen3-voicedesign-companion",
     "kokoro-am-puck",
     "cartesia-jake",
     "cartesia-liam",
@@ -24,7 +27,9 @@
     "gradium-alfie",
     "mistral-james",
     "mistral-rob",
-    "qwen3-voicedesign-companion"
+    "gemini-puck",
+    "openai-alloy",
+    "openai-compatible-fable"
   ],
   "no": [
     "phonon-31m-micah-flat",
@@ -54,14 +59,11 @@
     "elevenlabs-charlie-v4t",
     "gradium-spencer",
     "deepgram-apollo",
-    "mistral-paul-neutral",
-    "mistral-paul-cheerful",
-    "mistral-paul-excited",
     "mistral-howard",
     "mistral-fred",
     "mistral-david",
-    "mistral-oliver-neutral",
-    "mistral-oliver-cheerful",
-    "mistral-oliver-curious"
+    "gemini-fenrir",
+    "openai-cedar",
+    "openai-compatible-ash-robotic"
   ]
 }
