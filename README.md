@@ -142,7 +142,15 @@ Start at [docs/index.md](docs/index.md), the documentation by task. The pages us
 
 ## Voice audition
 
-[tools/voice-audition/](tools/voice-audition/README.md) helps pick a voice: it builds a list of candidates from the backends' catalogs, has each one say the same sentence while measuring its time to first audio on your machine and its level, and writes a page to listen to them one by one, mark each Yes, Maybe or No, and read the `gain_db` that levels it with the others. It runs from a checkout; [its README](tools/voice-audition/README.md) has the commands, and [choosing a backend and a voice](docs/choosing-a-backend-and-voice.md) shows where it fits.
+`tts-engine-audition`, installed with the package, helps pick a voice: it builds a list of candidates from the backends' catalogs, has each one say the same sentence while measuring its time to first audio on your machine and its level, and writes a page to listen to them one by one, mark each Yes, Maybe or No, and read the `gain_db` that levels it with the others:
+
+```bash
+tts-engine-audition new my-assistant.json --text "Hello! What would you like to talk about today?" \
+    --module phonon --module cartesia --gender male --language en --limit 8 --keep-unknown
+tts-engine-audition render my-assistant.json    # then open my-assistant.audition/index.html
+```
+
+The latency the page shows is your machine's, measured while rendering: it is not a benchmark figure and is not meant to be quoted. [Voice audition](docs/voice-audition.md) has the commands and the examples, among them the audition that chose the voices of the Reachy Mini robot, [hosted here](https://funwithagents.github.io/tts-engine/auditions/reachy-mini/); [choosing a backend and a voice](docs/choosing-a-backend-and-voice.md) shows where it fits.
 
 ## Level
 
@@ -173,7 +181,7 @@ The same checks, locally:
 ```bash
 uv sync --dev                # every extra, torch included, so nothing is skipped for a missing extra
 uv run ruff check .
-uv run ruff format --check src tests tests-e2e benchmarks tools
+uv run ruff format --check src tests tests-e2e benchmarks
 uv run pyright
 uv run pytest                # the fast tier
 uv run pytest tests-e2e      # the live tier: real providers (keys from the environment) and the audio device

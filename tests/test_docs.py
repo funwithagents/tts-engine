@@ -21,7 +21,6 @@ _DOC_DIRS = [
     "docs",
     "specs",
     "benchmarks",
-    "tools",
     "examples",
     "tests",
     "tests-e2e",

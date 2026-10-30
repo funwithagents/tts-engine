@@ -16,13 +16,12 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | `CONTRIBUTING.md` | How the project is run — one maintainer, feedback through issues, no external pull requests for now |
 | `docs/` | The user documentation, indexed by [docs/index.md](docs/index.md): configuration, streaming, sinks, agents and MCP, voices, choosing a backend, troubleshooting, and one page per backend under `docs/modules/` (its option table checked against the spec's by `tests/test_docs.py`) |
 | `src/tts_engine/` | The library itself — one module per core concept (see below); pluggable TTS backends in `modules/` — the registry and `base.py` at its root, then **one package per backend** (`modules/elevenlabs/`, `modules/pocket/`, `modules/gradium/`, `modules/phonon/`, `modules/mistral/`, `modules/deepgram/`, `modules/gemini/`, `modules/cartesia/`, `modules/openai/`, `modules/openai_compatible/`, `modules/qwen3/`, `modules/kokoro/`, `modules/piper/`, `modules/tone/`, `modules/audiofile/`) |
-| `examples/` | One complete config per module (`config.<type>.json`, no secrets, none the default) |
+| `examples/` | One complete config per module (`config.<type>.json`, no secrets, none the default); example voice auditions under `auditions/` (`demo.json`, `reachy-mini.json` and its choices) |
 | `specs/` | Design docs — written before the code, then kept as its living contract — one per concept, each with a `**Status:**` — indexed by [specs/_index.md](specs/_index.md). Per-backend specs live in `specs/modules/` (one `<backend>.md` each, mirroring `src/tts_engine/modules/<backend>/`); the contract they all implement stays at the top level ([tts-module-interface.md](specs/tts-module-interface.md)) |
 | `plans/` | Implementation plans (`YYYYMMDDHHmm_` prefixed) turning settled specs into buildable steps — indexed by [plans/_index.md](plans/_index.md) |
 | `tests/` | Fast, deterministic, no-network tests; mirrors the `src/tts_engine/` module structure — the only tier the default `pytest` collects; `tests/modules/` stays flat — one `test_<backend>.py` per backend, not a folder per backend |
 | `tests-e2e/` | Opt-in tests against the real backends and audio hardware, not collected by default — strategy and skip rules in [specs/testing.md](specs/testing.md) |
 | `benchmarks/` | Measurement tooling, not part of the library and never run by CI — the per-module/model latency and resource benchmark (`bench.py`, `matrix.json`, runs under the ignored `runs/`, committed results merged from them under `results/<date>_<name>/`, each result with its hand-written `description.md` and `findings.md`) — specced in [specs/benchmark.md](specs/benchmark.md) |
-| `tools/` | Developer tools run from a checkout, not part of the library and never run by CI — `voice-audition/` builds an audition file from the backends' catalogs, renders every candidate voice through `TTSEngine` with its measured time to first audio, and writes a listening page with Yes/Maybe/No choices (`audition.py`, `page.html`, `examples/`, how to run it in `README.md`) — specced in [specs/voice-audition.md](specs/voice-audition.md) |
 | `.github/workflows/` | CI: one `ci.yml` — static gate, fast tier on Linux (x86_64, arm64)/macOS/Windows, live tier on Linux — specced in [specs/ci.md](specs/ci.md) |
 
 ### `src/tts_engine/` modules
@@ -37,6 +36,7 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | [mcp_server_cli.py](src/tts_engine/mcp_server_cli.py) | `tts-engine-mcp` entry point: args → config → engine → server; configures logging for its process | [mcp-server.md](specs/mcp-server.md), [project.md](specs/project.md) |
 | [level.py](src/tts_engine/level.py) | Speech level and `gain_db` calibration: `measure_level` (active RMS and peak of PCM), `suggest_gain` (the gain to a target level), `calibrate` (render texts through an engine, then both) | [level.md](specs/level.md) |
 | [level_cli.py](src/tts_engine/level_cli.py) | `tts-engine-level` entry point: config → `calibrate` → the measured level and the suggested `gain_db`; configures logging for its process | [level.md](specs/level.md), [project.md](specs/project.md) |
+| `audition/` | The `tts-engine-audition` tool, a subpackage since it has its own files: `audition.py` (the audition and choices files, `new` from the catalogs, `render` with measured time to first audio and level, the page), `cli.py` (the entry point; configures logging for its process), `page.html` (the page template, package data); nothing re-exported from `tts_engine` | [voice-audition.md](specs/voice-audition.md), [project.md](specs/project.md) |
 | `modules/` | TTS backends: `base.py` (`TTSModule` ABC with `synthesize_text` / `synthesize_text_stream` and the `list_voices` classmethod, `VoiceInfo`, `VoiceListingUnsupported`, `TTSOptions`, `TTSError`, `resolve_path`, the `run_cancellable_worker` / `run_text_stream_worker` / `segment_sentences` / `feed_with_lookahead` helpers), `__init__.py` (`REGISTRY`, `load_module`, `list_voices`), then one package per backend, its class in `<backend>/module.py` and re-exported from `<backend>/__init__.py` — providers `elevenlabs/`, `pocket/`, `gradium/`, `phonon/`, `mistral/`, `deepgram/`, `gemini/`, `cartesia/`, `openai/`, `openai_compatible/`, `qwen3/`, `kokoro/`, `piper/` (each behind an extra) and fixtures `tone/`, `audiofile/` | [tts-module-interface.md](specs/tts-module-interface.md), plus one `specs/modules/<backend>.md` spec per backend |
 | `__init__.py` | Public API surface — re-exports `TTSEngine`, `TTSEngineConfig`, `MCPServerConfig`, `TTSTools`, `AudioSink`, `list_voices`, `VoiceInfo`, `VoiceListingUnsupported`; package glue, exempt from the map check | — |
 
@@ -109,11 +109,11 @@ After any code change, run linting, type checking, and tests, and fix any failur
 uv sync --dev                                # Full contributor environment (dev depends on tts-engine[all]: every extra, torch included)
 uv sync --no-dev --extra pocket              # Consumer-style install (or --extra elevenlabs / --extra mcp); --no-dev is required, uv includes dev by default
 uv run ruff check .
-uv run ruff format src tests tests-e2e benchmarks tools   # Code dirs only: `ruff format .` also reflows Python blocks in Markdown plans
+uv run ruff format src tests tests-e2e benchmarks   # Code dirs only: `ruff format .` also reflows Python blocks in Markdown plans
 uv run pyright
 uv run pytest                                # Unit tier only
 uv run pytest tests-e2e/                     # Opt-in live tier (see Testing for the key-sourcing invocation)
 uv run tts-engine-mcp --config examples/config.tone.json   # Start the MCP server on the tone fixture
 uv run tts-engine-level --config examples/config.tone.json   # Measure a config's level and suggest its gain_db (see specs/level.md)
-uv run python tools/voice-audition/audition.py render tools/voice-audition/examples/demo.json   # Render a voice audition (see specs/voice-audition.md)
+uv run tts-engine-audition render examples/auditions/demo.json   # Render a voice audition (see specs/voice-audition.md)
 ```

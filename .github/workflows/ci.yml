@@ -45,7 +45,7 @@ jobs:
       - name: Lint
         run: uv run ruff check .
       - name: Format check (code directories only — `ruff format .` reflows Markdown)
-        run: uv run ruff format --check src tests tests-e2e benchmarks tools
+        run: uv run ruff format --check src tests tests-e2e benchmarks
       - name: Type check
         run: uv run pyright
 

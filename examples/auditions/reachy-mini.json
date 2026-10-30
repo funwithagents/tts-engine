@@ -1,0 +1,692 @@
+{
+  "name": "reachy-mini",
+  "description": "Choosing a voice for Reachy Mini, a small conversational robot: English, male or gender-neutral, young, possibly a touch robotic. The page opens on our choices; yours stay in this browser.\n\nAI-generated samples, for non-commercial comparison only ([credits](https://github.com/funwithagents/tts-engine/blob/gh-pages/auditions/reachy-mini/CREDITS.md)). Latency is one Mac's, not a benchmark figure. [Source](https://github.com/funwithagents/tts-engine/blob/main/docs/voice-audition.md).",
+  "text": "Hi, I'm Reachy! It's really nice to meet you. What would you like to talk about today?",
+  "candidates": [
+    {
+      "id": "phonon-31m-micah",
+      "label": "Micah",
+      "section": "Phonon (local)",
+      "notes": "Buoyant, playful lift at phrase ends (listen: gender guessed)",
+      "config": {
+        "type": "phonon",
+        "voice": "Micah"
+      }
+    },
+    {
+      "id": "phonon-31m-micah-flat",
+      "label": "Micah, temperature 0.05",
+      "section": "Phonon (local)",
+      "notes": "Same voice, flatter and more mechanical",
+      "config": {
+        "type": "phonon",
+        "voice": "Micah",
+        "temperature": 0.05
+      }
+    },
+    {
+      "id": "phonon-40m-micah",
+      "label": "Micah on 40m-en",
+      "section": "Phonon (local)",
+      "notes": "Same voice, bigger checkpoint (non-commercial)",
+      "config": {
+        "type": "phonon",
+        "model": "hf://gradium/phonon-40m-en",
+        "voice": "Micah"
+      }
+    },
+    {
+      "id": "phonon-31m-easton",
+      "label": "Easton",
+      "section": "Phonon (local)",
+      "notes": "Punchy, close in, pitch lifts across each line",
+      "config": {
+        "type": "phonon",
+        "voice": "Easton"
+      }
+    },
+    {
+      "id": "phonon-31m-alfie",
+      "label": "Alfie",
+      "section": "Phonon (local)",
+      "notes": "Punchy and forward, sits high",
+      "config": {
+        "type": "phonon",
+        "voice": "Alfie"
+      }
+    },
+    {
+      "id": "phonon-31m-teddy",
+      "label": "Teddy",
+      "section": "Phonon (local)",
+      "notes": "Sparky, quick off the mark",
+      "config": {
+        "type": "phonon",
+        "voice": "Teddy"
+      }
+    },
+    {
+      "id": "phonon-31m-trevor",
+      "label": "Trevor",
+      "section": "Phonon (local)",
+      "notes": "Buoyant over a resonant mid-low core",
+      "config": {
+        "type": "phonon",
+        "voice": "Trevor"
+      }
+    },
+    {
+      "id": "phonon-31m-spencer",
+      "label": "Spencer",
+      "section": "Phonon (local)",
+      "notes": "Light and airy, a touch higher, patient",
+      "config": {
+        "type": "phonon",
+        "voice": "Spencer"
+      }
+    },
+    {
+      "id": "phonon-31m-hugh",
+      "label": "Hugh",
+      "section": "Phonon (local)",
+      "notes": "Soft, close, airy, lively pitch",
+      "config": {
+        "type": "phonon",
+        "voice": "Hugh"
+      }
+    },
+    {
+      "id": "phonon-31m-fennick",
+      "label": "Fennick the Young Elf",
+      "section": "Phonon (local)",
+      "notes": "A boy of about ten, warm, never squeaky",
+      "config": {
+        "type": "phonon",
+        "voice": "Fennick the Young Elf"
+      }
+    },
+    {
+      "id": "pocket-michael",
+      "label": "michael",
+      "section": "Pocket (local)",
+      "notes": "American male, 19 (VCTK p360)",
+      "config": {
+        "type": "pocket",
+        "voice": "michael",
+        "language": "english_2026-10"
+      }
+    },
+    {
+      "id": "pocket-george",
+      "label": "george",
+      "section": "Pocket (local)",
+      "notes": "Male, 18 (VCTK p315); the bridge's current voice",
+      "config": {
+        "type": "pocket",
+        "voice": "george",
+        "language": "english_2026-10"
+      }
+    },
+    {
+      "id": "pocket-charles",
+      "label": "charles",
+      "section": "Pocket (local)",
+      "notes": "English male, 21 (VCTK p254)",
+      "config": {
+        "type": "pocket",
+        "voice": "charles",
+        "language": "english_2026-10"
+      }
+    },
+    {
+      "id": "pocket-paul",
+      "label": "paul",
+      "section": "Pocket (local)",
+      "notes": "English male, 23 (VCTK p259)",
+      "config": {
+        "type": "pocket",
+        "voice": "paul",
+        "language": "english_2026-10"
+      }
+    },
+    {
+      "id": "pocket-marius",
+      "label": "marius",
+      "section": "Pocket (local)",
+      "notes": "Donated voice (listen: gender and age unknown)",
+      "config": {
+        "type": "pocket",
+        "voice": "marius",
+        "language": "english_2026-10"
+      }
+    },
+    {
+      "id": "pocket-18m-michael",
+      "label": "michael on english_18m",
+      "section": "Pocket (local)",
+      "notes": "Tiny model, same voice",
+      "config": {
+        "type": "pocket",
+        "voice": "michael",
+        "language": "english_18m_2026-10"
+      }
+    },
+    {
+      "id": "piper-arctic-bdl",
+      "label": "en_US-arctic-medium / bdl",
+      "section": "Piper (local)",
+      "notes": "CMU Arctic US male: classic synthetic assistant",
+      "config": {
+        "type": "piper",
+        "voice": "en_US-arctic-medium",
+        "speaker": "bdl"
+      }
+    },
+    {
+      "id": "piper-arctic-rms",
+      "label": "en_US-arctic-medium / rms",
+      "section": "Piper (local)",
+      "notes": "CMU Arctic US male, lower",
+      "config": {
+        "type": "piper",
+        "voice": "en_US-arctic-medium",
+        "speaker": "rms"
+      }
+    },
+    {
+      "id": "piper-ryan-medium",
+      "label": "en_US-ryan-medium",
+      "section": "Piper (local)",
+      "notes": "US male",
+      "config": {
+        "type": "piper",
+        "voice": "en_US-ryan-medium"
+      }
+    },
+    {
+      "id": "piper-joe-medium",
+      "label": "en_US-joe-medium",
+      "section": "Piper (local)",
+      "notes": "US male",
+      "config": {
+        "type": "piper",
+        "voice": "en_US-joe-medium"
+      }
+    },
+    {
+      "id": "piper-ryan-low",
+      "label": "en_US-ryan-low",
+      "section": "Piper (local)",
+      "notes": "US male, lo-fi",
+      "config": {
+        "type": "piper",
+        "voice": "en_US-ryan-low"
+      }
+    },
+    {
+      "id": "piper-sam-medium",
+      "label": "en_US-sam-medium",
+      "section": "Piper (local)",
+      "notes": "Unknown gender (listen: possible neutral option)",
+      "config": {
+        "type": "piper",
+        "voice": "en_US-sam-medium"
+      }
+    },
+    {
+      "id": "qwen3-voicedesign-robot",
+      "label": "1.7B VoiceDesign Q8_0",
+      "section": "Qwen3-TTS (local)",
+      "notes": "The persona described in words",
+      "config": {
+        "type": "qwen3",
+        "model": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+        "quant": "Q8_0",
+        "language": "english",
+        "instruct": "A young, gender-neutral robot companion: bright, curious and friendly, with a light, slightly synthetic, evenly paced voice."
+      }
+    },
+    {
+      "id": "qwen3-0.6b-aiden",
+      "label": "aiden, 0.6B Q4_K_M",
+      "section": "Qwen3-TTS (local)",
+      "notes": "Sunny American male",
+      "config": {
+        "type": "qwen3",
+        "model": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+        "quant": "Q4_K_M",
+        "language": "english",
+        "voice": "aiden"
+      }
+    },
+    {
+      "id": "qwen3-1.7b-aiden-robotic",
+      "label": "aiden, 1.7B Q4_K_M + instruct",
+      "section": "Qwen3-TTS (local)",
+      "notes": "Same voice, asked for a slightly mechanical cadence",
+      "config": {
+        "type": "qwen3",
+        "model": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+        "quant": "Q4_K_M",
+        "language": "english",
+        "voice": "aiden",
+        "instruct": "Speak brightly, with a slightly mechanical, evenly paced cadence."
+      }
+    },
+    {
+      "id": "qwen3-1.7b-ryan",
+      "label": "ryan, 1.7B Q4_K_M",
+      "section": "Qwen3-TTS (local)",
+      "notes": "Dynamic male, strong rhythm",
+      "config": {
+        "type": "qwen3",
+        "model": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+        "quant": "Q4_K_M",
+        "language": "english",
+        "voice": "ryan"
+      }
+    },
+    {
+      "id": "kokoro-am-puck",
+      "label": "am_puck",
+      "section": "Kokoro int8 (local)",
+      "notes": "Young, playful US male",
+      "config": {
+        "type": "kokoro",
+        "voice": "am_puck",
+        "model": "../../benchmarks/models/kokoro-v1.0.int8.onnx"
+      }
+    },
+    {
+      "id": "kokoro-am-fenrir",
+      "label": "am_fenrir",
+      "section": "Kokoro int8 (local)",
+      "notes": "US male · Kokoro quality grade C+",
+      "config": {
+        "type": "kokoro",
+        "voice": "am_fenrir",
+        "model": "../../benchmarks/models/kokoro-v1.0.int8.onnx"
+      }
+    },
+    {
+      "id": "kokoro-am-michael",
+      "label": "am_michael",
+      "section": "Kokoro int8 (local)",
+      "notes": "US male · Kokoro quality grade C+",
+      "config": {
+        "type": "kokoro",
+        "voice": "am_michael",
+        "model": "../../benchmarks/models/kokoro-v1.0.int8.onnx"
+      }
+    },
+    {
+      "id": "kokoro-bm-george",
+      "label": "bm_george",
+      "section": "Kokoro int8 (local)",
+      "notes": "British male · Kokoro quality grade C",
+      "config": {
+        "type": "kokoro",
+        "voice": "bm_george",
+        "model": "../../benchmarks/models/kokoro-v1.0.int8.onnx"
+      }
+    },
+    {
+      "id": "cartesia-zeke",
+      "label": "Zeke - Friendly Sidekick",
+      "section": "Cartesia (API)",
+      "notes": "High-pitched, friendly young adult male",
+      "config": {
+        "type": "cartesia",
+        "api_key_env": "CARTESIA_API_KEY",
+        "model": "sonic-3.6",
+        "voice_id": "e00d0e4c-a5c8-443f-a8a3-473eb9a62355"
+      }
+    },
+    {
+      "id": "cartesia-eden",
+      "label": "Eden - Clear Advisor",
+      "section": "Cartesia (API)",
+      "notes": "Gender-neutral, young, clean",
+      "config": {
+        "type": "cartesia",
+        "api_key_env": "CARTESIA_API_KEY",
+        "model": "sonic-3.6",
+        "voice_id": "83ae58a1-7e97-4b94-b03f-e4cc0a10d8af"
+      }
+    },
+    {
+      "id": "cartesia-jake",
+      "label": "Jake - Sidekick",
+      "section": "Cartesia (API)",
+      "notes": "Friendly young adult male",
+      "config": {
+        "type": "cartesia",
+        "api_key_env": "CARTESIA_API_KEY",
+        "model": "sonic-3.6",
+        "voice_id": "729651dc-c6c3-4ee5-97fa-350da1f88600"
+      }
+    },
+    {
+      "id": "cartesia-corey",
+      "label": "Corey - Supportive Buddy",
+      "section": "Cartesia (API)",
+      "notes": "Cheerful young adult male",
+      "config": {
+        "type": "cartesia",
+        "api_key_env": "CARTESIA_API_KEY",
+        "model": "sonic-3.6",
+        "voice_id": "630ed21c-2c5c-41cf-9d82-10a7fd668370"
+      }
+    },
+    {
+      "id": "cartesia-liam",
+      "label": "Liam - Guy Next Door",
+      "section": "Cartesia (API)",
+      "notes": "Casual, friendly young male",
+      "config": {
+        "type": "cartesia",
+        "api_key_env": "CARTESIA_API_KEY",
+        "model": "sonic-3.6",
+        "voice_id": "41f3c367-e0a8-4a85-89e0-c27bae9c9b6d"
+      }
+    },
+    {
+      "id": "cartesia-henry",
+      "label": "Henry - Plainspoken Guy",
+      "section": "Cartesia (API)",
+      "notes": "Youthful, monotone, matter-of-fact (robot-ish)",
+      "config": {
+        "type": "cartesia",
+        "api_key_env": "CARTESIA_API_KEY",
+        "model": "sonic-3.6",
+        "voice_id": "87286a8d-7ea7-4235-a41a-dd9fa6630feb"
+      }
+    },
+    {
+      "id": "cartesia-daniel",
+      "label": "Daniel - Modern Assistant",
+      "section": "Cartesia (API)",
+      "notes": "Clear, crisp male for digital assistants",
+      "config": {
+        "type": "cartesia",
+        "api_key_env": "CARTESIA_API_KEY",
+        "model": "sonic-3.6",
+        "voice_id": "47c38ca4-5f35-497b-b1a3-415245fb35e1"
+      }
+    },
+    {
+      "id": "cartesia-zeke-happy",
+      "label": "Zeke, emotion happy, speed 1.1",
+      "section": "Cartesia (API)",
+      "notes": "Same voice, livelier",
+      "config": {
+        "type": "cartesia",
+        "api_key_env": "CARTESIA_API_KEY",
+        "model": "sonic-3.6",
+        "voice_id": "e00d0e4c-a5c8-443f-a8a3-473eb9a62355",
+        "emotion": "happy",
+        "speed": 1.1
+      }
+    },
+    {
+      "id": "elevenlabs-river-v3c",
+      "label": "River, v3_conversational",
+      "section": "ElevenLabs (API)",
+      "notes": "Non-binary, relaxed",
+      "config": {
+        "type": "elevenlabs",
+        "api_key_env": "ELEVENLABS_API_KEY",
+        "model": "eleven_v3_conversational",
+        "voice_id": "SAz9YHcvj6GT2YYXdXww"
+      }
+    },
+    {
+      "id": "elevenlabs-river-flash-flat",
+      "label": "River, flash_v2_5, stability 0.85",
+      "section": "ElevenLabs (API)",
+      "notes": "Same voice, flatter",
+      "config": {
+        "type": "elevenlabs",
+        "api_key_env": "ELEVENLABS_API_KEY",
+        "model": "eleven_flash_v2_5",
+        "voice_id": "SAz9YHcvj6GT2YYXdXww",
+        "stability": 0.85
+      }
+    },
+    {
+      "id": "elevenlabs-liam-v3c",
+      "label": "Liam, v3_conversational",
+      "section": "ElevenLabs (API)",
+      "notes": "Young, energetic US male",
+      "config": {
+        "type": "elevenlabs",
+        "api_key_env": "ELEVENLABS_API_KEY",
+        "model": "eleven_v3_conversational",
+        "voice_id": "TX3LPaxmHKxFdv7VOQHJ"
+      }
+    },
+    {
+      "id": "elevenlabs-will-v3c",
+      "label": "Will, v3_conversational",
+      "section": "ElevenLabs (API)",
+      "notes": "Young, friendly US male",
+      "config": {
+        "type": "elevenlabs",
+        "api_key_env": "ELEVENLABS_API_KEY",
+        "model": "eleven_v3_conversational",
+        "voice_id": "bIHbv24MWmeRgasZH58o"
+      }
+    },
+    {
+      "id": "elevenlabs-charlie-v4t",
+      "label": "Charlie, v4_turbo",
+      "section": "ElevenLabs (API)",
+      "notes": "Young Australian male, conversational",
+      "config": {
+        "type": "elevenlabs",
+        "api_key_env": "ELEVENLABS_API_KEY",
+        "model": "eleven_v4_turbo",
+        "voice_id": "IKne3meq5aSn9XLyUdCD"
+      }
+    },
+    {
+      "id": "gradium-spencer",
+      "label": "Spencer",
+      "section": "Gradium (API)",
+      "notes": "Light and airy, a touch higher",
+      "config": {
+        "type": "gradium",
+        "api_key_env": "GRADIUM_API_KEY",
+        "voice_id": "JOW0vchyswkQUMDS"
+      }
+    },
+    {
+      "id": "gradium-micah",
+      "label": "Micah",
+      "section": "Gradium (API)",
+      "notes": "Buoyant, playful",
+      "config": {
+        "type": "gradium",
+        "api_key_env": "GRADIUM_API_KEY",
+        "voice_id": "40QrMVgAxFiUnP9f"
+      }
+    },
+    {
+      "id": "gradium-alfie",
+      "label": "Alfie",
+      "section": "Gradium (API)",
+      "notes": "Punchy and forward",
+      "config": {
+        "type": "gradium",
+        "api_key_env": "GRADIUM_API_KEY",
+        "voice_id": "X6NceqF285Gr04gb"
+      }
+    },
+    {
+      "id": "deepgram-apollo",
+      "label": "aura-2-apollo-en",
+      "section": "Deepgram (API)",
+      "notes": "Adult US male, confident, casual",
+      "config": {
+        "type": "deepgram",
+        "api_key_env": "DEEPGRAM_API_KEY",
+        "model": "aura-2-apollo-en"
+      }
+    },
+    {
+      "id": "deepgram-aries",
+      "label": "aura-2-aries-en",
+      "section": "Deepgram (API)",
+      "notes": "Adult US male, warm, energetic",
+      "config": {
+        "type": "deepgram",
+        "api_key_env": "DEEPGRAM_API_KEY",
+        "model": "aura-2-aries-en"
+      }
+    },
+    {
+      "id": "mistral-james",
+      "label": "James",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
+      "notes": "US male",
+      "config": {
+        "type": "mistral",
+        "api_key_env": "MISTRAL_API_KEY",
+        "model": "voxtral-mini-tts-3-0",
+        "voice_id": "01a14675-dc30-778a-8d01-b5dead5a522a"
+      }
+    },
+    {
+      "id": "mistral-rob",
+      "label": "Rob",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
+      "notes": "US male",
+      "config": {
+        "type": "mistral",
+        "api_key_env": "MISTRAL_API_KEY",
+        "model": "voxtral-mini-tts-3-0",
+        "voice_id": "01a0f318-4b11-7518-8ce9-69abeaf63255"
+      }
+    },
+    {
+      "id": "mistral-paul-neutral",
+      "label": "Paul - Neutral",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
+      "notes": "US male, 30: relaxed, balanced",
+      "config": {
+        "type": "mistral",
+        "api_key_env": "MISTRAL_API_KEY",
+        "model": "voxtral-mini-tts-3-0",
+        "voice_id": "c69964a6-ab8b-4f8a-9465-ec0925096ec8"
+      }
+    },
+    {
+      "id": "mistral-paul-cheerful",
+      "label": "Paul - Cheerful",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
+      "notes": "US male, 30: upbeat, breezy",
+      "config": {
+        "type": "mistral",
+        "api_key_env": "MISTRAL_API_KEY",
+        "model": "voxtral-mini-tts-3-0",
+        "voice_id": "01d985cd-5e0c-4457-bfd8-80ba31a5bc03"
+      }
+    },
+    {
+      "id": "mistral-paul-excited",
+      "label": "Paul - Excited",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
+      "notes": "US male, 30: bouncy, spirited",
+      "config": {
+        "type": "mistral",
+        "api_key_env": "MISTRAL_API_KEY",
+        "model": "voxtral-mini-tts-3-0",
+        "voice_id": "5940190b-f58a-4c3e-8264-a40d63fd6883"
+      }
+    },
+    {
+      "id": "mistral-hugo",
+      "label": "Hugo",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
+      "notes": "British male",
+      "config": {
+        "type": "mistral",
+        "api_key_env": "MISTRAL_API_KEY",
+        "model": "voxtral-mini-tts-3-0",
+        "voice_id": "01a14675-dc1f-7473-9675-43fb05d7d230"
+      }
+    },
+    {
+      "id": "mistral-howard",
+      "label": "Howard",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
+      "notes": "British male",
+      "config": {
+        "type": "mistral",
+        "api_key_env": "MISTRAL_API_KEY",
+        "model": "voxtral-mini-tts-3-0",
+        "voice_id": "01a14675-dbff-7093-92e1-1116893dc11d"
+      }
+    },
+    {
+      "id": "mistral-fred",
+      "label": "Fred",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
+      "notes": "British male",
+      "config": {
+        "type": "mistral",
+        "api_key_env": "MISTRAL_API_KEY",
+        "model": "voxtral-mini-tts-3-0",
+        "voice_id": "01a14675-dbef-7259-af64-5d6d22bb3d2a"
+      }
+    },
+    {
+      "id": "mistral-david",
+      "label": "David",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
+      "notes": "British male",
+      "config": {
+        "type": "mistral",
+        "api_key_env": "MISTRAL_API_KEY",
+        "model": "voxtral-mini-tts-3-0",
+        "voice_id": "01a135c4-d8bc-76fa-8d12-6dc69a48abd1"
+      }
+    },
+    {
+      "id": "mistral-oliver-neutral",
+      "label": "Oliver - Neutral",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
+      "notes": "British male, 30: calm, even",
+      "config": {
+        "type": "mistral",
+        "api_key_env": "MISTRAL_API_KEY",
+        "model": "voxtral-mini-tts-3-0",
+        "voice_id": "e3596645-b1af-469e-b857-f18ddedc7652"
+      }
+    },
+    {
+      "id": "mistral-oliver-cheerful",
+      "label": "Oliver - Cheerful",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
+      "notes": "British male, 30: bright, lively",
+      "config": {
+        "type": "mistral",
+        "api_key_env": "MISTRAL_API_KEY",
+        "model": "voxtral-mini-tts-3-0",
+        "voice_id": "5ad5d44e-6b4e-4a57-a8a8-4cae088034ed"
+      }
+    },
+    {
+      "id": "mistral-oliver-curious",
+      "label": "Oliver - Curious",
+      "section": "Mistral voxtral-mini-tts-3-0 (API)",
+      "notes": "British male, 30: thoughtful, engaged",
+      "config": {
+        "type": "mistral",
+        "api_key_env": "MISTRAL_API_KEY",
+        "model": "voxtral-mini-tts-3-0",
+        "voice_id": "390c8a2b-60a6-4882-8437-c49a8bd33b63"
+      }
+    }
+  ]
+}

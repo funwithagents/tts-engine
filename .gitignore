@@ -12,6 +12,7 @@ benchmarks/**/runs/
 benchmarks/**/models/
 benchmarks/**/*.log
 
-# Voice audition (tools/voice-audition): the rendered samples and pages of an
-# audition file (<name>.audition/ next to it) are local output.
+# Voice audition (tts-engine-audition): the rendered samples and pages of an
+# audition file (<name>.audition/ next to it) are local output; published ones
+# live on the gh-pages branch, never on main.
 *.audition/

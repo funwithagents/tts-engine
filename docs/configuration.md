@@ -119,4 +119,4 @@ print(result.level.level_dbfs, result.suggestion.gain_db)
 
 `tts_engine.level` also has `measure_level(pcm, sample_rate)` for audio you already have, as int16 mono PCM, and `suggest_gain(level, target_dbfs)` to turn a level into the gain.
 
-To compare many voices first, the [voice audition tool](../tools/voice-audition/README.md) shows each candidate's level and suggested `gain_db` on its page, with a target you can change there. It uses the same measure.
+To compare many voices first, the [voice audition](voice-audition.md) shows each candidate's level and suggested `gain_db` on its page, with a target you can change there. It uses the same measure.

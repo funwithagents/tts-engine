@@ -1,10 +1,14 @@
 ---
 code:
-  - tools/voice-audition/audition.py
-  - tools/voice-audition/page.html
-  - tools/voice-audition/examples/demo.json
+  - src/tts_engine/audition/__init__.py
+  - src/tts_engine/audition/audition.py
+  - src/tts_engine/audition/cli.py
+  - src/tts_engine/audition/page.html
+  - examples/auditions/demo.json
+  - examples/auditions/reachy-mini.json
+  - examples/auditions/reachy-mini-choices.json
 tests:
-  - tests/test_voice_audition.py
+  - tests/audition/test_audition.py
 ---
 
 # Voice Audition
@@ -13,37 +17,95 @@ tests:
 
 ## Purpose
 
-Choosing a voice for an application (an assistant, a character, a device) means hearing candidates side by side, across backends, saying the same sentence, and knowing how long each one makes the listener wait. Doing that by hand means one script per backend and a folder of WAV files. The voice audition tool in [`tools/voice-audition/`](../tools/voice-audition/) does it from one JSON file:
+Choosing a voice for an application (an assistant, a character, a device) means hearing candidates side by side, across backends, saying the same sentence, and knowing how long each one makes the listener wait. Doing that by hand means one script per backend and a folder of WAV files. The `tts-engine-audition` command does it from one JSON file:
 - it builds a candidate list from the backends' own catalogs ([tts-module-interface.md](tts-module-interface.md), "Voice listing");
 - it renders every candidate through `TTSEngine`, measuring its time to first audio and its level;
 - it writes a page to listen to them one by one and mark each Yes, Maybe or No. The Yes and Maybe voices get their own tabs, the choices can be exported, and each voice shows the `gain_db` that brings it to a common level.
 
-Like the latency benchmark ([benchmark.md](benchmark.md)), it is tooling, not part of the library: nothing in `src/` depends on it, it is not installed with the package, and CI never runs it (it needs keys and makes paid calls). It is run from a checkout.
+It is installed with the package, so a user of the library can audition voices for their own application without a checkout. CI never runs it against real backends: it needs keys and makes paid calls. Its unit tests run through the `tone` fixture (see "Tests").
+
+## Packaging
+
+- **A subpackage, `tts_engine.audition`.** The tool is a command with its own files, not a library concept, so it lives in its own folder rather than as top-level modules:
+  - `audition.py` — loading and validating the files, `new`, `render`, `page`;
+  - `cli.py` — the `tts-engine-audition` entry point (`main(argv=None) -> int`): the subcommands, `--log-level`, `logging.basicConfig` ([project.md](project.md), "Logging");
+  - `page.html` — the page template, package data read with `importlib.resources`;
+  - `__init__.py` — a docstring only.
+
+  The rule this follows: a **library concept** (config, engine, level) is a top-level module, with its command in a separate `*_cli.py` when it has one; a **tool with its own files** is a subpackage. Nothing is re-exported from `tts_engine/__init__.py`: the command is the interface, not its functions.
+- **Entry point:** `tts-engine-audition = "tts_engine.audition.cli:main"` in `[project.scripts]`, beside `tts-engine-mcp` and `tts-engine-level`.
+- **No extra of its own.** The tool needs only the standard library and the engine. A candidate whose module's extra is not installed is `skipped`, naming the extra (see "`render`").
+- **What is public.** The **audition file** and the **choices file** are a public interface: a field may be added, not removed or redefined. The rest is the tool's own and may change between versions: `results.json`, the page's markup and script, the output folder's layout beyond `index.html`. The cache key keeps its definition (see "`render`") so that upgrading the tool does not re-render, and re-pay for, every candidate.
 
 ## Usage
 
-From the repository root, with the provider keys in the environment:
+With the provider keys in the environment:
 
 ```bash
 # 1. An audition file from the catalogs: English male or neutral voices, 8 per backend
-uv run python tools/voice-audition/audition.py new my-assistant.json \
+tts-engine-audition new my-assistant.json \
     --text "Hello! What would you like to talk about today?" \
     --module phonon --module pocket --module cartesia --module gradium \
     --gender male --gender neutral --language en --limit 8
 
 # 2. Render every candidate (3 measured runs each) and write the page
-uv run python tools/voice-audition/audition.py render my-assistant.json
+tts-engine-audition render my-assistant.json
 
 # 3. Open my-assistant.audition/index.html; after editing the file, re-render: only what changed is rendered again
 ```
 
-`page` rebuilds `index.html` from the audition file and the existing results without rendering anything. The audition file can also be written or edited by hand: `new` is a starting point, not a requirement. [`examples/demo.json`](../tools/voice-audition/examples/demo.json) is a hand-picked one, a male conversational voice per backend.
+From a checkout, `uv run tts-engine-audition …`. `page` rebuilds `index.html` from the audition file and the existing results without rendering anything. The audition file can also be written or edited by hand: `new` is a starting point, not a requirement.
+
+## Examples
+
+The example auditions live in the repository under [`examples/auditions/`](../examples/auditions/), not in the package:
+
+- [`demo.json`](../examples/auditions/demo.json) — hand-picked, two or three conversational voices per backend.
+- [`reachy-mini.json`](../examples/auditions/reachy-mini.json) — the audition that chose the voices of the Reachy Mini robot (driven through `reachy-mini-bridge`): an English voice for a small conversational robot, male or gender-neutral, young, possibly a touch robotic. Its choices, exported after listening, are [`reachy-mini-choices.json`](../examples/auditions/reachy-mini-choices.json). Its kokoro candidates use the int8 export, which is not on the Hugging Face Hub: their `model` points at `benchmarks/models/kokoro-v1.0.int8.onnx`, placed by hand as for the benchmark ([kokoro.md](modules/kokoro.md), "Model files").
+
+The rendered Reachy Mini page is published on GitHub Pages, from a `gh-pages` branch that holds only rendered auditions (`auditions/<name>/`, each with a `CREDITS.md` naming every sample's provider or model and its licence), so the WAVs never enter `main`'s history. Rendered folders stay git-ignored on `main`.
+
+## Publishing an audition
+
+For the maintainer: the page is static, so any static host works, and this repository publishes its auditions on GitHub Pages from the `gh-pages` branch (see "Examples"). Nothing is built automatically, because rendering needs keys and local models: changing an audition on `main` does not change its page.
+
+To publish or update one, from the repository root:
+
+```bash
+# 1. Render, with the choices the page should open on. Only what changed is rendered again;
+#    the rendered folder must be there for that (it is git-ignored, so it stays local).
+tts-engine-audition render examples/auditions/reachy-mini.json \
+    --choices examples/auditions/reachy-mini-choices.json
+
+# 2. Check out the branch next to the repository
+git fetch origin gh-pages
+git worktree add ../tts-engine-pages gh-pages
+
+# 3. Copy the rendered folder, keeping the credits, and remove samples of dropped candidates
+rsync -a --delete --exclude CREDITS.md --exclude .DS_Store \
+    examples/auditions/reachy-mini.audition/ ../tts-engine-pages/auditions/reachy-mini/
+
+# 4. Commit and push: Pages redeploys within a minute or so
+git -C ../tts-engine-pages add -A
+git -C ../tts-engine-pages commit -m "Reachy Mini voice audition: <what changed>"
+git -C ../tts-engine-pages push origin gh-pages
+git worktree remove ../tts-engine-pages
+```
+
+A new audition goes beside the others, in `auditions/<name>/`, and is served at `https://funwithagents.github.io/tts-engine/auditions/<name>/`.
+
+Before publishing, for every sample:
+
+- **Check its licence and update `CREDITS.md`**, next to the page: each sample's provider or model and its licence, that the samples are AI-generated, and that they are non-commercial comparison material. A candidate whose licence cannot be verified is removed from the audition, not published.
+- **State the context in the audition's `description`**: a visitor sees only the page, so it should say the samples are AI-generated and link the credits.
+- **Check for secrets**: the page redacts `api_key`, and `results.json` holds no config, but rendered folders are published whole.
 
 ## The audition file
 
 ```json
 {
   "name": "my-assistant",
+  "description": "An assistant's voice: calm, clear, quick to answer.",
   "text": "Hello! What would you like to talk about today?",
   "candidates": [
     {
@@ -61,6 +123,7 @@ uv run python tools/voice-audition/audition.py render my-assistant.json
 | Field | Required | Meaning |
 |---|---|---|
 | `name` | no (default: the file's stem) | Names the audition on the page and keys its stored choices, so two auditions never share them |
+| `description` | no | What the audition is for, shown under the title: plain text, paragraphs separated by a blank line, and `[label](href)` links whose `href` is `http(s)://…` or relative (anything else stays text). A page read without its README, a hosted one, carries its context and caveats here |
 | `text` | yes | The one sentence every candidate says; a non-empty string |
 | `candidates[].id` | yes | Unique within the file, `[a-z0-9][a-z0-9._-]*`: the WAV's file name and the key of its choice and result |
 | `candidates[].config` | yes | A complete `engine.module` block (`type` included), passed to `TTSEngine` as is: any field the module accepts |
@@ -93,7 +156,7 @@ Unknown keys are rejected so a typo is not silently ignored. A relative file pat
 
 ## `render`: samples and latency
 
-`render AUDITION.json [--out DIR] [--runs N] [--only ID …] [--force] [--target DBFS]` renders the candidates into `DIR` (default: the audition file's path with `.json` replaced by `.audition`, e.g. `my-assistant.audition/`):
+`render AUDITION.json [--out DIR] [--runs N] [--only ID …] [--force] [--target DBFS] [--choices FILE]` renders the candidates into `DIR` (default: the audition file's path with `.json` replaced by `.audition`, e.g. `my-assistant.audition/`):
 
 ```
 my-assistant.audition/
@@ -104,7 +167,7 @@ my-assistant.audition/
 
 **Per candidate, in file order, one at a time in this process:**
 
-1. **Skip unchanged.** The candidate's cache key is a hash of `text` and `config`. If `results.json` has an `ok` entry with the same key and the WAV exists, the candidate is not rendered again, unless `--force` is given. An unchanged entry written before levels were recorded gets them measured from its WAV, with no synthesis. `--only` restricts the pass to the given ids; the others keep their results.
+1. **Skip unchanged.** The candidate's cache key is a hash of `text` and `config`: the first 16 hex digits of the SHA-256 of `{"text": …, "config": …}` as JSON with sorted keys and non-ASCII kept (`ensure_ascii=False`). `name`, `description`, the labels, notes and sections are not part of it, so editing them never re-renders. If `results.json` has an `ok` entry with the same key and the WAV exists, the candidate is not rendered again, unless `--force` is given. An unchanged entry written before levels were recorded gets them measured from its WAV, with no synthesis. `--only` restricts the pass to the given ids; the others keep their results.
 2. **Skip what cannot run here.** A `config` whose `api_key_env` names an unset variable is recorded `skipped` with that reason, before any construction. So is a construction failing because the module's extra is not installed (its `ConfigError` names the extra). Any other construction failure is an `error`.
 3. **Render and measure.** The engine is built with a capturing sink. One warm-up `say(text)` runs first: it pays the connection, model load and kernel compilation, which an application pays once. Then come `--runs` measured `say(text)` calls (default 3, at least 1), each timed from the call to the first PCM chunk the sink receives. The audio of the last run is written as the sample. The engine is closed before the next candidate.
 4. **Record** in `results.json`:
@@ -128,7 +191,9 @@ Each provider, model and voice speaks at its own level, so voices compared side 
 
 ## The page
 
-`index.html` is `page.html` with the audition's data embedded as JSON: name, text, target level, sections, candidates (label, notes, redacted config) and results. A static page with no server: it opens from disk, and the WAVs are referenced relatively.
+`index.html` is `page.html` with the audition's data embedded as JSON: name, description, text, target level, sections, candidates (label, notes, redacted config), results and starting choices. A static page with no server: it opens from disk or from any static host, and the WAVs are referenced relatively.
+
+- **Header.** The audition's name as the title, its `description` when it has one (see "The audition file"), the sentence, and the two hints on latency and level.
 
 - **Rows.** One table with fixed column widths, so every row has the same columns in the same place. Each section starts with a heading row, and each candidate is one row:
   - the label;
@@ -145,6 +210,7 @@ Each provider, model and voice speaks at its own level, so voices compared side 
 - **Choices** live in the browser's `localStorage` under `voice-audition:<name>`. They survive a reload and a re-render, but stay in that browser only, so the page exports and imports them:
   - **Export** downloads `<name>-choices.json`: `{"audition": name, "yes": [ids], "maybe": [ids], "no": [ids]}`.
   - **Import** reads such a file and replaces the stored choices with it. Ids no longer in the audition are ignored, and a file whose `audition` names another audition is refused (a file with no `audition` key is accepted). The `yes`/`maybe`/`no` lists alone are the whole format, so a hand-written list works too.
+- **Starting choices.** `render` and `page` take `--choices FILE`, a choices file in the export format, and embed it in the page. A browser with nothing stored under the audition's key starts from those choices; one with stored choices keeps its own, even an empty set (choosing NotSet everywhere stores an empty set, which stays). It is how a published page opens with the decision already made, its Yes and Maybe tabs filled. The file is checked like an import, but strictly, since it is the author's: an `audition` naming another audition, an id not in the audition, an id in two lists, or a list that is not a list of strings stops the command with the file and the field. Without `--choices` the page starts with no choice.
 
 The exported file is how choices leave the browser: for another machine, a colleague, or an agent asked to turn the Yes voices into configs.
 
@@ -156,11 +222,13 @@ The exported file is how choices leave the browser: for another machine, a colle
 
 ## Tests
 
-`tests/test_voice_audition.py`, in the fast tier, loads `audition.py` by path like `tests/test_benchmark.py` does, with no network and no key:
-- the file validation;
+`tests/audition/test_audition.py`, in the fast tier, imports `tts_engine.audition` and runs the command through `cli.main(argv)`, with no network and no key:
+- the file validation, `description` included;
 - `new` against a faked `list_voices`: filters, unknown metadata, limit, ids and their deduplication, the hosted key variable, a module that cannot list, refusing to overwrite;
-- `render` with the `tone` fixture: the WAV and its rate, the runs and their median, the level and peak, the cache key (an unchanged candidate not rendered again, a changed text rendering it again, `--force`), an older entry's level filled in from its WAV, a candidate with an unset key `skipped` without construction, a bad config an `error`;
-- the page: its data embedded, `api_key` redacted, the storage key, the target.
+- `render` with the `tone` fixture: the WAV and its rate, the runs and their median, the level and peak, the cache key (its value pinned for a known text and config, an unchanged candidate not rendered again, a changed text rendering it again, `--force`), an older entry's level filled in from its WAV, a candidate with an unset key `skipped` without construction, a bad config an `error`;
+- the page: its data embedded, `api_key` redacted, the storage key, the target, the description, the starting choices and each way a choices file is refused;
+- the packaging: the template found as package data, the entry point declared;
+- the example auditions and the Reachy Mini choices file: valid, and the choices consistent with their audition.
 
 The page's script is not run by the tests.
 
@@ -171,4 +239,3 @@ Deferrals only:
 1. **Several sentences.** One sentence covers a first pass; a greeting, a long answer and a question would separate close voices better. That would make `text` a list with labels, give each candidate one sample per text, and key the cache by both.
 2. **From choices back to a file.** A `select` command could turn an exported choices file into a new audition with only the Yes (and Maybe) candidates, to re-render a shortlist with more runs or a longer text, or print their configs.
 3. **Rendering with a gain.** A candidate could carry its `gain_db` so the page plays the voices already levelled; for now the samples are the engine's native level and the page only suggests the value.
-4. **Packaged CLI.** If users of the library outside this repository need it, the tool can become a `tts-engine-audition` entry point with `page.html` as package data. That makes its file format a public interface, which is why it starts in the repository.
