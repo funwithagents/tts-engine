@@ -13,7 +13,7 @@ tests:
 
 # Voice Audition
 
-**Status:** Updated
+**Status:** Implemented
 
 ## Purpose
 

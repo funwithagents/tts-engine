@@ -1,6 +1,6 @@
 # Packaged voice audition and the Reachy Mini example
 
-**Status:** In progress
+**Status:** Done
 
 Implements the updated `specs/voice-audition.md` ("Packaging", "Examples", the `description` field, "Starting choices"): the audition tool moves from `tools/voice-audition/` into the package as the `tts-engine-audition` command, gains a description shown on the page and starting choices embedded with `--choices`, and ships the audition that chose the Reachy Mini robot's voices as its worked example, hosted on GitHub Pages. Several sentences, `select` and rendering with a gain stay open questions.
 
