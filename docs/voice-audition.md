@@ -65,5 +65,5 @@ tts-engine-audition render examples/auditions/reachy-mini.json \
 ```
 
 - It needs the keys of the hosted backends (Cartesia, ElevenLabs, Gradium, Deepgram, Mistral, Gemini, OpenAI) and the extras of the local ones (phonon, pocket, piper, qwen3, kokoro); what is missing is skipped.
-- The kokoro candidates use the int8 export of Kokoro-82M, which is not on the Hugging Face Hub: download `kokoro-v1.0.int8.onnx` (114 MB) from the `model-files-v1.1` release of [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx/releases) into `benchmarks/models/`, where their `model` path points (the latency benchmark expects it there too).
+- The kokoro candidates use the default fp32 model, downloaded from the Hugging Face Hub on first use (~353 MB).
 - Without `--choices`, open the page and use **Import choices** with `reachy-mini-choices.json` to load the decision.
