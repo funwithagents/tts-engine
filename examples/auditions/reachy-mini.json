@@ -262,45 +262,41 @@
     {
       "id": "kokoro-am-puck",
       "label": "am_puck",
-      "section": "Kokoro int8 (local)",
+      "section": "Kokoro (local)",
       "notes": "Young, playful US male",
       "config": {
         "type": "kokoro",
-        "voice": "am_puck",
-        "model": "../../benchmarks/models/kokoro-v1.0.int8.onnx"
+        "voice": "am_puck"
       }
     },
     {
       "id": "kokoro-am-fenrir",
       "label": "am_fenrir",
-      "section": "Kokoro int8 (local)",
+      "section": "Kokoro (local)",
       "notes": "US male · Kokoro quality grade C+",
       "config": {
         "type": "kokoro",
-        "voice": "am_fenrir",
-        "model": "../../benchmarks/models/kokoro-v1.0.int8.onnx"
+        "voice": "am_fenrir"
       }
     },
     {
       "id": "kokoro-am-michael",
       "label": "am_michael",
-      "section": "Kokoro int8 (local)",
+      "section": "Kokoro (local)",
       "notes": "US male · Kokoro quality grade C+",
       "config": {
         "type": "kokoro",
-        "voice": "am_michael",
-        "model": "../../benchmarks/models/kokoro-v1.0.int8.onnx"
+        "voice": "am_michael"
       }
     },
     {
       "id": "kokoro-bm-george",
       "label": "bm_george",
-      "section": "Kokoro int8 (local)",
+      "section": "Kokoro (local)",
       "notes": "British male · Kokoro quality grade C",
       "config": {
         "type": "kokoro",
-        "voice": "bm_george",
-        "model": "../../benchmarks/models/kokoro-v1.0.int8.onnx"
+        "voice": "bm_george"
       }
     },
     {
