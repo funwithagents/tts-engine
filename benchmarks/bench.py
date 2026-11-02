@@ -281,15 +281,34 @@ METRICS: dict[str, tuple[str, str]] = {
         "ms",
         f"call → first chunk with a sample above {VOICE_THRESHOLD}/32767",
     ),
+    "first_voice_ms": (
+        "ms",
+        (
+            "predicted first voice, for a player started at the first chunk: the "
+            "voiced chunk's arrival, or later if the audio before it plays longer; "
+            "a lower bound, accurate to about one chunk"
+        ),
+    ),
     "after_first_sentence_ms": (
         "ms",
         "first chunk − moment the first sentence was fully sent (stream only)",
     ),
-    "max_gap_ms": ("ms", "longest wait between two consecutive chunks (a stall)"),
+    "max_gap_ms": (
+        "ms",
+        "longest wait between two consecutive chunks (a stall only if queued audio runs out)",
+    ),
     "median_gap_ms": ("ms", "typical wait between two consecutive chunks"),
     "total_ms": ("ms", "call → return"),
     "audio_s": ("s", "audio produced"),
-    "speed_x": ("×", "audio seconds per wall second after the first chunk"),
+    "speed_x": (
+        "×",
+        "audio seconds per wall second after the first chunk, excludes the wait before it",
+    ),
+    "realtime_x": ("×", "audio seconds per wall second of the whole call"),
+    "continuous_ms": (
+        "ms",
+        "time to continuous audio: the earliest playback start that never runs out",
+    ),
     "cpu_peak_pct": (
         "%",
         (
@@ -304,6 +323,28 @@ METRICS: dict[str, tuple[str, str]] = {
 }
 
 STATS = ("n", "mean", "median", "stdev", "min", "p90", "max")
+
+
+def first_voice_ms(log: list[list[float]], sample_rate: int) -> float | None:
+    """When a player started at the first chunk reaches the first voiced chunk:
+    its arrival, or later if the audio queued before it plays longer."""
+    played_ms = 0.0
+    for arrival, n_bytes, peak in log:
+        if peak > VOICE_THRESHOLD:
+            return max(arrival, log[0][0] + played_ms)
+        played_ms += n_bytes / 2 / sample_rate * 1000
+    return None
+
+
+def continuous_ms(log: list[list[float]], sample_rate: int) -> float:
+    """The earliest playback start (ms after the call) that never runs out of
+    audio afterwards, on an ideal queue: each chunk must arrive before the audio
+    ahead of it has played."""
+    start_ms = queued_ms = 0.0
+    for arrival, n_bytes, _peak in log:
+        start_ms = max(start_ms, arrival - queued_ms)
+        queued_ms += n_bytes / 2 / sample_rate * 1000
+    return start_ms
 
 
 def derive_metrics(run: dict) -> dict[str, float | None]:
@@ -322,6 +363,7 @@ def derive_metrics(run: dict) -> dict[str, float | None]:
     return {
         "ttfa_ms": first,
         "ttfv_ms": voiced,
+        "first_voice_ms": first_voice_ms(log, run["sample_rate"]),
         "after_first_sentence_ms": None if sent is None else first - sent,
         "max_gap_ms": max(gaps) if gaps else None,
         "median_gap_ms": statistics.median(gaps) if gaps else None,
@@ -330,6 +372,8 @@ def derive_metrics(run: dict) -> dict[str, float | None]:
         # The capture sink never blocks, so this is the backend's own speed,
         # bounded by any server-side pacing.
         "speed_x": audio_s / gen_s if gen_s > 0 else None,
+        "realtime_x": audio_s / (run["end_ms"] / 1000) if run["end_ms"] > 0 else None,
+        "continuous_ms": continuous_ms(log, run["sample_rate"]),
         "cpu_peak_pct": max(pct for _, pct in cpu_log) if cpu_log else None,
         "cpu_mean_pct": (
             100 * cpu_s / (run["end_ms"] / 1000)
@@ -976,6 +1020,11 @@ def _cell(v: float | None, digits: int = 0) -> str:
     return "—" if v is None else f"{v:.{digits}f}"
 
 
+# A cell cut short (a quota, a timeout) leaves the compact summary rather than
+# stand as a median of a run or two beside the entry's full cells; results.csv
+# keeps it. A quick pass, every cell small alike, keeps its numbers.
+SUMMARY_MIN_N = 5
+
 # The compact summary: one row per entry, one number per column, taken from the
 # cells a reader decides on. (csv column, label, mode, text, results.csv key,
 # digits, definition). Everything else — means, max, stdev, TTFV, the gaps of
@@ -998,6 +1047,20 @@ SUMMARY_COLUMNS: list[tuple[str, str, str, str, str, int, str]] = [
         "ttfa_ms__p90",
         0,
         "its tail: 9 runs in 10 answered within this",
+    ),
+    (
+        "first_voice_p50_ms",
+        "first voice p50",
+        "say",
+        "short",
+        "first_voice_ms__median",
+        0,
+        (
+            "median predicted first voice, `say()` on the short text: when a player "
+            "started at the first chunk reaches the first chunk above "
+            f"{VOICE_THRESHOLD}/32767, so a backend opening with silence reads later "
+            "than its TTFA; a lower bound, accurate to about one chunk"
+        ),
     ),
     (
         "ttfa_stream_p50_ms",
@@ -1031,21 +1094,35 @@ SUMMARY_COLUMNS: list[tuple[str, str, str, str, str, int, str]] = [
         "max_gap_ms__median",
         0,
         (
-            "median over runs of the longest silence between two audio chunks, "
-            "three-sentence stream: the pause between sentences; longer than the "
-            "audio queued in the player means a stutter"
+            "median over runs of the longest wait between two audio chunks, "
+            "three-sentence stream: a stutter only if it outlasts the audio queued "
+            "in the player, which `continuous p50` accounts for"
         ),
     ),
     (
-        "speed_x",
-        "speed ×",
+        "realtime_x",
+        "real-time ×",
         "stream",
         "medium",
-        "speed_x__median",
-        1,
+        "realtime_x__median",
+        2,
         (
-            "audio seconds produced per wall second after the first chunk, "
-            "three-sentence stream: below 1 playback starves"
+            "audio seconds per wall second of the whole call, three-sentence stream: "
+            "below 1 the listener waits. `speed_x` in `results.csv` counts only the "
+            "time after the first chunk"
+        ),
+    ),
+    (
+        "continuous_p50_ms",
+        "continuous p50",
+        "stream",
+        "medium",
+        "continuous_ms__median",
+        0,
+        (
+            "median time to continuous audio, three-sentence stream: the earliest "
+            "playback start that never runs out, on an ideal queue; above the TTFA "
+            "a player started at the first chunk stalls"
         ),
     ),
     (
@@ -1122,7 +1199,7 @@ def _settings_line(env: dict) -> str:
 
 def _rounded(value: float | None, digits: int) -> float | int | None:
     """Summary values at the precision a reader needs: whole milliseconds, one
-    decimal of speed, two of seconds (results.csv keeps every digit)."""
+    two decimals of real-time factor and seconds (results.csv keeps every digit)."""
     if value is None:
         return None
     return round(value) if digits == 0 else round(value, digits)
@@ -1223,9 +1300,13 @@ def summarize(target: Path, matrix: Path = DEFAULT_MATRIX) -> None:
             "n": headline["n"] if headline else 0,
             "errors": sum(c["errors"] for c in own),
         }
+        fullest = max(c["n"] for c in own)
         for column, _label, mode, text, key, digits, _desc in SUMMARY_COLUMNS:
             cell = cells.get((eid, mode, text))
-            row[column] = _rounded(cell[key], digits) if cell else None
+            cut_short = cell is not None and cell["n"] < SUMMARY_MIN_N <= fullest
+            row[column] = (
+                _rounded(cell[key], digits) if cell and not cut_short else None
+            )
         for column, _label, digits, _desc in SUMMARY_FIXED:
             row[column] = _rounded(own[0][column], digits)
         row["run"] = source.get(eid)

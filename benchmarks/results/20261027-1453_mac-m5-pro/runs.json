@@ -523,10 +523,7 @@
         "exclude_tags": null,
         "include_disabled": false
       },
-      "supplies": [
-        "gemini/gemini-3.8-flash-lite-tts",
-        "gemini/gemini-3.8-flash-tts"
-      ]
+      "supplies": []
     },
     {
       "run": "20261028-124154",
@@ -945,6 +942,131 @@
       },
       "supplies": [
         "phonon/31m-en@cpu+q4k+t4"
+      ]
+    },
+    {
+      "run": "20261030-101948",
+      "started": "2026-10-30T10:19:48+0100",
+      "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+      "machine": "arm64",
+      "processor": "arm",
+      "cpu_count": 15,
+      "python": "3.13.14",
+      "git_sha": "4f172e6",
+      "versions": {
+        "tts-engine": "0.1.0",
+        "elevenlabs": "2.74.1",
+        "pocket-tts": "4.0.1",
+        "torch": "2.14.0",
+        "gradium": "0.6.4",
+        "ptts": "0.5.0",
+        "mistralai": "3.5.0",
+        "deepgram-sdk": "7.15.0",
+        "google-genai": "2.33.0",
+        "cartesia": "4.2.0",
+        "openai": "3.37.0",
+        "qwentts-cpp-python": "0.5.0",
+        "kokoro-onnx": "0.6.1",
+        "piper-tts": "1.8.0",
+        "onnxruntime": "1.31.0"
+      },
+      "measures": {
+        "cpu_window_ms": 50.0,
+        "rss": true,
+        "gpu": null
+      },
+      "settings": {
+        "runs": 10,
+        "warmup": 1,
+        "modes": [
+          "say",
+          "stream"
+        ],
+        "texts": [
+          "short",
+          "medium"
+        ],
+        "token_delay_ms": 0.0,
+        "pause_s": 0.5,
+        "run_timeout_s": 120.0,
+        "entry_timeout_s": 600.0,
+        "max_consecutive_failures": 3,
+        "cpu_window_ms": 50.0
+      },
+      "selection": {
+        "only": [
+          "gemini/gemini-3.8-flash-tts",
+          "gemini/gemini-3.8-flash-lite-tts"
+        ],
+        "exclude": null,
+        "tags": null,
+        "exclude_tags": null,
+        "include_disabled": false
+      },
+      "supplies": [
+        "gemini/gemini-3.8-flash-lite-tts"
+      ]
+    },
+    {
+      "run": "20261102-194826",
+      "started": "2026-11-02T19:48:26+0100",
+      "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+      "machine": "arm64",
+      "processor": "arm",
+      "cpu_count": 15,
+      "python": "3.13.14",
+      "git_sha": "234c114",
+      "versions": {
+        "tts-engine": "0.1.0",
+        "elevenlabs": "2.74.1",
+        "pocket-tts": "4.0.1",
+        "torch": "2.14.0",
+        "gradium": "0.6.4",
+        "ptts": "0.5.0",
+        "mistralai": "3.5.0",
+        "deepgram-sdk": "7.15.0",
+        "google-genai": "2.33.0",
+        "cartesia": "4.2.0",
+        "openai": "3.37.0",
+        "qwentts-cpp-python": "0.5.0",
+        "kokoro-onnx": "0.6.1",
+        "piper-tts": "1.8.0",
+        "onnxruntime": "1.31.0"
+      },
+      "measures": {
+        "cpu_window_ms": 50.0,
+        "rss": true,
+        "gpu": null
+      },
+      "settings": {
+        "runs": 9,
+        "warmup": 1,
+        "modes": [
+          "say",
+          "stream"
+        ],
+        "texts": [
+          "short",
+          "medium"
+        ],
+        "token_delay_ms": 0.0,
+        "pause_s": 0.5,
+        "run_timeout_s": 120.0,
+        "entry_timeout_s": 600.0,
+        "max_consecutive_failures": 3,
+        "cpu_window_ms": 50.0
+      },
+      "selection": {
+        "only": [
+          "gemini/gemini-3.8-flash-tts"
+        ],
+        "exclude": null,
+        "tags": null,
+        "exclude_tags": null,
+        "include_disabled": false
+      },
+      "supplies": [
+        "gemini/gemini-3.8-flash-tts"
       ]
     }
   ]

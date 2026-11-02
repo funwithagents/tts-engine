@@ -56,6 +56,86 @@ def test_derive_metrics_from_a_chunk_log():
     )  # audio over wall time after the first chunk
 
 
+def test_silence_before_voice_delays_first_voice_past_its_arrival():
+    # 100 ms of silence each: the voiced third chunk arrives at 30 ms, but a
+    # player started at 10 ms has 200 ms to play before reaching it.
+    run = {
+        "sample_rate": 24000,
+        "end_ms": 40.0,
+        "chunk_log": [[10.0, 4800, 0], [20.0, 4800, 0], [30.0, 4800, 900]],
+    }
+    m = bench.derive_metrics(run)
+    assert m["ttfv_ms"] == 30.0
+    assert m["first_voice_ms"] == pytest.approx(210.0)
+
+
+def test_first_voice_is_the_arrival_when_the_voice_comes_late():
+    # 100 ms of silence is played out long before the voice arrives at 500 ms.
+    run = {
+        "sample_rate": 24000,
+        "end_ms": 600.0,
+        "chunk_log": [[10.0, 4800, 0], [500.0, 4800, 900]],
+    }
+    assert bench.derive_metrics(run)["first_voice_ms"] == 500.0
+
+
+def test_first_voice_is_none_without_a_voiced_chunk():
+    run = {"sample_rate": 24000, "end_ms": 40.0, "chunk_log": [[10.0, 4800, 0]]}
+    assert bench.derive_metrics(run)["first_voice_ms"] is None
+
+
+def test_a_late_sentence_burst_counts_its_wait_in_realtime_x_only():
+    # 2 s of audio in two chunks, 10 ms apart, after a 990 ms wait: the speed
+    # after the first chunk is 200×, the whole call 2×.
+    run = {
+        "sample_rate": 24000,
+        "end_ms": 1000.0,
+        "chunk_log": [[990.0, 48000, 900], [1000.0, 48000, 900]],
+    }
+    m = bench.derive_metrics(run)
+    assert m["speed_x"] == pytest.approx(200.0)
+    assert m["realtime_x"] == pytest.approx(2.0)
+    assert m["continuous_ms"] == 990.0
+
+
+def test_one_chunk_output_has_a_realtime_factor_and_no_speed():
+    run = {"sample_rate": 24000, "end_ms": 200.0, "chunk_log": [[100.0, 48000, 900]]}
+    m = bench.derive_metrics(run)
+    assert m["speed_x"] is None
+    assert m["realtime_x"] == pytest.approx(5.0)
+    assert m["continuous_ms"] == 100.0
+
+
+def test_a_gap_covered_by_queued_audio_is_not_a_stall():
+    # The first chunk holds 1 s of audio; the 500 ms gap ends long before it does.
+    run = {
+        "sample_rate": 24000,
+        "end_ms": 700.0,
+        "chunk_log": [[100.0, 48000, 900], [600.0, 4800, 900]],
+    }
+    m = bench.derive_metrics(run)
+    assert m["max_gap_ms"] == 500.0
+    assert m["continuous_ms"] == 100.0
+
+
+def test_a_stream_above_real_time_on_average_can_still_stall_early():
+    # 100 ms of audio, then 1 s after 500 ms: 1.1 s of audio in 0.61 s of call,
+    # yet a player started at 10 ms runs dry. Playback must start 400 ms in.
+    run = {
+        "sample_rate": 24000,
+        "end_ms": 610.0,
+        "chunk_log": [[10.0, 4800, 900], [510.0, 48000, 900]],
+    }
+    m = bench.derive_metrics(run)
+    assert m["realtime_x"] > 1
+    assert m["continuous_ms"] == pytest.approx(410.0)
+
+
+def test_realtime_x_is_none_without_elapsed_time():
+    run = {"sample_rate": 24000, "end_ms": 0.0, "chunk_log": [[0.0, 4800, 900]]}
+    assert bench.derive_metrics(run)["realtime_x"] is None
+
+
 def test_derive_metrics_before_cpu_was_recorded_is_none_for_cpu_only():
     # A record from a run that predates the sampler: the timing metrics are
     # unchanged, the CPU ones are None ("not measured"), not an error.
@@ -471,7 +551,9 @@ def test_merge_into_builds_a_result_then_a_newer_run_overrides(tmp_path: Path):
     assert float(rows[("l/x", "say")]["cpu_peak_pct__median"]) == 350.0
     assert rows[("m/c", "stream")]["cpu_peak_pct__median"] == ""
     assert "| CPU peak p50 | CPU peak p90 | load s | first call | peak MB | run |" in md
-    assert "| l/x | 1 | 0 | 5 | 5 | — | — | — | — | — | — | 0.50 | — | 457 |" in md
+    assert (
+        "| l/x | 1 | 0 | 5 | 5 | 5 | — | — | — | — | — | — | — | 0.50 | — | 457 |" in md
+    )
     assert "| 20261028-100000 |" in md and "| — |\n" in md  # r1: no measures
     assert "| cpu (50 ms windows), memory, no gpu |" in md  # r2
     assert (
@@ -509,6 +591,21 @@ def test_summarize_a_single_run(tmp_path: Path):
     )
     bench.summarize(run)
     assert "| m/a | 1 | 0 | 15 |" in (run / "summary.md").read_text()
+
+
+def test_a_cell_cut_short_leaves_the_summary_but_not_the_results(tmp_path: Path):
+    full = [_run_record("m/a", "say", 15.0, seq=i) for i in range(1, 6)]
+    cut = {**_run_record("m/a", "stream", 20.0), "text": "medium"}
+    run = _write_run(tmp_path / "runs", "20261028-120000", [*full, cut, _done("m/a")])
+    bench.summarize(run)
+    row = next(csv.DictReader((run / "summary.csv").open()))
+    assert row["ttfa_p50_ms"] == "15"
+    medium = [c[0] for c in bench.SUMMARY_COLUMNS if c[2:4] == ("stream", "medium")]
+    assert medium and not any(row[column] for column in medium)
+    kept = [
+        r for r in csv.DictReader((run / "results.csv").open()) if r["mode"] == "stream"
+    ]
+    assert kept[0]["ttfa_ms__median"] == "20.0"
 
 
 def test_summary_follows_matrix_order_not_speed(tmp_path: Path):

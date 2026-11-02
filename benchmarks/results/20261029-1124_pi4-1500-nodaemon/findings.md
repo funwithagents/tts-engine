@@ -4,17 +4,7 @@ The reading of this result: what stood out, which decisions it fed, what remains
 
 ## Time to first audio is the wrong headline here
 
-On the Mac every local model generates many times faster than real time, so the first chunk is the start of continuous speech. On the Pi most models run near or below real time. A model can send its first chunk quickly and then fall behind, so playback started at that chunk stutters. The useful figure is the **time to continuous audio**: the earliest playback start that never runs out of audio afterwards. It is not a summary column yet; it is derived from the per-chunk timelines in `raw.jsonl.gz`:
-
-```python
-def time_to_continuous_audio(record):
-    """Earliest playback start (ms after the call) that never stalls."""
-    queued_ms, start_ms = 0.0, 0.0
-    for arrival_ms, n_bytes, _peak in record["chunk_log"]:
-        start_ms = max(start_ms, arrival_ms - queued_ms)
-        queued_ms += n_bytes / 2 / record["sample_rate"] * 1000  # 16-bit mono
-    return start_ms
-```
+On the Mac every local model generates many times faster than real time, so the first chunk is the start of continuous speech. On the Pi most models run near or below real time. A model can send its first chunk quickly and then fall behind, so playback started at that chunk stutters. The useful figure is the **time to continuous audio**: the earliest playback start that never runs out of audio afterwards. It is the `continuous_ms` metric: the `continuous p50` column of [`summary.md`](summary.md) for the three-sentence stream, and every cell in [`results.csv`](results.csv).
 
 ## Headline
 
@@ -42,7 +32,7 @@ Medians over the 10 measured runs. TTFA and continuous audio are on `say()` with
 
 ## What stood out
 
-- **pocket 2m is the only model that speaks within about 200 ms and keeps going.** Its margin is thin: 1.02× real time, 1.06× with `quantize`. On this board `quantize` helps every pocket size, which it never did on the Mac.
+- **pocket 2m is the only model whose audio starts within about 200 ms and keeps going.** That first audio is silence: voice would play from about 360–430 ms on a player started at the first chunk, still the earliest continuous speech here. Its margin is thin: 1.02× real time, 1.06× with `quantize`. On this board `quantize` helps each tiny pocket size, which it never did on the Mac.
 - **piper is the robust choice.** It starts at 0.8–1.2 s and then never stalls: 3–4× real time on four cores, 2–2.75× on two. Its time to first audio is its time to continuous audio, because each sentence arrives whole. One thread costs 2.7× the latency, and `ljspeech-medium+t1` stalls about 0.5 s over three sentences.
 - **phonon's 125 ms time to first audio hides a slow start.** It sends two 80 ms chunks, then generates below real time for about two seconds. Continuous speech starts at 1.2–1.3 s for the quantized 31m models, no sooner than piper, with less margin and all four cores busy. Unquantized `cpu` and `auto` need 1.6–1.9 s, and every `+t1` row 4–5 s on three sentences.
 - **phonon needs every core here.** On four cores the uncapped pool is the four-thread case: `+t4` matches every uncapped row. Two threads cost 0.1–0.2× of real-time margin and one thread drops every phonon below real time. The Mac's finding that every cap beats the default came from oversubscribing 15 cores and does not transfer.
@@ -60,6 +50,5 @@ Medians over the 10 measured runs. TTFA and continuous audio are on `say()` with
 ## Still to do
 
 1. **A pass with the Reachy Mini daemon running**, once its setup is trusted. It decides between pocket 2m, whose 1.02× margin is unlikely to survive a shared CPU, and piper, whose margin should.
-2. **Time to continuous audio as a summary column**, so that this reading does not need the script above.
-3. **The expected-to-fail tier** at n=3: pocket 100M `quantize`, pocket 24-layer, kokoro fp32 and fp16, piper `high`, kokoro int8 `+t1`.
-4. **Hosted providers over the Pi's Wi-Fi**, for the path the robot would use and the client-side CPU of an A72.
+2. **The expected-to-fail tier** at n=3: pocket 100M `quantize`, pocket 24-layer, kokoro fp32 and fp16, piper `high`, kokoro int8 `+t1`.
+3. **Hosted providers over the Pi's Wi-Fi**, for the path the robot would use and the client-side CPU of an A72.
