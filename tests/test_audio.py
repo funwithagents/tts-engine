@@ -1,7 +1,5 @@
 """Tests for AudioPlayer and DiscardPlayer."""
 
-import time
-
 import numpy as np
 import pytest
 
@@ -88,48 +86,84 @@ def test_drain_closes_stream_even_if_stop_raises(mocker):
 
 
 # --- DiscardPlayer: no device, real-time pace ------------------------------------
-# Timings are real (the pace is the behavior under test) but short; the lower
-# bounds are tight (a sink must never run ahead of real time), the upper ones
-# generous for slow CI runners.
+# Driven on a virtual clock: `time` in tts_engine.audio is replaced by a fake
+# whose sleep advances the clock, so the pace is asserted exactly and the tier
+# never waits. `approx` only absorbs float rounding of the summed durations.
 
-_RATE = 16000
-
-
-def _seconds_of_pcm(seconds: float) -> bytes:
-    return _pcm_bytes(int(_RATE * seconds))
+_RATE = 1000  # 1 sample = 1 ms
 
 
-def test_discard_player_paces_an_utterance_in_real_time():
+class FakeTime:
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    fake = FakeTime()
+    monkeypatch.setattr("tts_engine.audio.time", fake)
+    return fake
+
+
+def _ms_of_pcm(ms: int) -> bytes:
+    return _pcm_bytes(ms * _RATE // 1000)
+
+
+def test_discard_player_feeds_at_most_one_buffer_ahead_and_drain_plays_out(clock):
     player = DiscardPlayer(sample_rate=_RATE)
-    start = time.monotonic()
+    fed = 0.0
     for _ in range(15):  # 15 x 20 ms = 0.3 s of audio
-        player.feed(_seconds_of_pcm(0.02))
-    fed = time.monotonic() - start
+        player.feed(_ms_of_pcm(20))
+        fed += 0.02
+        # feed returned once the audio is at most one buffer ahead of the clock.
+        assert clock.now == pytest.approx(max(0.0, fed - DISCARD_BUFFER_SECONDS))
+    assert clock.now == pytest.approx(0.3 - DISCARD_BUFFER_SECONDS)
+
     player.drain()
-    total = time.monotonic() - start
-
-    # feed ran at most one device buffer ahead; drain waited out the rest.
-    assert 0.3 - DISCARD_BUFFER_SECONDS - 0.02 <= fed < 0.3
-    assert 0.3 <= total < 0.3 + 0.25
+    assert clock.now == pytest.approx(0.3)
 
 
-def test_discard_player_drain_waits_out_the_remainder_then_starts_afresh():
+def test_discard_player_paces_the_next_utterance_afresh_after_drain(clock):
     player = DiscardPlayer(sample_rate=_RATE)
-    start = time.monotonic()
-    player.feed(_seconds_of_pcm(0.2))  # one big chunk, like a whole-text backend
-    assert time.monotonic() - start >= 0.2 - DISCARD_BUFFER_SECONDS
+    player.feed(_ms_of_pcm(200))
     player.drain()
-    assert time.monotonic() - start >= 0.2
+    assert clock.now == pytest.approx(0.2)
 
-    # The next utterance is paced from its own start, not the previous one's.
-    second = time.monotonic()
-    player.feed(_seconds_of_pcm(0.15))
+    clock.now += 1.0  # idle between utterances
+    player.feed(_ms_of_pcm(50))  # within the buffer: returns at once
+    assert clock.now == pytest.approx(1.2)
     player.drain()
-    assert 0.15 <= time.monotonic() - second < 0.15 + 0.25
+    assert clock.now == pytest.approx(1.25)
 
-    # Nothing pending: a drain with nothing fed returns at once, as does an
-    # empty chunk.
-    idle = time.monotonic()
+
+def test_discard_player_restarts_its_deadline_after_an_underrun(clock):
+    player = DiscardPlayer(sample_rate=_RATE)
+    player.feed(_ms_of_pcm(200))  # deadline 0.2, returns at 0.1
+    assert clock.now == pytest.approx(0.1)
+
+    clock.now = 0.5  # the producer is late: the first 0.2 s played out at 0.2
+    player.feed(_ms_of_pcm(200))
+    # Paced from now, not from the stale deadline: no burst, a real wait.
+    assert clock.now == pytest.approx(0.6)
+    player.drain()
+    assert clock.now == pytest.approx(0.7)
+
+
+def test_discard_player_ignores_empty_chunks(clock):
+    player = DiscardPlayer(sample_rate=_RATE)
+    player.feed(b"")
+    player.drain()  # nothing fed: nothing to play out
+    assert clock.sleeps == []
+
+    player.feed(_ms_of_pcm(150))
     player.feed(b"")
     player.drain()
-    assert time.monotonic() - idle < 0.05
+    assert clock.now == pytest.approx(0.15)

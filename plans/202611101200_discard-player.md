@@ -10,8 +10,8 @@ Implements `engine.player.discard` as settled in `specs/configuration.md` ("`eng
 - `src/tts_engine/audio.py` — `DiscardPlayer` (an `AudioSink`) and `DISCARD_BUFFER_SECONDS`
 - `src/tts_engine/engine.py` — the default sink is a `DiscardPlayer` when the config discards (`_default_sink`); the MCP server and the CLIs build their engine through the same constructor
 - `tests/test_config.py` — discard accepted, defaulted, rejected (with a device, non-boolean)
-- `tests/test_audio.py` — the pace: an utterance in small chunks takes its duration, `drain` waits out the remainder, the next utterance is paced afresh
-- `tests/test_no_audio_import.py` — an engine built from a discard config speaks at real-time pace with `sounddevice` unimportable
+- `tests/test_audio.py` — the pace, on a virtual clock (`time` patched, no real sleep): `feed` at most one buffer ahead, `drain` plays out the remainder, the next utterance paced afresh, an underrun restarts the deadline, empty chunks ignored
+- `tests/test_no_audio_import.py` — an engine built from a discard config speaks for its audio's duration (virtual clock) with `sounddevice` unimportable
 - `specs/configuration.md`, `specs/audio-player.md`, `specs/architecture.md`, `specs/audio-sink.md`, `specs/_index.md` — the field, the sink, the engine's choice
 - `docs/configuration.md`, `docs/audio-sinks.md`, `docs/troubleshooting.md` — the field for users
 

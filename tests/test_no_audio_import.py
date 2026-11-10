@@ -4,7 +4,8 @@ Runs in a subprocess with `sounddevice` made unimportable, so poisoning
 `sys.modules` never leaks into the rest of the suite. Proves that
 `import tts_engine`, constructing `TTSEngine(config, sink=...)`, and speaking
 through that sink never import sounddevice — and that an engine whose config
-discards its audio (`engine.player.discard`) never does either.
+discards its audio (`engine.player.discard`) never does either, and speaks at
+the pace of its audio (on a virtual clock).
 """
 
 import subprocess
@@ -89,10 +90,10 @@ _DISCARD_SCRIPT = textwrap.dedent(
     """
     import asyncio
     import sys
-    import time
 
     sys.modules["sounddevice"] = None  # as on a host with no PortAudio
 
+    import tts_engine.audio
     from tts_engine import TTSEngine
     from tts_engine.config import TTSEngineConfig
     from tts_engine.modules import REGISTRY
@@ -123,17 +124,31 @@ _DISCARD_SCRIPT = textwrap.dedent(
 
     REGISTRY["fake"] = FakeModule
 
+
+    class FakeTime:
+        # A virtual clock for the player: sleeping advances it, nothing waits.
+        now = 0.0
+
+        def monotonic(self):
+            return self.now
+
+        def sleep(self, seconds):
+            self.now += seconds
+
+
+    clock = FakeTime()
+    tts_engine.audio.time = clock
+
     engine = TTSEngine(
         TTSEngineConfig.from_dict(
             {"module": {"type": "fake"}, "player": {"discard": True}}
         )
     )
-    start = time.monotonic()
     asyncio.run(engine.say("hi"))
-    elapsed = time.monotonic() - start
 
-    # The speech lasted as long as its audio, and no device was touched.
-    assert 0.25 <= elapsed < 0.25 + 0.5, elapsed
+    # The speech lasted exactly as long as its audio (on the virtual clock),
+    # and no device was touched.
+    assert abs(clock.now - 0.25) < 1e-9, clock.now
     assert sys.modules["sounddevice"] is None
     print("OK")
     """
