@@ -7,7 +7,7 @@ from typing import Self
 
 import numpy as np
 
-from tts_engine.audio import AudioPlayer, AudioSink
+from tts_engine.audio import AudioPlayer, AudioSink, DiscardPlayer
 from tts_engine.config import TTSEngineConfig
 from tts_engine.modules import load_module
 from tts_engine.modules.base import TTSOptions, cleanup
@@ -65,12 +65,20 @@ class _GainSink:
         self._inner.drain()
 
 
+def _default_sink(config: TTSEngineConfig, sample_rate: int) -> AudioSink:
+    """The sink `config.player` names: the local device, or none at all."""
+    if config.player.discard:
+        return DiscardPlayer(sample_rate=sample_rate)
+    return AudioPlayer(device=config.player.device, sample_rate=sample_rate)
+
+
 class TTSEngine:
     def __init__(
         self, config: TTSEngineConfig, *, sink: AudioSink | None = None
     ) -> None:
         """Build the module (via load_module) from config. Use the injected sink,
-        or build the default local AudioPlayer from config when sink is None.
+        or build the default local AudioPlayer from config when sink is None
+        (a DiscardPlayer, no device at all, when `config.player.discard`).
 
         When a sink is injected, no AudioPlayer is constructed and sounddevice is
         never imported — the engine stays usable on hosts with no audio device.
@@ -81,9 +89,7 @@ class TTSEngine:
         self._sink: AudioSink = (
             sink
             if sink is not None
-            else AudioPlayer(
-                device=config.player.device, sample_rate=self._module.sample_rate
-            )
+            else _default_sink(config, self._module.sample_rate)
         )
         if config.gain_db != 0:
             self._sink = _GainSink(self._sink, config.gain_db)

@@ -181,6 +181,38 @@ def test_from_dict_carries_module_verbatim(monkeypatch):
 def test_from_dict_player_defaults_when_omitted():
     cfg = TTSEngineConfig.from_dict({"module": VALID["engine"]["module"]})
     assert cfg.player.device is None
+    assert cfg.player.discard is False
+
+
+def test_from_dict_player_discard():
+    module = VALID["engine"]["module"]
+    cfg = TTSEngineConfig.from_dict({"module": module, "player": {"discard": True}})
+    assert cfg.player.discard is True
+    cfg = TTSEngineConfig.from_dict(
+        {"module": module, "player": {"discard": True, "device": None}}
+    )
+    assert cfg.player.discard is True
+    cfg = TTSEngineConfig.from_dict(
+        {"module": module, "player": {"discard": False, "device": 2}}
+    )
+    assert (cfg.player.discard, cfg.player.device) == (False, 2)
+
+
+@pytest.mark.parametrize("device", ["BlackHole", 0])
+def test_from_dict_rejects_discard_with_a_device(device):
+    block = {
+        "module": VALID["engine"]["module"],
+        "player": {"discard": True, "device": device},
+    }
+    with pytest.raises(ConfigError, match=r"engine\.player\.device"):
+        TTSEngineConfig.from_dict(block)
+
+
+@pytest.mark.parametrize("discard", ["true", 1, None])
+def test_from_dict_rejects_a_non_boolean_discard(discard):
+    block = {"module": VALID["engine"]["module"], "player": {"discard": discard}}
+    with pytest.raises(ConfigError, match=r"engine\.player\.discard.*boolean"):
+        TTSEngineConfig.from_dict(block)
 
 
 def test_from_dict_engine_not_object():

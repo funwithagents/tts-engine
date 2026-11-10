@@ -1,6 +1,6 @@
 # Audio output and custom sinks
 
-Without a custom sink, `TTSEngine` constructs an `AudioPlayer` using `player.device` and the active module's sample rate. Playback starts lazily when the first PCM chunk arrives.
+Without a custom sink, `TTSEngine` constructs an `AudioPlayer` using `player.device` and the active module's sample rate. Playback starts lazily when the first PCM chunk arrives. With `player.discard` set, it constructs a `DiscardPlayer` instead: no device, the audio dropped at the pace it would have played ([configuration.md](configuration.md)).
 
 Applications that need to capture audio, send it across a network, or feed another playback system can inject an `AudioSink`-compatible object:
 

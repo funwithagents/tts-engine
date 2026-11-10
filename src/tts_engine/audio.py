@@ -1,8 +1,10 @@
-"""AudioSink protocol + AudioPlayer: sounddevice-based streaming playback."""
+"""AudioSink protocol + AudioPlayer (sounddevice-based streaming playback) and
+DiscardPlayer (no device, real-time pace)."""
 
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
@@ -14,6 +16,11 @@ log = logging.getLogger(__name__)
 
 _CHANNELS = 1
 _DTYPE = "int16"
+_SAMPLE_BYTES = 2
+
+# How far ahead of real time `DiscardPlayer.feed` lets the fed audio run before
+# it blocks: the stand-in for a sound device's output buffer.
+DISCARD_BUFFER_SECONDS = 0.1
 
 
 class AudioSink(Protocol):
@@ -73,3 +80,42 @@ class AudioPlayer(AudioSink):
             stream.stop()
         finally:
             stream.close()
+
+
+class DiscardPlayer(AudioSink):
+    """A player with no device: the audio goes nowhere, at real-time pace.
+
+    Built by the engine for ``engine.player.discard``. It opens no device and
+    never imports sounddevice, but it keeps the timing of `AudioPlayer`, since
+    callers rely on it (an utterance lasts as long as its audio; a cancel lands
+    mid-speech): ``feed`` blocks as a blocking device write does, until the
+    audio fed so far is at most ``DISCARD_BUFFER_SECONDS`` ahead of real time,
+    and ``drain`` waits for the rest to "play out", then starts the next
+    utterance afresh. The pace runs against one deadline (the utterance's start
+    plus the duration fed so far), so per-call overhead never accumulates; a
+    producer slower than real time is an underrun, as on a device: the deadline
+    restarts from now.
+    """
+
+    def __init__(self, sample_rate: int) -> None:
+        self._sample_rate = sample_rate
+        self._deadline: float | None = None
+
+    def feed(self, chunk: bytes) -> None:
+        if not chunk:
+            return
+        now = time.monotonic()
+        start = now if self._deadline is None else max(self._deadline, now)
+        self._deadline = start + len(chunk) / _SAMPLE_BYTES / self._sample_rate
+        _sleep_until(self._deadline - DISCARD_BUFFER_SECONDS)
+
+    def drain(self) -> None:
+        deadline, self._deadline = self._deadline, None
+        if deadline is not None:
+            _sleep_until(deadline)
+
+
+def _sleep_until(deadline: float) -> None:
+    remaining = deadline - time.monotonic()
+    if remaining > 0:
+        time.sleep(remaining)
