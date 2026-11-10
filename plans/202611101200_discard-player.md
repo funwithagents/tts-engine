@@ -12,7 +12,8 @@ Implements `engine.player.discard` as settled in `specs/configuration.md` ("`eng
 - `tests/test_config.py` — discard accepted, defaulted, rejected (with a device, non-boolean)
 - `tests/test_audio.py` — the pace, on a virtual clock (`time` patched, no real sleep): `feed` at most one buffer ahead, `drain` plays out the remainder, the next utterance paced afresh, an underrun restarts the deadline, empty chunks ignored
 - `tests/test_no_audio_import.py` — an engine built from a discard config speaks for its audio's duration (virtual clock) with `sounddevice` unimportable
-- `specs/configuration.md`, `specs/audio-player.md`, `specs/architecture.md`, `specs/audio-sink.md`, `specs/_index.md` — the field, the sink, the engine's choice
+- `tests-e2e/test_discard.py` — live: phonon through a `player.discard: true` engine; `say` lasts as long as the audio fed (audio − 0.05 s to audio + 1.5 s), no `sounddevice.OutputStream` constructed; skips without the `phonon` extra
+- `specs/configuration.md`, `specs/audio-player.md`, `specs/testing.md`, `specs/ci.md`, `specs/architecture.md`, `specs/audio-sink.md`, `specs/_index.md` — the field, the sink, the engine's choice
 - `docs/configuration.md`, `docs/audio-sinks.md`, `docs/troubleshooting.md` — the field for users
 
 ## Steps
@@ -24,4 +25,4 @@ Implements `engine.player.discard` as settled in `specs/configuration.md` ("`eng
 
 ## Verification
 
-`uv run ruff check .`, `uv run ruff format src tests tests-e2e benchmarks`, `uv run pyright`, `uv run pytest` all pass; then this plan goes `Done` and both specs return to `Implemented` (here and in the indexes).
+`uv run ruff check .`, `uv run ruff format src tests tests-e2e benchmarks`, `uv run pyright`, `uv run pytest` all pass, and `uv run pytest tests-e2e -k discard -rs` passes with the `phonon` extra (measured: 3.52 s of audio, `say` 3.55 s); then this plan goes `Done` and both specs return to `Implemented` (here and in the indexes).
