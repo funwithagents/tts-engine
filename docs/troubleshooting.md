@@ -4,6 +4,7 @@
 
 - Confirm that PortAudio is installed.
 - Leave `player.device` as `null` to use the system default, or inspect the available devices with `sounddevice.query_devices()`.
+- On a host with no device the voice may use (or none at all), set `player.discard` to `true`: nothing is played, nothing is opened, and speech still takes its real time.
 - Remember that audio plays on the machine running `TTSEngine`, not necessarily the machine that initiated an MCP call.
 
 ## A provider module requires its extra

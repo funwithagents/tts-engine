@@ -5,7 +5,7 @@ tests:
   - tests/test_audio.py
 ---
 
-# AudioPlayer
+# AudioPlayer (and DiscardPlayer)
 
 **Status:** Implemented
 
@@ -84,3 +84,20 @@ sudo apt-get install libportaudio2
 ```
 
 `sounddevice` is a Python package (`pip install sounddevice`) that wraps PortAudio via cffi.
+
+## `DiscardPlayer`
+
+The player for **no device**: the second built-in `AudioSink` in `audio.py`, which the engine builds instead of `AudioPlayer` when `engine.player.discard` is `true` ([configuration.md](configuration.md), "`engine.player` block"). It exists for a host whose only audio device must not hear the voice (a CI runner whose one virtual cable feeds the application's microphone): the voice goes nowhere, yet takes its time.
+
+```python
+class DiscardPlayer(AudioSink):
+    def __init__(self, sample_rate: int) -> None: ...
+    def feed(self, chunk: bytes) -> None: ...
+    def drain(self) -> None: ...
+```
+
+- **No device.** It opens nothing and never imports sounddevice, so it works on a host with no PortAudio, like an injected sink ([audio-sink.md](audio-sink.md), "Importable without local audio").
+- **Real-time pace.** It keeps `AudioPlayer`'s timing, which callers rely on: an utterance lasts as long as its audio, "speaking" ends when the audio is out, and a cancel lands mid-speech. `feed(chunk)` blocks as a blocking device write does: until the audio fed so far is at most `DISCARD_BUFFER_SECONDS` (0.1 s, the stand-in for a device's output buffer) ahead of real time.
+- **One running deadline.** The pace runs against a deadline — the utterance's first `feed` time plus the duration of everything fed since (bytes / 2 / `sample_rate`) — not by sleeping each chunk's duration, so per-call overhead never accumulates. A producer slower than real time is an underrun, as on a device: the deadline restarts from the time of the late chunk. An empty chunk is ignored.
+- **`drain`** waits until the deadline (the buffered remainder "plays out", as `AudioPlayer.drain`'s `stream.stop()` plays out what was written), then resets, so the next utterance is paced from its own start. A drain with nothing fed returns at once.
+- **Cancellation** matches `AudioPlayer`: the module stops feeding between slices, and the engine's single `drain` then waits out what was already fed — at most one buffer plus the chunk in flight — before the cancel propagates.

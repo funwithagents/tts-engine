@@ -50,6 +50,8 @@ The optional `player.device` field selects the local output device: `null` uses 
 uv run python -c "import sounddevice; print(sounddevice.query_devices())"
 ```
 
+To play on **no device at all**, set `"player": {"discard": true}`: the audio is dropped instead of played, at real-time pace, so `say()` still lasts as long as its speech and a cancel still lands mid-utterance. No device is opened and `sounddevice` is never imported. It is for a host whose only audio device must not hear the voice, such as a CI runner whose one virtual cable feeds the application's microphone. `discard` is a boolean (default `false`) and cannot be combined with a `device`.
+
 ## Output gain
 
 Every provider, model and voice speaks at its own level: across ten voices of ten backends, the loudest is more than 8 dB above the quietest. An application that plays several engines through one output (a demo comparing voices, one voice per character, a voice the user picks from a list) hears that as a volume jump at every change. The optional `gain_db` field of the engine block sets one static gain for the engine, in decibels:

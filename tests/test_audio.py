@@ -1,9 +1,11 @@
-"""Tests for AudioPlayer."""
+"""Tests for AudioPlayer and DiscardPlayer."""
+
+import time
 
 import numpy as np
 import pytest
 
-from tts_engine.audio import AudioPlayer
+from tts_engine.audio import DISCARD_BUFFER_SECONDS, AudioPlayer, DiscardPlayer
 
 
 def _pcm_bytes(n_samples: int = 16) -> bytes:
@@ -83,3 +85,51 @@ def test_drain_closes_stream_even_if_stop_raises(mocker):
     assert mock_stream.stop.call_count == 1
     player.feed(_pcm_bytes())  # a fresh stream is opened
     assert mock_ctor.call_count == 2
+
+
+# --- DiscardPlayer: no device, real-time pace ------------------------------------
+# Timings are real (the pace is the behavior under test) but short; the lower
+# bounds are tight (a sink must never run ahead of real time), the upper ones
+# generous for slow CI runners.
+
+_RATE = 16000
+
+
+def _seconds_of_pcm(seconds: float) -> bytes:
+    return _pcm_bytes(int(_RATE * seconds))
+
+
+def test_discard_player_paces_an_utterance_in_real_time():
+    player = DiscardPlayer(sample_rate=_RATE)
+    start = time.monotonic()
+    for _ in range(15):  # 15 x 20 ms = 0.3 s of audio
+        player.feed(_seconds_of_pcm(0.02))
+    fed = time.monotonic() - start
+    player.drain()
+    total = time.monotonic() - start
+
+    # feed ran at most one device buffer ahead; drain waited out the rest.
+    assert 0.3 - DISCARD_BUFFER_SECONDS - 0.02 <= fed < 0.3
+    assert 0.3 <= total < 0.3 + 0.25
+
+
+def test_discard_player_drain_waits_out_the_remainder_then_starts_afresh():
+    player = DiscardPlayer(sample_rate=_RATE)
+    start = time.monotonic()
+    player.feed(_seconds_of_pcm(0.2))  # one big chunk, like a whole-text backend
+    assert time.monotonic() - start >= 0.2 - DISCARD_BUFFER_SECONDS
+    player.drain()
+    assert time.monotonic() - start >= 0.2
+
+    # The next utterance is paced from its own start, not the previous one's.
+    second = time.monotonic()
+    player.feed(_seconds_of_pcm(0.15))
+    player.drain()
+    assert 0.15 <= time.monotonic() - second < 0.15 + 0.25
+
+    # Nothing pending: a drain with nothing fed returns at once, as does an
+    # empty chunk.
+    idle = time.monotonic()
+    player.feed(b"")
+    player.drain()
+    assert time.monotonic() - idle < 0.05

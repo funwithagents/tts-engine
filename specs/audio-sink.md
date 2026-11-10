@@ -108,7 +108,7 @@ class TTSEngine:
                 self._sink.drain()
 ```
 
-- **Additive and backwards compatible.** With no `sink`, behavior is identical to today: the engine builds an `AudioPlayer` from `config.player` at the module's `sample_rate`.
+- **Additive and backwards compatible.** With no `sink`, behavior is identical to today: the engine builds an `AudioPlayer` from `config.player` at the module's `sample_rate` — or, when `config.player.discard` is set, a `DiscardPlayer` that plays on no device ([audio-player.md](audio-player.md), "`DiscardPlayer`"). (The snippet above shows the `AudioPlayer` branch.)
 - **No per-call sink override.** `say(text)` keeps its single-argument signature. The destination is fixed per engine instance. (A per-call override was considered and deferred — see Open questions.)
 - When a custom `sink` is injected, the engine **does not construct an `AudioPlayer`** and never touches sounddevice.
 - **The engine does not own the sink's lifetime.** `TTSEngine.close()` releases the module and leaves the sink alone: an injected sink belongs to the embedder, who closes whatever it holds; the default `AudioPlayer` holds nothing between utterances (its stream opens on the first `feed` and closes in `drain`), so there is nothing to close. The one sink call per utterance, `drain`, is the whole lifecycle the engine drives ([architecture.md](architecture.md), "Ownership and lifetime").

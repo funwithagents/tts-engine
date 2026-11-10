@@ -115,12 +115,16 @@ This is a *locate* step only — no file is read or checked to exist here; each 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `device` | string \| int \| null | no | `null` | `sounddevice` output device. `null` = system default. String = device name substring match. Integer = device index. |
+| `discard` | boolean | no | `false` | Play on **no device**: the engine builds a `DiscardPlayer`, which drops the audio at real-time pace and never imports sounddevice ([audio-player.md](audio-player.md), "`DiscardPlayer`"). Cannot be combined with a non-null `device`. |
 
 ```python
 @dataclass
 class PlayerConfig:
     device: str | int | None = None
+    discard: bool = False
 ```
+
+`discard` is a separate boolean rather than a reserved `device` value: `null` already means the system default, and a sentinel name could collide with a real device, since sounddevice matches names by substring. It exists for a host whose only audio device must not hear the voice — a CI runner with one virtual cable whose playback end feeds the application's microphone — where the voice must go nowhere yet still take its time.
 
 ### `engine.gain_db`
 
@@ -187,6 +191,7 @@ The `engine`-block rules below are enforced by `TTSEngineConfig.from_dict` and s
 - `engine.module.type` must be a non-empty string. Registry membership is validated later by `load_module` during `TTSEngine` construction, avoiding a config↔module import cycle and allowing callers to register custom modules before constructing the engine. Unknown values still raise `ConfigError` before an engine is created.
 - `engine.module.base_dir`, when present, must be a non-empty string. It is absolutized / filled in per the `base_dir` rules above; whether the directory exists is not checked here.
 - `engine.player.device` must be a string, an integer other than `bool`, or `null`.
+- `engine.player.discard`, when present, must be a boolean; `true` with a non-null `device` is contradictory and raises `ConfigError` naming both fields.
 - `engine.gain_db`, when present, must be an `int` or `float` other than `bool`, finite (not `NaN` or an infinity) and within −60 to +24 inclusive; anything else raises `ConfigError` naming the field. It is stored as a `float`.
 - `server.host` must be a non-empty string; `server.port` must be an integer other than `bool` in range 1–65535.
 

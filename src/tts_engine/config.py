@@ -65,6 +65,7 @@ def _gain_db(engine_block: dict[str, Any]) -> float:
 @dataclass
 class PlayerConfig:
     device: str | int | None = None
+    discard: bool = False  # no device: the audio is dropped at real-time pace
 
 
 @dataclass
@@ -87,7 +88,8 @@ class TTSEngineConfig:
 
         Structural validation: ``engine`` must be an object, ``module`` an object,
         ``module.type`` a non-empty string, ``module.base_dir`` (if present) a
-        non-empty string, ``player.device`` a str | int (not bool) | None, and
+        non-empty string, ``player.device`` a str | int (not bool) | None,
+        ``player.discard`` a bool (``true`` only with no ``device``), and
         ``gain_db`` (if present) a finite number within GAIN_DB_MIN–GAIN_DB_MAX.
 
         The ``module`` block is carried through as a raw dict; ``type`` and
@@ -129,10 +131,18 @@ class TTSEngineConfig:
             raise ConfigError(
                 "'engine.player.device' must be a string, an integer, or null"
             )
+        discard = player_raw.get("discard", False)
+        if not isinstance(discard, bool):
+            raise ConfigError("'engine.player.discard' must be a boolean")
+        if discard and device is not None:
+            raise ConfigError(
+                "'engine.player.discard' plays on no device: "
+                "'engine.player.device' must be null or absent with it"
+            )
 
         return cls(
             module=module,
-            player=PlayerConfig(device=device),
+            player=PlayerConfig(device=device, discard=discard),
             gain_db=_gain_db(engine_block),
         )
 
