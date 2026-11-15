@@ -189,4 +189,4 @@ uv run pytest tests-e2e      # the live tier: real providers (keys from the envi
 
 ## License
 
-MIT, see [LICENSE](LICENSE). Some extras pull in differently licensed dependencies or weights (GPL for `piper` and part of `kokoro`, CC BY-NC for the multilingual `phonon` models, per-voice dataset licenses for `piper`): their module pages say so.
+Apache-2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE). Some extras pull in differently licensed dependencies or weights (GPL for `piper` and part of `kokoro`, CC BY-NC for the multilingual `phonon` models, per-voice dataset licenses for `piper`): their module pages say so.
