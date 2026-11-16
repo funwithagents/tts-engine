@@ -51,7 +51,7 @@ _SCRIPT = textwrap.dedent(
         "gemini",
         "cartesia",
         "openai",
-        "openai-compatible",
+        "openai-speech-compatible",
         "qwen3",
         "kokoro",
         "piper",
@@ -70,8 +70,8 @@ _SCRIPT = textwrap.dedent(
         ("cartesia", {"type": "cartesia", "api_key": "k", "voice_id": "v"}),
         ("openai", {"type": "openai", "api_key": "k"}),
         (
-            "openai-compatible",
-            {"type": "openai-compatible", "api_key": "k", "voice": "v"},
+            "openai-speech-compatible",
+            {"type": "openai-speech-compatible", "api_key": "k", "voice": "v"},
         ),
         ("qwen3", {"type": "qwen3"}),
         ("kokoro", {"type": "kokoro"}),
@@ -80,7 +80,11 @@ _SCRIPT = textwrap.dedent(
         try:
             REGISTRY[module_type](config)
         except ConfigError as exc:
-            assert f"tts-engine[{module_type}]" in str(exc), exc
+            # A protocol module shares its origin's `<origin>-compatible` extra.
+            extra = {"openai-speech-compatible": "openai-compatible"}.get(
+                module_type, module_type
+            )
+            assert f"tts-engine[{extra}]" in str(exc), exc
         else:
             raise AssertionError(f"{module_type} constructed without its extra")
 

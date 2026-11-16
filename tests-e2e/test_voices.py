@@ -25,7 +25,7 @@ from tts_engine.modules.base import TTSError
 
 log = logging.getLogger(__name__)
 
-_UNSUPPORTED = {"gemini", "openai", "openai-compatible"}
+_UNSUPPORTED = {"gemini", "openai", "openai-speech-compatible"}
 _FIXTURES = {"tone", "audiofile"}
 
 

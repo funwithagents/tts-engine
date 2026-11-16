@@ -1,8 +1,8 @@
-# `openai-compatible`
+# `openai-speech-compatible`
 
 **Kind:** `hosted` · **Synthesis:** OpenAI's `/v1/audio/speech` (`gpt-4o-mini-tts`, `tts-1`) or an OpenAI-compatible server · **Install:** `tts-engine[openai-compatible]` · **Credentials:** API key · **Voice listing:** no
 
-The OpenAI-compatible module streams speech from a `/v1/audio/speech` endpoint through the official `openai` SDK: OpenAI's own by default, or, with `base_url`, any OpenAI-compatible speech server that returns raw `pcm` (vLLM-Omni, Kokoro-FastAPI, `mlx_audio.server`, …). Install it with the `openai-compatible` extra:
+The `openai-speech-compatible` module streams speech from a `/v1/audio/speech` endpoint through the official `openai` SDK: OpenAI's own by default, or, with `base_url`, any OpenAI-compatible speech server that returns raw `pcm` (vLLM-Omni, Kokoro-FastAPI, `mlx_audio.server`, …). It is named after the API it implements, OpenAI's speech API. It was called `openai-compatible` until 2026-11-16, and that name still works but logs a deprecation warning. Install it with the `openai-compatible` extra, the one extra shared by the OpenAI-protocol modules:
 
 ```bash
 uv sync --no-dev --extra openai-compatible
@@ -13,7 +13,7 @@ pip install "tts-engine[openai-compatible]"
 ```json
 {
   "module": {
-    "type": "openai-compatible",
+    "type": "openai-speech-compatible",
     "api_key_env": "OPENAI_API_KEY",
     "voice": "marin"
   }
@@ -39,10 +39,11 @@ The module emits mono PCM at `sample_rate`. A text stream is synthesized one req
 - Verify that the environment variable named by `api_key_env` is set in the process running the engine.
 - A `TTSError` reporting `Error code: 401` means the key was rejected; `Error code: 400` with `Invalid value` lists the supported voices; `model_not_found` (404) means `model` is wrong.
 - `OpenAI-compatible server returned WAV, not raw pcm` means the server behind `base_url` ignores `response_format: "pcm"`. That server cannot be used with this module.
+- `TTS module type 'openai-compatible' is deprecated` in the log means the config still uses the old name: set `"type": "openai-speech-compatible"`. Nothing else changes.
 - If speech from a compatible server sounds too fast, too slow or pitch-shifted, set `sample_rate` to the server's output rate.
 
 ## See also
 
-- [specs/modules/openai-compatible.md](../../specs/modules/openai-compatible.md): the module's contract: every field's validation, the audio format, cancellation, errors and what it was validated against.
-- [examples/config.openai-compatible.json](../../examples/config.openai-compatible.json): a complete MCP-server config.
+- [specs/modules/openai-speech-compatible.md](../../specs/modules/openai-speech-compatible.md): the module's contract: every field's validation, the audio format, cancellation, errors and what it was validated against.
+- [examples/config.openai-speech-compatible.json](../../examples/config.openai-speech-compatible.json): a complete MCP-server config.
 - [Latency benchmark](../../benchmarks/README.md#results): measured time to first audio for each of its models.

@@ -98,8 +98,12 @@ def test_parse_module_gives_a_hosted_type_its_conventional_key_variable():
         "api_key_env": "CARTESIA_API_KEY",
     }
     assert (
-        audition.parse_module("openai-compatible")["api_key_env"]
-        == "OPENAI_COMPATIBLE_API_KEY"
+        audition.parse_module("openai-speech-compatible")["api_key_env"]
+        == "OPENAI_SPEECH_COMPATIBLE_API_KEY"
+    )
+    # A renamed type is given its current name.
+    assert audition.parse_module("openai-compatible")["type"] == (
+        "openai-speech-compatible"
     )
     assert audition.parse_module("phonon") == {"type": "phonon"}
     assert audition.parse_module('{"type": "qwen3", "model": "m"}') == {

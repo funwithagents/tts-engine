@@ -4,7 +4,7 @@ Holds the hardcoded per-module configs (no committed `config.json`), the skip
 gates so a test with no credentials/extra skips cleanly instead of failing, and
 the subprocess helpers the live tests share.
 
-Configs live here in code, asr-engine style: `default_module()` picks the single
+Configs live here in code: `default_module()` picks the single
 module the module-agnostic tests drive (the `tone` fixture module, so they never
 skip), and `MODULES` is the per-module table the parametrized conformance test
 iterates, treating every provider symmetrically.
@@ -59,7 +59,7 @@ _REQUIRED_IMPORT: dict[str, str | tuple[str, ...]] = {
     "cartesia": "cartesia",
     # The SDK alone is the openai-compatible extra; Realtime also needs websockets.
     "openai": ("openai", "websockets"),
-    "openai-compatible": "openai",
+    "openai-speech-compatible": "openai",
     "qwen3": "qwentts_cpp",
     "kokoro": "kokoro_onnx",
     "piper": "piper",
@@ -178,14 +178,14 @@ _CARTESIA_CONFIG = {
 _OPENAI_REALTIME_CONFIG = {"api_key_env": "OPENAI_API_KEY"}
 
 
-# Config for the `openai-compatible` row of `MODULES` — same shape as the other API rows:
+# Config for the `openai-speech-compatible` row of `MODULES` — same shape as the other API rows:
 # `api_key_env` names the variable, never the key. The row pins the module's
 # default model explicitly, so a later default change cannot silently alter the
 # live tier's timing: the `gpt-4o-mini-tts-2025-03-20` snapshot answered in
 # 0.35–0.50 s over 80 benchmark runs (2026-10-28), where the `gpt-4o-mini-tts`
 # alias stalls at random (once two minutes for four seconds of audio, which cost
 # the CI live tier 140 s) and `tts-1`, the row's previous pin, takes 1.1–1.4 s —
-# specs/modules/openai-compatible.md, "Open questions". `voice` is required by the
+# specs/modules/openai-speech-compatible.md, "Open questions". `voice` is required by the
 # endpoint; "marin" is one of the two OpenAI recommends for this model.
 _OPENAI_CONFIG = {
     "api_key_env": "OPENAI_API_KEY",
@@ -243,7 +243,9 @@ MODULES = [
     pytest.param("gemini", _GEMINI_CONFIG, id="gemini"),
     pytest.param("cartesia", _CARTESIA_CONFIG, id="cartesia"),
     pytest.param("openai", _OPENAI_REALTIME_CONFIG, id="openai"),
-    pytest.param("openai-compatible", _OPENAI_CONFIG, id="openai-compatible"),
+    pytest.param(
+        "openai-speech-compatible", _OPENAI_CONFIG, id="openai-speech-compatible"
+    ),
     # Fixture modules: no key, no extra — these rows never skip.
     pytest.param("tone", {}, id="tone"),
     pytest.param(

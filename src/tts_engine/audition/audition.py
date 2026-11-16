@@ -28,7 +28,7 @@ from tts_engine import (
 )
 from tts_engine.config import ConfigError
 from tts_engine.level import DEFAULT_TARGET_DBFS, measure_level
-from tts_engine.modules import REGISTRY
+from tts_engine.modules import REGISTRY, resolve_type
 from tts_engine.modules.base import TTSError
 
 _TEMPLATE = files("tts_engine.audition") / "page.html"
@@ -165,8 +165,10 @@ def parse_module(value: str) -> dict[str, Any]:
         if not isinstance(block, dict) or not isinstance(block.get("type"), str):
             raise AuditionError(f"--module {value!r}: a JSON module needs a 'type'")
         return block
-    if value not in REGISTRY:
-        raise AuditionError(f"--module {value!r}: unknown module type")
+    try:
+        value = resolve_type(value)
+    except ConfigError:
+        raise AuditionError(f"--module {value!r}: unknown module type") from None
     block: dict[str, Any] = {"type": value}
     if REGISTRY[value].kind == "hosted":
         block["api_key_env"] = value.upper().replace("-", "_") + "_API_KEY"

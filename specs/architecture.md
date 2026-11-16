@@ -119,7 +119,8 @@ A library user stops at layer 1 or 2; an agent embeds layer 2 directly; an MCP c
 │    one response per   │
 │    sentence           │
 │                       │
-│ openai_compatible/    │
+│ openai_speech_        │
+│   compatible/         │
 │  • /v1/audio/speech:  │
 │    OpenAI or a server;│
 │    one request per    │
@@ -141,7 +142,7 @@ A library user stops at layer 1 or 2; an agent embeds layer 2 directly; an MCP c
 │ / OpenAI              │
 └───────────────────────┘
 
-Providers (`elevenlabs`, `gradium`, `mistral`, `deepgram`, `gemini`, `cartesia`, `openai-compatible`, `pocket`, `phonon`, `qwen3`, `kokoro`, `piper`) each ship behind a packaging extra; the fixture modules ship in the base install; no module is the default (see [tts-module-interface.md](tts-module-interface.md), "Module kinds").
+Providers (`elevenlabs`, `gradium`, `mistral`, `deepgram`, `gemini`, `cartesia`, `openai`, `openai-speech-compatible`, `pocket`, `phonon`, `qwen3`, `kokoro`, `piper`) each ship behind a packaging extra; the fixture modules ship in the base install; no module is the default (see [tts-module-interface.md](tts-module-interface.md), "Module kinds").
 The MCP layer ships behind the `mcp` extra; layers 1 and 2 need only the base install (see [project.md](project.md), "Dependency strategy for transports").
 ```
 
@@ -232,7 +233,7 @@ await engine.say_stream(llm_tokens())
 | `modules/gemini/module.py` | Gemini TTS over the `google-genai` SDK's sync `generate_content_stream` (behind the `gemini` extra, lazy import), little-endian `audio/l16` fed with no conversion, in 100 ms slices, with mime and finish-reason checks, sentence grouping for the text stream, config parsing |
 | `modules/cartesia/module.py` | Cartesia Sonic over the SDK's sync TTS WebSocket (both input shapes; the text stream is pushed to a context as it arrives), `pcm_s16le` PCM output (behind the `cartesia` extra, lazy import), idle rotation to a fresh context before the server's context expiry, one socket opened at construction and held for the module's lifetime (contexts cancelled on cancel, events routed by `context_id`, replaced before the server's 300 s idle close or after a host sleep), config parsing |
 | `modules/openai/module.py` | OpenAI's Realtime API over the `openai` SDK's sync WebSocket (behind the `openai` extra, lazy import), one out-of-band response per text under verbatim-reading instructions, base64 s16le deltas fed in 100 ms slices from a bounded reader inbox, cancel by `response_id`, a long text sliced and the text stream grouped into sentences over one socket opened at construction and held for the module's lifetime, config parsing |
-| `modules/openai_compatible/module.py` | `/v1/audio/speech` on OpenAI or an OpenAI-compatible server via `base_url`, over the `openai` SDK's sync streaming response (behind the `openai-compatible` extra, lazy import), raw s16le `pcm` fed unchanged in 100 ms slices with an odd-byte carry, WAV bodies rejected, sentence grouping for the text stream, config parsing |
+| `modules/openai_speech_compatible/module.py` | `/v1/audio/speech` on OpenAI or an OpenAI-compatible server via `base_url`, over the `openai` SDK's sync streaming response (behind the `openai-compatible` extra, lazy import), raw s16le `pcm` fed unchanged in 100 ms slices with an odd-byte carry, WAV bodies rejected, sentence grouping for the text stream, config parsing |
 | `modules/pocket/module.py` | Local pocket-tts inference (behind the `pocket` extra, lazy import), sentence grouping for the text stream, float→int16 conversion, config parsing |
 | `modules/phonon/module.py` | Local Phonon inference through the `ptts` Rust runtime (behind the `phonon` extra, lazy import, no torch), sentence grouping for the text stream, float→int16 conversion, config parsing |
 | `modules/qwen3/module.py` | Local Qwen3-TTS inference through the `qwentts-cpp-python` GGML bindings (behind the Apple-silicon-only `qwen3` extra, lazy import, no torch), one call per sentence for both input shapes, float→int16 conversion, config parsing and post-load voice/language checks |

@@ -44,7 +44,7 @@ The six jobs run side by side, each on its own runner, and none waits on another
 
 - **The format check covers the code directories only.** `ruff format .` also rewrites the Python blocks inside Markdown files (the plans), so the gate — and the local command in [AGENTS.md](../AGENTS.md) — is `ruff format src tests tests-e2e benchmarks`, every directory holding Python code.
 - **The fast tier runs as locally**: plain `uv run pytest`, whose `testpaths` is `tests/`. The tier carries no platform list and no platform skips.
-- **The live tier runs as locally**, serial: `uv run pytest tests-e2e`, the MCP test spawning its own `tts-engine-mcp` subprocess. `-rs` prints every skip into the job log; `--durations=10` prints the ten slowest tests, so a provider that turns slow (the OpenAI-compatible rows, on OpenAI's hosted models, once took 140 s of a 310 s step) shows up in the summary rather than in log timestamps.
+- **The live tier runs as locally**, serial: `uv run pytest tests-e2e`, the MCP test spawning its own `tts-engine-mcp` subprocess. `-rs` prints every skip into the job log; `--durations=10` prints the ten slowest tests, so a provider that turns slow (the `openai-speech-compatible` row, on OpenAI's hosted models, once took 140 s of a 310 s step) shows up in the summary rather than in log timestamps.
 
 ### The live job's sound device
 
@@ -65,7 +65,7 @@ The job used to run a PulseAudio null sink behind ALSA's `pulse` plugin. That ne
 | every `test_modules.py` scenario's `[deepgram]` and `[deepgram-flux]` rows | only when the `DEEPGRAM_API_KEY` secret is absent (or on a fork's pull request) |
 | every `test_modules.py` scenario's `[gemini]` row | when the `GEMINI_API_KEY` secret is absent (or on a fork's pull request); and, per test, when the key's quota is exhausted (`429 RESOURCE_EXHAUSTED`, [testing.md](testing.md), "Live tier: skip without credentials") |
 | every `test_modules.py` scenario's `[cartesia]` row | only when the `CARTESIA_API_KEY` secret is absent (or on a fork's pull request) |
-| every `test_modules.py` scenario's `[openai]` and `[openai-compatible]` rows | only when the `OPENAI_API_KEY` secret is absent (or on a fork's pull request) |
+| every `test_modules.py` scenario's `[openai]` and `[openai-speech-compatible]` rows | only when the `OPENAI_API_KEY` secret is absent (or on a fork's pull request) |
 | every `test_modules.py` scenario's `[qwen3]` row | always: the `qwen3` extra installs only on Apple-silicon macOS, so `qwentts_cpp` is absent on the Linux runner ([modules/qwen3.md](modules/qwen3.md)) |
 | `test_voices.py`'s rows | under the same conditions as that row's `test_modules.py` scenarios; and the `[elevenlabs]` / `[elevenlabs-v4]` rows when the key lacks the `voices_read` permission ([testing.md](testing.md)) |
 
