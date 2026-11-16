@@ -4,7 +4,7 @@ Holds the hardcoded per-module configs (no committed `config.json`), the skip
 gates so a test with no credentials/extra skips cleanly instead of failing, and
 the subprocess helpers the live tests share.
 
-Configs live here in code, asr-engine style: `default_module()` picks the single
+Configs live here in code: `default_module()` picks the single
 module the module-agnostic tests drive (the `tone` fixture module, so they never
 skip), and `MODULES` is the per-module table the parametrized conformance test
 iterates, treating every provider symmetrically.

@@ -33,7 +33,7 @@ Tests split into two directories, and the split is structural — a directory bo
 - **`tests/` is the normal dev loop.** Fast, deterministic, no real network, no credentials, no audio hardware. `pyproject.toml`'s `testpaths = ["tests"]` points the default `uv run pytest` here, so this is what runs on every change and what any contributor or CI can run with zero credentials.
 - **`tests-e2e/` is opt-in.** It drives the real provider backends and the machine's audio output — network, credentials, non-deterministic — so it is deliberately *not* collected by the default run. Because `testpaths` already excludes it, no pytest marker or `--run-e2e` flag is needed: the physical separation is the whole mechanism. Run it explicitly (`uv run pytest tests-e2e`).
 
-**Configs are hardcoded in `support.py`, not a committed file.** The live tier carries no `config.json`; every module config lives in code (asr-engine style), and the MCP subprocess is handed a temp config the helpers build from those dicts. This keeps the configs, the skip gates, and the backend table in one reviewed place.
+**Configs are hardcoded in `support.py`, not a committed file.** The live tier carries no `config.json`; every module config lives in code, and the MCP subprocess is handed a temp config the helpers build from those dicts. This keeps the configs, the skip gates, and the backend table in one reviewed place.
 
 The live tier splits by **what actually varies when the TTS module changes** — the backend contract (and the engine's full library path) is per-module; only the MCP transport is module-agnostic and runs once against a **default module**:
 
