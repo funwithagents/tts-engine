@@ -7,7 +7,7 @@ Thirteen providers and hundreds of voices are more than anyone wants to try one 
 Every module declares its `kind` ([modules/index.md](modules/index.md)):
 
 - **`local`** (`pocket`, `phonon`, `qwen3`, `kokoro`, `piper`): an in-process model. No key, no network once the weights are downloaded (on first use), no per-character cost; it needs disk space and CPU or GPU time on the machine that speaks.
-- **`hosted`** (`elevenlabs`, `gradium`, `mistral`, `deepgram`, `gemini`, `cartesia`, `openai`, `openai-compatible`): a cloud API. A key, a network path to the provider, and usually a bill or a quota. `openai-compatible` can also target a server you host yourself, through `base_url`.
+- **`hosted`** (`elevenlabs`, `gradium`, `mistral`, `deepgram`, `gemini`, `cartesia`, `openai`, `openai-speech-compatible`): a cloud API. A key, a network path to the provider, and usually a bill or a quota. `openai-speech-compatible` can also target a server you host yourself, through `base_url`.
 - **`fixture`** (`tone`, `audiofile`): no synthesis, for tests and demos only.
 
 Playback is always local, whichever backend synthesizes.
@@ -31,7 +31,7 @@ Two things the headline does not show but matter for an agent:
 
 ## 3. Which voices does it have?
 
-[`list_voices`](voices.md) reads a backend's own catalog and returns each voice with the config fields that select it, its languages, and, when the catalog says so, its gender, age and description. Gemini, OpenAI Realtime and `openai-compatible` have no listing endpoint; their module pages say where the voices are documented.
+[`list_voices`](voices.md) reads a backend's own catalog and returns each voice with the config fields that select it, its languages, and, when the catalog says so, its gender, age and description. Gemini, OpenAI Realtime and `openai-speech-compatible` have no listing endpoint; their module pages say where the voices are documented.
 
 The metadata is uneven: phonon, pocket, piper and qwen3 give no gender, so a filter on gender drops all their voices unless you keep the unknown ones.
 

@@ -16,7 +16,7 @@ A module is a swappable synthesis backend. Its `type` selects an entry from the 
 | [`gemini`](gemini.md) | `hosted` | Google Gemini API (Gemini TTS) | `tts-engine[gemini]` | API key | no |
 | [`cartesia`](cartesia.md) | `hosted` | Cartesia cloud API (Sonic) | `tts-engine[cartesia]` | API key | yes |
 | [`openai`](openai.md) | `hosted` | OpenAI Realtime API (`gpt-realtime-2.1-mini`) | `tts-engine[openai]` | API key | no |
-| [`openai-compatible`](openai-compatible.md) | `hosted` | OpenAI's `/v1/audio/speech` (`gpt-4o-mini-tts`, `tts-1`) or an OpenAI-compatible server | `tts-engine[openai-compatible]` | API key | no |
+| [`openai-speech-compatible`](openai-speech-compatible.md) | `hosted` | OpenAI's `/v1/audio/speech` (`gpt-4o-mini-tts`, `tts-1`) or an OpenAI-compatible server | `tts-engine[openai-compatible]` | API key | no |
 | [`tone`](tone.md) | `fixture` | Sine tone, no synthesis | Base installation | None | — |
 | [`audiofile`](audiofile.md) | `fixture` | Pre-recorded WAV files, no synthesis | Base installation | None | — |
 

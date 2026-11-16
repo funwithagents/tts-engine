@@ -8,7 +8,14 @@ import numpy as np
 import pytest
 
 from tts_engine.config import ConfigError
-from tts_engine.modules import REGISTRY, base, list_voices, load_module
+from tts_engine.modules import (
+    REGISTRY,
+    RENAMED,
+    base,
+    list_voices,
+    load_module,
+    resolve_type,
+)
 from tts_engine.modules.base import (
     PCMFeeder,
     TTSError,
@@ -48,7 +55,7 @@ _KINDS = {
     "gemini": "hosted",
     "cartesia": "hosted",
     "openai": "hosted",
-    "openai-compatible": "hosted",
+    "openai-speech-compatible": "hosted",
     "pocket": "local",
     "phonon": "local",
     "qwen3": "local",
@@ -66,6 +73,24 @@ def test_every_registered_module_declares_its_kind():
 def test_load_module_unknown_type_raises():
     with pytest.raises(ConfigError):
         load_module({"type": "nonexistent_xyz"})
+
+
+def test_renamed_types_point_to_registered_ones_and_are_not_registered():
+    for old, new in RENAMED.items():
+        assert old not in REGISTRY
+        assert new in REGISTRY
+        assert resolve_type(old) == new
+
+
+def test_resolve_type_keeps_a_current_type_without_warning(caplog):
+    assert resolve_type("tone") == "tone"
+    assert caplog.records == []
+
+
+@pytest.mark.parametrize("bad", ["nonexistent_xyz", None, 3])
+def test_resolve_type_unknown_raises(bad):
+    with pytest.raises(ConfigError, match="Unknown TTS module type"):
+        resolve_type(bad)
 
 
 def test_load_module_registered_type():

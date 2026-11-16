@@ -67,7 +67,7 @@ from typing import Any
 
 import numpy as np
 
-from tts_engine.modules import REGISTRY
+from tts_engine.modules import REGISTRY, resolve_type
 
 log = logging.getLogger("bench")
 
@@ -108,7 +108,7 @@ REQUIRED_IMPORT: dict[str, str | tuple[str, ...]] = {
     "cartesia": "cartesia",
     # The SDK alone is the openai-compatible extra; Realtime also needs websockets.
     "openai": ("openai", "websockets"),
-    "openai-compatible": "openai",
+    "openai-speech-compatible": "openai",
     "qwen3": "qwentts_cpp",
     "kokoro": "kokoro_onnx",
     "piper": "piper",
@@ -140,8 +140,9 @@ KIND_ORDER = ("local", "hosted", "fixture")
 
 
 def module_kind(module_type: str) -> str:
-    """Where a module's synthesis runs, from the library's registry."""
-    return REGISTRY[module_type].kind
+    """Where a module's synthesis runs, from the library's registry (a renamed
+    type resolves to its current name)."""
+    return REGISTRY[resolve_type(module_type)].kind
 
 
 # A chunk counts as "voiced" once a sample exceeds this amplitude (~ -36 dBFS):

@@ -66,7 +66,7 @@ The "× real time" figures below are `speed_x` (audio over the time after the fi
 ## What this result changed
 
 - OpenAI Realtime holds its socket across utterances (`440c60e`; [openai spec](../../../specs/modules/openai.md)).
-- openai-compatible defaults to the `gpt-4o-mini-tts-2025-03-20` snapshot, and the live row follows it (`c362ca3`, `f69efdf`; [openai-compatible spec](../../../specs/modules/openai-compatible.md)).
+- openai-compatible defaults to the `gpt-4o-mini-tts-2025-03-20` snapshot, and the live row follows it (`c362ca3`, `f69efdf`; [openai-compatible spec](../../../specs/modules/openai-speech-compatible.md)).
 - Deepgram keeps `aura-2-thalia-en` as its default over Flux (`c362ca3`), decided on per-utterance numbers. With the held socket Flux leads on TTFA, but only with silence: Aura-2's voice arrives first and it generates faster, so the choice stands.
 - The `threads` field on phonon, kokoro and piper (`cfd9e20`; [phonon](../../../specs/modules/phonon.md), [kokoro](../../../specs/modules/kokoro.md), [piper](../../../specs/modules/piper.md) specs) was measured here; a phonon default below its own, since the pool is oversubscribed on a many-core host, was left to the Pi result, which settled it: no default ([its findings](../20261029-1124_pi4-1500-nodaemon/findings.md)).
 

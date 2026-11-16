@@ -2,7 +2,7 @@
 
 A streaming text-to-speech engine for Python. Choose a TTS module, construct a `TTSEngine`, and call `await engine.say(text)`, or `await engine.say_stream(text_stream)` to speak an LLM response while it is still being generated.
 
-Audio is synthesized and consumed chunk by chunk, minimizing the delay before playback begins. Speech comes from a provider module you install as an extra: the ElevenLabs, Gradium, Mistral, Deepgram, Gemini, Cartesia or OpenAI cloud APIs (OpenAI's Realtime API through the `openai` module; its speech endpoint through the `openai-compatible` module, which also reaches any OpenAI-compatible server), or the local pocket-tts, Phonon, Qwen3-TTS, Kokoro or Piper models. There is no default provider. Two built-in fixture modules, `tone` and `audiofile`, stand in for a provider in tests and demos. By default, audio plays on the machine running the engine; applications can instead provide their own audio sink to capture or route the PCM stream.
+Audio is synthesized and consumed chunk by chunk, minimizing the delay before playback begins. Speech comes from a provider module you install as an extra: the ElevenLabs, Gradium, Mistral, Deepgram, Gemini, Cartesia or OpenAI cloud APIs (OpenAI's Realtime API through the `openai` module; its speech endpoint through the `openai-speech-compatible` module, which also reaches any OpenAI-compatible server), or the local pocket-tts, Phonon, Qwen3-TTS, Kokoro or Piper models. There is no default provider. Two built-in fixture modules, `tone` and `audiofile`, stand in for a provider in tests and demos. By default, audio plays on the machine running the engine; applications can instead provide their own audio sink to capture or route the PCM stream.
 
 Agent-friendly tools are included as an optional interface over the same engine, and an MCP server is available through the `mcp` extra.
 
@@ -108,7 +108,7 @@ A module is a swappable synthesis backend, selected by the `type` of the `module
 | [`gemini`](docs/modules/gemini.md) | `hosted` | Google Gemini API (Gemini TTS) | API key |
 | [`cartesia`](docs/modules/cartesia.md) | `hosted` | Cartesia cloud API (Sonic) | API key |
 | [`openai`](docs/modules/openai.md) | `hosted` | OpenAI Realtime API (`gpt-realtime-2.1-mini`) | API key |
-| [`openai-compatible`](docs/modules/openai-compatible.md) | `hosted` | OpenAI's `/v1/audio/speech` (`gpt-4o-mini-tts`, `tts-1`) or an OpenAI-compatible server | API key |
+| [`openai-speech-compatible`](docs/modules/openai-speech-compatible.md) | `hosted` | OpenAI's `/v1/audio/speech` (`gpt-4o-mini-tts`, `tts-1`) or an OpenAI-compatible server | API key |
 | [`tone`](docs/modules/tone.md) | `fixture` | Sine tone, no synthesis | None |
 | [`audiofile`](docs/modules/audiofile.md) | `fixture` | Pre-recorded WAV files, no synthesis | None |
 

@@ -36,7 +36,7 @@ Good to know:
 
 - **The audition file is plain JSON** (a `text` and candidates, each an `id` and a complete module `config`, plus an optional `description` shown on the page), so it can be written or edited by hand; `new` is only a starting point.
 - **Rendering again only renders what changed** (the text or a candidate's config); `--force` re-measures everything.
-- **A missing key or extra skips a candidate**, it does not fail the pass. A catalog without gender or language metadata (phonon, pocket, piper, qwen3) only passes those filters with `--keep-unknown`. Gemini, OpenAI Realtime and `openai-compatible` cannot list voices: write their candidates by hand.
+- **A missing key or extra skips a candidate**, it does not fail the pass. A catalog without gender or language metadata (phonon, pocket, piper, qwen3) only passes those filters with `--keep-unknown`. Gemini, OpenAI Realtime and `openai-speech-compatible` cannot list voices: write their candidates by hand.
 - **Hosted renders are paid calls**: one warm-up plus `--runs` syntheses of the sentence per candidate.
 - **The latency shown is this machine's**, three runs on one sentence after a warm-up. It is not comparable to the controlled numbers of the [latency benchmark](../benchmarks/README.md#results) and is not meant to be quoted.
 - **The level column** is the RMS of each sample's active speech (silences left out), with the engine `gain_db` that brings the voice to the target and the peak after it, flagged when it would clip. It is `tts_engine.level`'s measure, the one `tts-engine-level` uses. Change the target on the page; put the chosen value in the engine block next to the voice ([configuration.md](configuration.md#output-gain)).

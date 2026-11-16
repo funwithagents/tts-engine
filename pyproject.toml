@@ -64,10 +64,11 @@ gemini = [
 cartesia = [
     "cartesia[websockets]>=4.2,<5",
 ]
-# The official openai SDK against /v1/audio/speech, OpenAI's own or any
-# OpenAI-compatible server through base_url; streamed headerless pcm (s16le), so
-# no codec. <4: the 3.x with_streaming_response API the module drives — see
-# specs/modules/openai-compatible.md.
+# The shared extra of the OpenAI-protocol modules (specs/project.md), today
+# openai-speech-compatible: the official openai SDK against /v1/audio/speech,
+# OpenAI's own or any compatible server through base_url; streamed headerless pcm
+# (s16le), so no codec. <4: the 3.x with_streaming_response API the module
+# drives — see specs/modules/openai-speech-compatible.md.
 openai-compatible = [
     "openai>=3.37,<4",
 ]

@@ -663,7 +663,7 @@
       "section": "OpenAI speech (API)",
       "notes": "Light, slightly British · gpt-4o-mini-tts",
       "config": {
-        "type": "openai-compatible",
+        "type": "openai-speech-compatible",
         "api_key_env": "OPENAI_API_KEY",
         "model": "gpt-4o-mini-tts-2025-03-20",
         "voice": "fable"
@@ -675,7 +675,7 @@
       "section": "OpenAI speech (API)",
       "notes": "Asked for a slightly mechanical cadence · gpt-4o-mini-tts",
       "config": {
-        "type": "openai-compatible",
+        "type": "openai-speech-compatible",
         "api_key_env": "OPENAI_API_KEY",
         "model": "gpt-4o-mini-tts-2025-03-20",
         "voice": "ash",

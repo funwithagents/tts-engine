@@ -1,4 +1,4 @@
-"""OpenAI-compatible speech module.
+"""OpenAI speech-compatible module.
 
 Behind the `openai-compatible` extra: the `openai` SDK is imported lazily inside `__init__` so
 `import tts_engine` and `load_module` never require it — a missing extra
@@ -10,7 +10,7 @@ and cut into 100 ms slices so a cancel is honored promptly. With `base_url` and
 `sample_rate` the same request reaches any OpenAI-compatible server, which is
 what the endpoint is for once OpenAI's own models leave it on 2027-01-06. It takes one
 complete input per request, so a text stream is grouped into sentences (see
-specs/modules/openai-compatible.md).
+specs/modules/openai-speech-compatible.md).
 """
 
 import logging
@@ -40,13 +40,13 @@ log = logging.getLogger(__name__)
 _DEFAULT_SAMPLE_RATE = 24000
 _DEFAULT_MODEL = "gpt-4o-mini-tts-2025-03-20"
 _DEFAULT_TIMEOUT = 30.0
-_LABEL = "OpenAI-compatible module"
+_LABEL = "OpenAI speech-compatible module"
 _MIN_SPEED, _MAX_SPEED = 0.25, 4.0
 # A WAV body (some compatible servers ignore `response_format`) starts with this.
 _WAV_MAGIC = b"RIFF"
 
 
-class OpenAICompatibleModule(TTSModule):
+class OpenAISpeechCompatibleModule(TTSModule):
     kind = "hosted"
 
     def __init__(self, config: dict) -> None:
@@ -54,7 +54,7 @@ class OpenAICompatibleModule(TTSModule):
             from openai import OpenAI
         except ImportError as exc:
             raise ConfigError(
-                "The 'openai-compatible' module requires the openai-compatible extra: "
+                "The 'openai-speech-compatible' module requires the openai-compatible extra: "
                 "pip install tts-engine[openai-compatible]"
             ) from exc
 
@@ -62,7 +62,9 @@ class OpenAICompatibleModule(TTSModule):
 
         voice = config.get("voice")
         if not isinstance(voice, str) or not voice:
-            raise ConfigError("OpenAI-compatible module requires a non-empty 'voice'")
+            raise ConfigError(
+                "OpenAI speech-compatible module requires a non-empty 'voice'"
+            )
 
         model = optional_str(config, "model", label=_LABEL, default=_DEFAULT_MODEL)
 
@@ -87,13 +89,13 @@ class OpenAICompatibleModule(TTSModule):
             or sample_rate <= 0
         ):
             raise ConfigError(
-                "OpenAI-compatible module 'sample_rate' must be a positive integer"
+                "OpenAI speech-compatible module 'sample_rate' must be a positive integer"
             )
         if sample_rate != _DEFAULT_SAMPLE_RATE and base_url is None:
             # OpenAI's own `pcm` is fixed at 24 kHz; the field only declares the
             # rate of a compatible server's output.
             raise ConfigError(
-                "OpenAI-compatible module 'sample_rate' other than 24000 requires 'base_url' "
+                "OpenAI speech-compatible module 'sample_rate' other than 24000 requires 'base_url' "
                 "(OpenAI's pcm output is fixed at 24 kHz)"
             )
         self._sample_rate = sample_rate
@@ -135,7 +137,7 @@ class OpenAICompatibleModule(TTSModule):
             "https://platform.openai.com/docs/guides/text-to-speech"
         )
         raise VoiceListingUnsupported(
-            f"OpenAI-compatible module: the speech API has no voice-listing endpoint; {where}"
+            f"OpenAI speech-compatible module: the speech API has no voice-listing endpoint; {where}"
         )
 
     @property
@@ -156,17 +158,20 @@ class OpenAICompatibleModule(TTSModule):
             )
             response = response_cm.__enter__()
         except Exception as exc:
-            raise TTSError(f"OpenAI-compatible request failed: {exc}") from exc
+            raise TTSError(f"OpenAI speech-compatible request failed: {exc}") from exc
 
         # Leaving the response closes it, on every path; a failing close never
         # hides the utterance's own error.
         with cleanup(
-            lambda: response_cm.__exit__(None, None, None), "OpenAI-compatible response"
+            lambda: response_cm.__exit__(None, None, None),
+            "OpenAI speech-compatible response",
         ):
             try:
                 chunks = response.iter_bytes()
             except Exception as exc:
-                raise TTSError(f"OpenAI-compatible request failed: {exc}") from exc
+                raise TTSError(
+                    f"OpenAI speech-compatible request failed: {exc}"
+                ) from exc
 
             # Whole samples in 100 ms slices (an odd trailing byte waits for
             # the next chunk); `head` holds the first bytes until the WAV
@@ -183,7 +188,9 @@ class OpenAICompatibleModule(TTSModule):
                 except StopIteration:
                     break
                 except Exception as exc:
-                    raise TTSError(f"OpenAI-compatible request failed: {exc}") from exc
+                    raise TTSError(
+                        f"OpenAI speech-compatible request failed: {exc}"
+                    ) from exc
                 if not checked:
                     head += chunk
                     if len(head) < len(_WAV_MAGIC):

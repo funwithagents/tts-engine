@@ -380,8 +380,8 @@
       "notes": "Beta alias for upcoming changes; not for production."
     },
     {
-      "id": "openai-compatible/gpt-4o-mini-tts-2025-03-20",
-      "type": "openai-compatible",
+      "id": "openai-speech-compatible/gpt-4o-mini-tts-2025-03-20",
+      "type": "openai-speech-compatible",
       "config": {
         "api_key_env": "OPENAI_API_KEY",
         "voice": "marin",
@@ -395,8 +395,8 @@
       "notes": "Module default since c362ca3 (2026-10-28): the March 2025 snapshot answers steadily (0.33-0.70 s to first byte measured with the raw SDK) where the alias stalls; keeps `instructions` and every voice. Shuts down with the rest of /v1/audio/speech on 2027-01-06."
     },
     {
-      "id": "openai-compatible/gpt-4o-mini-tts",
-      "type": "openai-compatible",
+      "id": "openai-speech-compatible/gpt-4o-mini-tts",
+      "type": "openai-speech-compatible",
       "config": {
         "api_key_env": "OPENAI_API_KEY",
         "voice": "marin",
@@ -409,8 +409,8 @@
       "notes": "The `gpt-4o-mini-tts` alias (resolves to the 2025-12-15 snapshot). No longer the module default since c362ca3: its latency is erratic (1 s to 30 s to first byte, provider-side). Kept to document that behaviour."
     },
     {
-      "id": "openai-compatible/gpt-4o-mini-tts-2025-12-15",
-      "type": "openai-compatible",
+      "id": "openai-speech-compatible/gpt-4o-mini-tts-2025-12-15",
+      "type": "openai-speech-compatible",
       "config": {
         "api_key_env": "OPENAI_API_KEY",
         "voice": "marin",
@@ -424,8 +424,8 @@
       "notes": "Dated snapshot (the alias may resolve to 2025-03-20 or this one). Same shutdown. The alias almost certainly resolves to this snapshot; opt in to check."
     },
     {
-      "id": "openai-compatible/tts-1",
-      "type": "openai-compatible",
+      "id": "openai-speech-compatible/tts-1",
+      "type": "openai-speech-compatible",
       "config": {
         "api_key_env": "OPENAI_API_KEY",
         "voice": "alloy",
@@ -438,8 +438,8 @@
       "notes": "alloy: tts-1 rejects marin/cedar. Deprecated, shutdown Jan 6 2027."
     },
     {
-      "id": "openai-compatible/tts-1-hd",
-      "type": "openai-compatible",
+      "id": "openai-speech-compatible/tts-1-hd",
+      "type": "openai-speech-compatible",
       "config": {
         "api_key_env": "OPENAI_API_KEY",
         "voice": "alloy",

@@ -13,6 +13,9 @@ _PYPROJECT = Path(__file__).resolve().parent.parent / "pyproject.toml"
 _SELF = re.compile(r"^tts-engine\[([^\]]+)\]$")
 _TRANSPORTS = {"mcp"}
 _BUNDLES = {"hosted-modules", "all-modules", "all"}
+# A protocol module, `<origin>-<api>-compatible`, shares the `<origin>-compatible`
+# extra with its origin's other protocol modules.
+_PROTOCOL = re.compile(r"^(?P<origin>[a-z0-9]+)-[a-z0-9-]+-compatible$")
 
 
 def _extras() -> dict[str, list[str]]:
@@ -21,9 +24,15 @@ def _extras() -> dict[str, list[str]]:
     ]
 
 
+def _extra_of(module_type: str) -> str:
+    match = _PROTOCOL.match(module_type)
+    return f"{match['origin']}-compatible" if match else module_type
+
+
 def _providers(kind: str | None = None) -> set[str]:
+    """The extras of the registered providers (of ``kind``, if given)."""
     return {
-        name
+        _extra_of(name)
         for name, module in REGISTRY.items()
         if module.kind != "fixture" and (kind is None or module.kind == kind)
     }
@@ -53,6 +62,12 @@ def test_hosted_modules_bundles_exactly_the_hosted_providers() -> None:
 
 def test_all_modules_bundles_every_provider_and_no_transport() -> None:
     assert _expand(_extras(), "all-modules") == _providers()
+
+
+def test_a_protocol_module_maps_to_its_origin_s_shared_extra() -> None:
+    assert _extra_of("openai-speech-compatible") == "openai-compatible"
+    assert _extra_of("openai-realtime-compatible") == "openai-compatible"
+    assert _extra_of("openai") == "openai"
 
 
 def test_all_bundles_every_extra() -> None:

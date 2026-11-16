@@ -1,4 +1,4 @@
-"""Unit tests for OpenAICompatibleModule with the openai SDK faked.
+"""Unit tests for OpenAISpeechCompatibleModule with the openai SDK faked.
 
 The fast tier never calls the API, so `openai` is faked via `sys.modules`:
 `OpenAI(...).audio.speech.with_streaming_response.create` records its kwargs and
@@ -6,6 +6,7 @@ returns a scripted streaming response.
 """
 
 import asyncio
+import logging
 import sys
 import threading
 import types
@@ -14,10 +15,11 @@ import numpy as np
 import pytest
 
 from tts_engine.config import ConfigError
+from tts_engine.modules import list_voices, load_module
 from tts_engine.modules.base import TTSError, TTSOptions, VoiceListingUnsupported
-from tts_engine.modules.openai_compatible import OpenAICompatibleModule
+from tts_engine.modules.openai_speech_compatible import OpenAISpeechCompatibleModule
 
-_BASE = {"type": "openai-compatible", "api_key": "k", "voice": "v"}
+_BASE = {"type": "openai-speech-compatible", "api_key": "k", "voice": "v"}
 
 
 def _pcm(samples) -> bytes:
@@ -107,7 +109,7 @@ def _run(coro):
 
 
 def _say(
-    module: OpenAICompatibleModule, callback=lambda _b: None, text: str = "Hi."
+    module: OpenAISpeechCompatibleModule, callback=lambda _b: None, text: str = "Hi."
 ) -> None:
     _run(module.synthesize_text(text, TTSOptions(), callback))
 
@@ -122,7 +124,7 @@ def _samples(pcm: bytes) -> list[int]:
 def test_missing_extra_raises_config_error(monkeypatch):
     monkeypatch.setitem(sys.modules, "openai", None)  # -> ImportError
     with pytest.raises(ConfigError, match=r"tts-engine\[openai-compatible\]"):
-        OpenAICompatibleModule(_BASE)
+        OpenAISpeechCompatibleModule(_BASE)
 
 
 # --- config ------------------------------------------------------------------
@@ -130,8 +132,12 @@ def test_missing_extra_raises_config_error(monkeypatch):
 
 def test_api_key_from_env(fake, monkeypatch):
     monkeypatch.setenv("MY_OPENAI_KEY", "from-env")
-    OpenAICompatibleModule(
-        {"type": "openai-compatible", "api_key_env": "MY_OPENAI_KEY", "voice": "v"}
+    OpenAISpeechCompatibleModule(
+        {
+            "type": "openai-speech-compatible",
+            "api_key_env": "MY_OPENAI_KEY",
+            "voice": "v",
+        }
     )
     assert fake.client_kwargs == {"api_key": "from-env"}
 
@@ -155,13 +161,13 @@ def test_api_key_from_env(fake, monkeypatch):
 )
 def test_invalid_field_raises_config_error(fake, override, field):
     with pytest.raises(ConfigError, match=field):
-        OpenAICompatibleModule({**_BASE, **override})
+        OpenAISpeechCompatibleModule({**_BASE, **override})
 
 
 def test_base_url_reaches_the_client_only_when_set(fake):
-    OpenAICompatibleModule(_BASE)
+    OpenAISpeechCompatibleModule(_BASE)
     assert fake.client_kwargs == {"api_key": "k"}
-    OpenAICompatibleModule({**_BASE, "base_url": "http://localhost:8000/v1"})
+    OpenAISpeechCompatibleModule({**_BASE, "base_url": "http://localhost:8000/v1"})
     assert fake.client_kwargs == {
         "api_key": "k",
         "base_url": "http://localhost:8000/v1",
@@ -169,7 +175,7 @@ def test_base_url_reaches_the_client_only_when_set(fake):
 
 
 def test_defaults_reach_the_request(fake):
-    module = OpenAICompatibleModule(_BASE)
+    module = OpenAISpeechCompatibleModule(_BASE)
     _say(module)
     assert module.sample_rate == 24000
     assert fake.requests == [
@@ -184,7 +190,7 @@ def test_defaults_reach_the_request(fake):
 
 
 def test_custom_values_reach_the_request(fake):
-    module = OpenAICompatibleModule(
+    module = OpenAISpeechCompatibleModule(
         {
             **_BASE,
             "model": "tts-1",
@@ -209,7 +215,7 @@ def test_custom_values_reach_the_request(fake):
 
 def test_chunks_reach_the_callback_unchanged(fake):
     received = bytearray()
-    _say(OpenAICompatibleModule(_BASE), received.extend)
+    _say(OpenAISpeechCompatibleModule(_BASE), received.extend)
     assert _samples(bytes(received)) == [1, 2, 3, -4, 5]
     assert fake.responses[0].closed
 
@@ -236,7 +242,7 @@ def test_odd_byte_is_carried_over_and_audio_fed_in_100ms_slices(
     split = 2 * (slice_samples + slice_samples // 2) + 1
     fake.chunks = [raw[:split], raw[split:], b"\x07"]
     chunks: list[bytes] = []
-    _say(OpenAICompatibleModule(config), chunks.append)
+    _say(OpenAISpeechCompatibleModule(config), chunks.append)
     half = slice_samples // 2
     assert [len(c) for c in chunks] == [2 * slice_samples, 2 * half, 2 * half]
     assert _samples(b"".join(chunks)) == samples.tolist()
@@ -245,13 +251,13 @@ def test_odd_byte_is_carried_over_and_audio_fed_in_100ms_slices(
 def test_body_shorter_than_the_wav_check_is_fed(fake):
     fake.chunks = [_pcm([9])]
     received = bytearray()
-    _say(OpenAICompatibleModule(_BASE), received.extend)
+    _say(OpenAISpeechCompatibleModule(_BASE), received.extend)
     assert _samples(bytes(received)) == [9]
 
 
 def test_blank_text_makes_no_request(fake):
     received = bytearray()
-    _say(OpenAICompatibleModule(_BASE), received.extend, text="  \n")
+    _say(OpenAISpeechCompatibleModule(_BASE), received.extend, text="  \n")
     assert fake.requests == []
     assert received == b""
 
@@ -260,7 +266,7 @@ def test_wav_body_is_tts_error_before_any_feed(fake):
     fake.chunks = [b"RI", b"FF\x24\x00\x00\x00WAVEfmt ", _pcm([1, 2, 3])]
     received = bytearray()
     with pytest.raises(TTSError, match="returned WAV"):
-        _say(OpenAICompatibleModule(_BASE), received.extend)
+        _say(OpenAISpeechCompatibleModule(_BASE), received.extend)
     assert received == b""
     assert fake.responses[0].closed
 
@@ -268,15 +274,15 @@ def test_wav_body_is_tts_error_before_any_feed(fake):
 def test_request_error_is_tts_error(fake):
     fake.raise_on_enter = RuntimeError("Error code: 404 - model_not_found")
     with pytest.raises(
-        TTSError, match="OpenAI-compatible request failed: Error code: 404"
+        TTSError, match="OpenAI speech-compatible request failed: Error code: 404"
     ):
-        _say(OpenAICompatibleModule(_BASE))
+        _say(OpenAISpeechCompatibleModule(_BASE))
 
 
 def test_mid_body_error_is_tts_error_and_closes(fake):
     fake.chunks = [_pcm([1]), ConnectionError("connection reset")]
     with pytest.raises(TTSError, match="connection reset"):
-        _say(OpenAICompatibleModule(_BASE))
+        _say(OpenAISpeechCompatibleModule(_BASE))
     assert fake.responses[0].closed
 
 
@@ -285,12 +291,12 @@ def test_callback_error_propagates_unchanged_and_closes(fake):
         raise ValueError("playback failed")
 
     with pytest.raises(ValueError, match="playback failed"):
-        _say(OpenAICompatibleModule(_BASE), bad_callback)
+        _say(OpenAISpeechCompatibleModule(_BASE), bad_callback)
     assert fake.responses[0].closed
 
 
 async def test_cancel_closes_the_response_before_cancelled_error(fake):
-    module = OpenAICompatibleModule(_BASE)
+    module = OpenAISpeechCompatibleModule(_BASE)
     fake.block = threading.Event()
     task = asyncio.create_task(
         module.synthesize_text("Hi.", TTSOptions(), lambda _b: None)
@@ -310,7 +316,7 @@ async def test_cancel_closes_the_response_before_cancelled_error(fake):
 async def test_text_stream_requests_per_sentence_as_the_source_arrives(fake):
     # Split pieces are grouped into sentences, and the first is spoken before
     # the source finishes: it is gated on that sentence's audio.
-    module = OpenAICompatibleModule(_BASE)
+    module = OpenAISpeechCompatibleModule(_BASE)
     loop = asyncio.get_running_loop()
     got_audio = asyncio.Event()
     received = bytearray()
@@ -334,8 +340,28 @@ async def test_text_stream_requests_per_sentence_as_the_source_arrives(fake):
 
 
 def test_close_closes_the_sdk_client(fake):
-    OpenAICompatibleModule(_BASE).close()
+    OpenAISpeechCompatibleModule(_BASE).close()
     assert fake.client_closed
+
+
+# --- the old name ---------------------------------------------------------
+
+
+def test_old_name_loads_this_module_with_a_deprecation_warning(fake, caplog):
+    with caplog.at_level(logging.WARNING, logger="tts_engine.modules"):
+        module = load_module({**_BASE, "type": "openai-compatible"})
+    assert type(module) is OpenAISpeechCompatibleModule
+    assert "'openai-compatible' is deprecated" in caplog.text
+    assert "'openai-speech-compatible'" in caplog.text
+
+
+def test_old_name_lists_this_module_s_voices_with_a_deprecation_warning(caplog):
+    with (
+        caplog.at_level(logging.WARNING, logger="tts_engine.modules"),
+        pytest.raises(VoiceListingUnsupported, match=r"platform\.openai\.com"),
+    ):
+        list_voices({"type": "openai-compatible"})
+    assert "'openai-compatible' is deprecated" in caplog.text
 
 
 # --- voice listing -----------------------------------------------------------
@@ -345,13 +371,13 @@ def test_list_voices_is_unsupported_and_points_to_the_documentation():
     with pytest.raises(
         VoiceListingUnsupported, match=r"https://platform\.openai\.com/"
     ):
-        OpenAICompatibleModule.list_voices({"type": "openai-compatible"})
+        OpenAISpeechCompatibleModule.list_voices({"type": "openai-speech-compatible"})
 
 
 def test_list_voices_another_server_documents_its_own_voices():
     with pytest.raises(
         VoiceListingUnsupported, match=r"server at http://localhost:8880/v1"
     ):
-        OpenAICompatibleModule.list_voices(
-            {"type": "openai-compatible", "base_url": "http://localhost:8880/v1"}
+        OpenAISpeechCompatibleModule.list_voices(
+            {"type": "openai-speech-compatible", "base_url": "http://localhost:8880/v1"}
         )
