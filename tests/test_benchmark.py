@@ -12,7 +12,8 @@ import importlib.util
 import json
 import os
 import sys
-import time
+import threading
+import types
 from pathlib import Path
 
 import pytest
@@ -154,36 +155,79 @@ def test_derive_metrics_without_audio_is_all_none():
     assert all(v is None for v in m.values())
 
 
-def test_cpu_sampler_logs_windows_in_percent_of_a_core():
-    # Six windows expected; generous, so a loaded CI runner that wakes the
-    # sampler late (one sample in 50 ms was seen on macOS) still gets two.
+class _ScriptedEvent:
+    """An Event whose first `windows` waits end at once, as a window elapsing
+    would; later waits block until `set`, so the sampler sits in its next
+    window until `stop`, with no real interval."""
+
+    windows = 0
+
+    def __init__(self) -> None:
+        self._event = threading.Event()
+
+    def wait(self, timeout: float | None = None) -> bool:
+        if _ScriptedEvent.windows > 0:
+            _ScriptedEvent.windows -= 1
+            return False
+        return self._event.wait()
+
+    def set(self) -> None:
+        self._event.set()
+
+    def clear(self) -> None:
+        self._event.clear()
+
+
+class _ScriptedClocks:
+    """Wall and process-CPU readings, one (wall, cpu) pair per reading."""
+
+    def __init__(self, pairs: list[tuple[float, float]]) -> None:
+        self._pairs = iter(pairs)
+        self._cpu = 0.0
+
+    def perf_counter(self) -> float:
+        wall, self._cpu = next(self._pairs)
+        return wall
+
+    def process_time(self) -> float:
+        return self._cpu
+
+
+def test_cpu_sampler_logs_windows_in_percent_of_a_core(monkeypatch):
+    clocks = _ScriptedClocks(
+        [
+            (0.000, 0.0000),  # start
+            (0.025, 0.0250),  # a full window at one core: 100 %
+            (0.040, 0.0325),  # woken late but past half a window: 50 %
+            (0.045, 0.0350),  # under half a window: dropped
+            (0.060, 0.0650),  # stop, a 15 ms tail at two cores: 200 %
+            (1.000, 1.0000),  # restart
+            (1.005, 1.0050),  # stop after 5 ms: under 10 ms, no sample
+        ]
+    )
+    monkeypatch.setattr(bench, "time", clocks)
+    monkeypatch.setattr(
+        bench,
+        "threading",
+        types.SimpleNamespace(Event=_ScriptedEvent, Thread=threading.Thread),
+    )
+    monkeypatch.setattr(_ScriptedEvent, "windows", 3)
     sampler = bench.CpuSampler(window_s=0.025)
+
     sampler.start()
-    t0 = time.perf_counter()
-    while time.perf_counter() - t0 < 0.15:  # busy: about one core, ~100 %
-        pass
     sampler.stop()
-    assert len(sampler.log) >= 2
-    ends = [t for t, _ in sampler.log]
-    assert ends == sorted(ends) and all(pct >= 0 for _, pct in sampler.log)
-    assert max(pct for _, pct in sampler.log) > 20
-    # Restarting starts a fresh log; stopping at once keeps a sub-window tail
-    # only from 10 ms up, so a call shorter than that has no sample.
+    assert [t for t, _ in sampler.log] == [0.025, 0.040, 0.060]
+    assert [pct for _, pct in sampler.log] == pytest.approx([100.0, 50.0, 200.0])
+
+    # Restarting starts a fresh log; a call shorter than 10 ms has no sample.
     sampler.start()
     sampler.stop()
     assert sampler.log == []
 
 
-def test_peak_rss_mb_and_host_state_on_this_platform():
+def test_peak_rss_mb_on_this_platform():
     rss = bench.peak_rss_mb()
     assert rss is None if os.name == "nt" else 1.0 < rss < 1e5  # MB of this process
-    assert isinstance(bench.host_state(), dict)  # empty off a Raspberry Pi
-
-
-def test_stats_p90_and_empty():
-    s = bench._stats([float(v) for v in range(1, 11)])
-    assert (s["n"], s["min"], s["max"], s["median"], s["p90"]) == (10, 1, 10, 5.5, 9)
-    assert bench._stats([]) == {"n": 0}
 
 
 # --- matrix selection --------------------------------------------------------
@@ -591,6 +635,21 @@ def test_summarize_a_single_run(tmp_path: Path):
     )
     bench.summarize(run)
     assert "| m/a | 1 | 0 | 15 |" in (run / "summary.md").read_text()
+
+
+def test_results_csv_carries_each_metric_s_statistics(tmp_path: Path):
+    # Ten measured runs, TTFA 1..10 ms, none with a CPU log: TTFA gets every
+    # statistic, the unmeasured CPU metric a count of zero and nothing else.
+    records = [_run_record("m/a", "say", float(v), seq=v) for v in range(1, 11)]
+    run = _write_run(tmp_path / "runs", "20261028-120000", [*records, _done("m/a")])
+    bench.summarize(run)
+    row = next(csv.DictReader((run / "results.csv").open()))
+    ttfa = {stat: float(row[f"ttfa_ms__{stat}"]) for stat in ("n", "min", "max")}
+    assert ttfa == {"n": 10, "min": 1.0, "max": 10.0}
+    assert float(row["ttfa_ms__median"]) == 5.5
+    assert float(row["ttfa_ms__p90"]) == 9.0
+    assert row["cpu_peak_pct__n"] == "0"
+    assert row["cpu_peak_pct__median"] == "" and row["cpu_peak_pct__p90"] == ""
 
 
 def test_a_cell_cut_short_leaves_the_summary_but_not_the_results(tmp_path: Path):

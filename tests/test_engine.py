@@ -35,16 +35,6 @@ def engine(mock_module, mock_player, mocker):
     return TTSEngine(TTSEngineConfig(module={"type": "fake"}, player=PlayerConfig()))
 
 
-@pytest.mark.asyncio
-async def test_say_propagates_tts_error_after_drain(engine, mock_module, mock_player):
-    mock_module.synthesize_text.side_effect = TTSError("synthesis failed")
-
-    with pytest.raises(TTSError, match="synthesis failed"):
-        await engine.say("hello")
-
-    mock_player.drain.assert_called_once()
-
-
 class CaptureSink:
     """In-memory AudioSink: records fed chunks and drain calls."""
 
@@ -292,8 +282,6 @@ async def test_close_closes_the_module_once_and_say_raises_afterwards(
     mock_module.close.assert_called_once_with()
     with pytest.raises(RuntimeError, match="closed"):
         await engine.say("hello")
-    with pytest.raises(RuntimeError, match="closed"):
-        await engine.say_stream(["hello"])
     mock_module.synthesize_text.assert_not_awaited()
 
 

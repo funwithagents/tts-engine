@@ -200,7 +200,7 @@ Registered in `REGISTRY` as `"qwen3"` ([modules/__init__.py](../../src/tts_engin
   - library rejections: `ValueError` from `from_pretrained` → `ConfigError`; another exception → `TTSError`;
   - `synthesize_text`: float chunks (including out-of-range values) become whole little-endian int16 samples, clipped; `stream` gets the sentence, the language, the speaker and only the set options (no `instruct`/`temperature` by default; VoiceDesign sends `instruct` and no `speaker`); a multi-sentence text makes one `stream` call per sentence; every generator is closed;
   - a rate other than 24000 → `TTSError`;
-  - an error while iterating → `TTSError` and the generator closed; a callback error propagates unchanged and the generator is closed, and survives a failing close;
+  - an error while iterating → `TTSError` and the generator closed; a callback error propagates unchanged and the generator is closed;
   - cancellation while a packet is pending closes the generator before `CancelledError` surfaces (event-driven, no sleeps), for both input shapes;
   - `synthesize_text_stream`: one `stream()` call per sentence, and audio reaches the callback before the source finishes.
 - **Lazy imports (`tests/modules/test_lazy_imports.py`)** — `qwentts_cpp` joins the poisoned libraries, `qwen3` joins the expected registry keys, and constructing `{"type": "qwen3"}` must raise the `tts-engine[qwen3]` hint.

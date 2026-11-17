@@ -7,7 +7,7 @@ committed.
 import asyncio
 import pathlib
 import struct
-import time
+import threading
 import wave
 
 import pytest
@@ -274,16 +274,17 @@ def test_text_stream_unmatched_sentence_without_default_raises_after_earlier_fil
 # --- cancellation ------------------------------------------------------------
 
 
-def _slow_counting_callback(loop, first_chunk):
-    """A sink that is slow enough for audio to still be flowing at cancel time;
-    returns (callback, count) where count() is the number of chunks so far."""
+def _gated_callback(loop, first_chunk, release):
+    """A sink that signals the loop on the first chunk, then holds the worker
+    there until `release` is set; returns (callback, count) where count() is
+    the number of chunks so far."""
     n = 0
 
     def callback(_chunk: bytes) -> None:
         nonlocal n
         n += 1
-        time.sleep(0.005)
         loop.call_soon_threadsafe(first_chunk.set)
+        release.wait(timeout=5)
 
     return callback, lambda: n
 
@@ -292,13 +293,19 @@ def _slow_counting_callback(loop, first_chunk):
 _LONG_FRAMES = 400_000
 
 
-async def _assert_cancel_stops_callbacks(task, first_chunk, count):
-    await first_chunk.wait()
-    task.cancel()
+async def _assert_cancel_stops_callbacks(task, first_chunk, release, count):
+    """Cancel `task` while its worker is held in the sink, then release it."""
+    try:
+        await asyncio.wait_for(first_chunk.wait(), timeout=5)
+        task.cancel()
+        await asyncio.sleep(0)  # the cancel reaches the worker helper: `stop` is set
+    finally:
+        release.set()
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(task, timeout=5)
-    # The read loop checks `stop`: it ends before the file's last chunk.
-    assert count() < _LONG_FRAMES // 4096
+    # The read loop checks `stop` between chunks: the held chunk was the last
+    # one fed, not the ~100 of the whole file.
+    assert count() <= 2 < _LONG_FRAMES // 4096
 
 
 async def test_cancel_stops_callbacks_before_synthesize_text_raises(tmp_path):
@@ -306,12 +313,13 @@ async def test_cancel_stops_callbacks_before_synthesize_text_raises(tmp_path):
     module = AudioFileModule({"type": "audiofile", "default_file": path})
     loop = asyncio.get_running_loop()
     first_chunk = asyncio.Event()
-    callback, count = _slow_counting_callback(loop, first_chunk)
+    release = threading.Event()
+    callback, count = _gated_callback(loop, first_chunk, release)
 
     task = asyncio.create_task(
         module.synthesize_text("anything", TTSOptions(), callback)
     )
-    await _assert_cancel_stops_callbacks(task, first_chunk, count)
+    await _assert_cancel_stops_callbacks(task, first_chunk, release, count)
 
 
 async def test_text_stream_cancel_mid_audio_stops_callbacks_before_raising(tmp_path):
@@ -321,7 +329,8 @@ async def test_text_stream_cancel_mid_audio_stops_callbacks_before_raising(tmp_p
     )
     loop = asyncio.get_running_loop()
     first_chunk = asyncio.Event()
-    callback, count = _slow_counting_callback(loop, first_chunk)
+    release = threading.Event()
+    callback, count = _gated_callback(loop, first_chunk, release)
 
     async def source():
         yield "Hello, world! "  # a complete sentence: its file starts playing
@@ -330,4 +339,4 @@ async def test_text_stream_cancel_mid_audio_stops_callbacks_before_raising(tmp_p
     task = asyncio.create_task(
         module.synthesize_text_stream(source(), TTSOptions(), callback)
     )
-    await _assert_cancel_stops_callbacks(task, first_chunk, count)
+    await _assert_cancel_stops_callbacks(task, first_chunk, release, count)

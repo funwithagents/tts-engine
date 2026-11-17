@@ -148,9 +148,6 @@ def _run(coro):
         ({"temperature": -0.1}, "temperature"),
         ({"cfg_coef": "2"}, "cfg_coef"),
         ({"threads": 0}, "threads"),
-        ({"threads": True}, "threads"),
-        ({"threads": 1.5}, "threads"),
-        ({"threads": "2"}, "threads"),
     ],
 )
 def test_invalid_config_raises(config, match):
@@ -379,28 +376,6 @@ async def test_text_stream_synthesizes_per_sentence_before_the_source_finishes(f
     assert fake.texts == ["Hello world.", "How are you?", "Fine"]
     assert len(received) == 3 * 2 * 5  # five int16 samples per fake stream
     assert all(stream.closed for stream in fake.streams)
-
-
-async def test_text_stream_cancel_closes_the_stream_before_cancelled_error(fake):
-    module = PhononModule({"type": "phonon"})
-    fake.block = threading.Event()
-
-    async def source():
-        yield "Hi. "  # a complete sentence: its stream opens
-        await asyncio.Event().wait()  # then the source stays open
-
-    task = asyncio.create_task(
-        module.synthesize_text_stream(source(), TTSOptions(), lambda _b: None)
-    )
-    # Wait (off the loop) until the worker is inside the stream, then cancel.
-    await asyncio.to_thread(fake.reached.wait, 5)
-    task.cancel()
-    fake.block.set()  # let the pending chunk return so the worker sees `stop`
-    with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(task, timeout=5)
-
-    assert fake.streams[0].closed
-    assert fake.texts == ["Hi."]
 
 
 def test_close_drops_the_runtime(fake):

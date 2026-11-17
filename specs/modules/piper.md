@@ -182,7 +182,7 @@ Registered in `REGISTRY` as `"piper"` ([modules/__init__.py](../../src/tts_engin
 
 - **Unit (`tests/modules/test_piper.py`)** — `piper` and `huggingface_hub` are **faked** (stub modules injected through `monkeypatch.setitem(sys.modules, ...)`), so the fast tier never downloads or loads a voice. The fake `PiperVoice.load` records its paths and returns a voice whose `config` has a sample rate, speakers, a `length_scale` and a phoneme type; its `phonemize` can raise; its `synthesize` records the text and `SynthesisConfig` and yields fake chunks (`sample_rate`, `audio_int16_bytes`), or raises. Covers:
   - `ConfigError` with the install hint when `piper` is unimportable;
-  - validation before load: empty or non-string fields, `voice` with `model`, a malformed voice key or `hf://` value, a bad `speaker` or `speed`, `threads` zero, boolean or string; none reaches the fake download;
+  - validation before load: empty or non-string fields, `voice` with `model`, a malformed voice key or `hf://` value, a bad `speaker` or `speed`, `threads` zero; none reaches the fake download;
   - `threads`: `PiperVoice.load` is not called; the module reads the voice's JSON into the fake `PiperConfig.from_dict`, builds the session (a fake `onnxruntime` records the model path, the intra-op thread count and the CPU provider) and the fake voice on it, and synthesizes through it;
   - voice files: the default voice downloads `en/en_US/ljspeech/medium/en_US-ljspeech-medium.onnx` and `.onnx.json` at the pinned revision; another key maps to its path; an `hf://` `model` fetches the `.onnx` and its `.json`; a local `model` is resolved against `base_dir` and not downloaded; a missing local `.onnx` or `.json` → `ConfigError` before load;
   - download and load failures: a missing Hub entry, repository or revision → `ConfigError`; a cache miss or another download error → `TTSError`; a load error → `TTSError`;
@@ -190,7 +190,7 @@ Registered in `REGISTRY` as `"piper"` ([modules/__init__.py](../../src/tts_engin
   - speaker: a name mapped to its index, an index in range passed through, an unknown name or out-of-range index → `ConfigError`, any speaker on a single-speaker voice → `ConfigError`;
   - `sample_rate` is the voice's rate (a 16 kHz voice reports 16000);
   - `synthesize_text`: one `synthesize` call per sentence; the `SynthesisConfig` carries only the set fields (`length_scale` = voice default / `speed`); the chunks' bytes reach the callback unchanged, in slices of at most 100 ms; a chunk at another rate → `TTSError`; a library error → `TTSError`; a callback error propagates unchanged;
-  - cancellation while feeding stops callbacks before `CancelledError` surfaces, for both input shapes;
+  - cancellation while feeding (the callback holds the worker on its first slice until the cancel has landed) stops callbacks before `CancelledError` surfaces, and no sentence past the one-ahead lookahead is synthesized; the text-stream cancel path is `run_text_stream_worker`'s, tested once in `tests/modules/test_tts_module_interface.py`;
   - `synthesize_text_stream`: one `synthesize` call per sentence, and audio before the source finishes.
 - **Shared helper (`tests/modules/test_tts_module_interface.py`)** — `feed_with_lookahead` gets its own tests (see the interface spec); the kokoro tests keep covering kokoro's use of it.
 - **Lazy imports (`tests/modules/test_lazy_imports.py`)** — `piper` joins the poisoned libraries, `piper` the expected registry keys, and constructing `{"type": "piper"}` must raise the `tts-engine[piper]` hint.

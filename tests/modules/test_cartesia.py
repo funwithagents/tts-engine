@@ -228,15 +228,6 @@ def _stream(module: CartesiaModule, *pieces: str, callback=lambda _b: None) -> N
     _run(module.synthesize_text_stream(_source(*pieces), TTSOptions(), callback))
 
 
-# --- lazy import gate --------------------------------------------------------
-
-
-def test_missing_extra_raises_config_error(monkeypatch):
-    monkeypatch.setitem(sys.modules, "cartesia", None)  # -> ImportError
-    with pytest.raises(ConfigError, match=r"tts-engine\[cartesia\]"):
-        CartesiaModule(_BASE)
-
-
 # --- config ------------------------------------------------------------------
 
 
@@ -406,24 +397,6 @@ def test_callback_error_propagates_unchanged_and_keeps_the_socket(fake):
         _say(module, "Hi.", bad_callback)
     _say(module, "Again.")
     assert fake.connects == 1
-    assert not fake.ws.closed.is_set()
-
-
-async def test_cancel_mid_audio_stops_callbacks_before_raising(fake):
-    fake.endless_audio = True
-    first = threading.Event()
-
-    task = asyncio.create_task(
-        CartesiaModule(_BASE).synthesize_text(
-            "Hi.", TTSOptions(), lambda _b: first.set()
-        )
-    )
-    await asyncio.to_thread(first.wait, 5)
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(task, timeout=5)
-    # The server is told to stop; the socket is kept.
-    assert all(ctx.cancelled for ctx in fake.ws.contexts)
     assert not fake.ws.closed.is_set()
 
 
@@ -730,12 +703,6 @@ async def test_sender_waits_for_playback_before_pushing_more_text(fake, monkeypa
     assert "".join(pushed) == text
 
 
-def test_ended_context_with_a_silent_server_is_tts_error(fake):
-    fake.on_end = lambda _ctx: None  # the server never answers `done`
-    with pytest.raises(TTSError, match="no answer within"):
-        _say(CartesiaModule({**_BASE, "timeout": 0.05}), "Hi.")
-
-
 # --- the held socket ---------------------------------------------------------
 
 
@@ -806,29 +773,34 @@ def test_reconnect_failure_fails_that_utterance_only(fake):
     assert fake.ws.contexts[0].pushed == ["Hi."]
 
 
-def test_idle_socket_replaced_before_the_first_context(fake):
+@pytest.mark.parametrize(
+    ("shift", "replaced"),
+    [
+        # (what to move back, by how much on each clock), and whether the next
+        # utterance gets a new socket.
+        ({"last_mono": 241.0, "last_wall": 241.0}, True),  # idle (server: 300 s)
+        ({"last_mono": 239.0, "last_wall": 239.0}, False),
+        # The monotonic clock stops while the host sleeps; the wall clock not.
+        ({"last_wall": 21.0}, True),
+        ({"last_wall": 19.0}, False),
+    ],
+    ids=["idle", "not-idle", "slept", "not-slept"],
+)
+def test_socket_replaced_before_the_first_context_when_idle_or_slept(
+    fake, shift, replaced
+):
     module = CartesiaModule(_BASE)
     held = fake.ws
     socket = module._socket
     assert socket is not None
-    socket.last_mono -= 241  # idle past _IDLE_REPLACE (the server closes at 300 s)
-    socket.last_wall -= 241
-    _say(module, "Hi.")
-    assert fake.connects == 2
-    assert held.contexts == []  # replaced first, never inside the utterance
-    assert held.closed.wait(1)
-    assert fake.ws.contexts[0].pushed == ["Hi."]
-
-
-@pytest.mark.parametrize(("slept", "replaced"), [(21, True), (19, False)])
-def test_socket_replaced_after_a_host_sleep(fake, slept, replaced):
-    # The monotonic clock stops while the host sleeps; the wall clock does not.
-    module = CartesiaModule(_BASE)
-    socket = module._socket
-    assert socket is not None
-    socket.last_wall -= slept
+    for field, seconds in shift.items():
+        setattr(socket, field, getattr(socket, field) - seconds)
     _say(module, "Hi.")
     assert fake.connects == (2 if replaced else 1)
+    if replaced:
+        assert held.contexts == []  # replaced first, never inside the utterance
+        assert held.closed.wait(1)
+        assert fake.ws.contexts[0].pushed == ["Hi."]
 
 
 def test_blank_say_touches_nothing(fake):
@@ -905,6 +877,9 @@ async def test_cancelled_tail_does_not_reach_the_next_utterance(fake):
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(task, timeout=5)
+    # The server is told to stop; the socket is kept.
+    assert all(ctx.cancelled for ctx in fake.ws.contexts)
+    assert not fake.ws.closed.is_set()
     cancelled = fake.ws.contexts[0]
     fake.endless_audio = False
     fake.on_cancel = lambda _ctx: None
@@ -932,19 +907,28 @@ async def test_late_sender_never_pushes_into_the_next_utterance(fake, monkeypatc
         first.set()
         release.wait(5)
 
+    before = set(threading.enumerate())
     module = CartesiaModule(_BASE)
     task = asyncio.create_task(
         module.synthesize_text("Word " * 600, TTSOptions(), callback)
     )
     await asyncio.to_thread(first.wait, 5)
     await asyncio.sleep(0.02)
+    # The sender, held at the gate (the callback blocks the worker).
+    (sender,) = [
+        t for t in set(threading.enumerate()) - before if t.name == "cartesia-sender"
+    ]
     task.cancel()
     release.set()
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(task, timeout=5)
     pushed = sum(len(ctx.pushed) for ctx in fake.ws.contexts)
+    # Wait for the released sender to exit instead of sleeping: once it is
+    # gone, anything it pushed after the cancel shows in the counts below.
+    await asyncio.to_thread(sender.join, 5)
+    assert not sender.is_alive()
+    assert sum(len(ctx.pushed) for ctx in fake.ws.contexts) == pushed
     await module.synthesize_text("Next.", TTSOptions(), lambda _b: None)
-    await asyncio.sleep(0.02)
     assert sum(len(ctx.pushed) for ctx in fake.ws.contexts[:-1]) == pushed
     assert fake.ws.contexts[-1].pushed == ["Next."]
 

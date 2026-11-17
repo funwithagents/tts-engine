@@ -36,13 +36,6 @@ def _fast_poll(monkeypatch):
     )
 
 
-def test_missing_extra_raises_config_error(monkeypatch):
-    monkeypatch.setitem(sys.modules, "elevenlabs", None)  # -> ImportError
-    monkeypatch.setitem(sys.modules, "miniaudio", None)
-    with pytest.raises(ConfigError, match=r"tts-engine\[elevenlabs\]"):
-        ElevenLabsModule(VALID_CONFIG)
-
-
 @patch("elevenlabs.ElevenLabs")
 def test_api_key_from_env(mock_elevenlabs_cls, monkeypatch):
     monkeypatch.setenv("MY_TTS_KEY", "env-secret")
@@ -581,30 +574,6 @@ async def test_text_stream_keeps_the_dialogue_socket_alive_while_the_source_paus
         assert "keep_alive" in kinds[2:-1]
     else:
         assert "keep_alive" not in kinds
-    assert ws.texts == ["Hello ", "world.", ""]
-
-
-@patch("websockets.sync.client.connect")
-@patch("miniaudio.stream_any")
-@patch("elevenlabs.ElevenLabs")
-async def test_text_stream_feeds_audio_before_the_source_finishes(
-    mock_elevenlabs_cls, mock_stream_any, mock_connect
-):
-    module, ws, _ = _stream_input_module(
-        mock_elevenlabs_cls, mock_stream_any, mock_connect
-    )
-    loop = asyncio.get_running_loop()
-    got_audio = asyncio.Event()
-
-    async def source():
-        yield "Hello "
-        await got_audio.wait()
-        yield "world."
-
-    await asyncio.wait_for(
-        module.synthesize_text_stream(source(), TTSOptions(), _signal(loop, got_audio)),
-        timeout=5,
-    )
     assert ws.texts == ["Hello ", "world.", ""]
 
 

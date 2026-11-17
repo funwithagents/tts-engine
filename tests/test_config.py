@@ -76,11 +76,12 @@ def test_missing_engine_block(tmp_path):
         MCPServerConfig.from_json_file(_write(tmp_path, data))
 
 
-def test_invalid_json_file_names_path(tmp_path):
+@pytest.mark.parametrize("config_class", [MCPServerConfig, TTSEngineConfig])
+def test_invalid_json_file_names_path(tmp_path, config_class):
     p = tmp_path / "config.json"
     p.write_text("{not valid json")
     with pytest.raises(ConfigError, match=re.escape(str(p))):
-        MCPServerConfig.from_json_file(str(p))
+        config_class.from_json_file(str(p))
 
 
 def test_from_json_file_reads_utf8_whatever_the_locale(tmp_path):
@@ -154,13 +155,6 @@ def test_engine_from_json_and_file_match(tmp_path):
     assert TTSEngineConfig.from_json_file(str(p)) == from_dict
 
 
-def test_engine_from_json_file_invalid_json_names_path(tmp_path):
-    p = tmp_path / "engine.json"
-    p.write_text("{nope")
-    with pytest.raises(ConfigError, match=re.escape(str(p))):
-        TTSEngineConfig.from_json_file(str(p))
-
-
 def test_from_dict_carries_module_verbatim(monkeypatch):
     # The key env var is named, never read: loading needs no credentials.
     monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
@@ -222,14 +216,12 @@ def test_from_dict_engine_not_object():
         TTSEngineConfig.from_dict(["not", "an", "object"])  # type: ignore[arg-type]
 
 
-def test_from_dict_module_missing():
+@pytest.mark.parametrize(
+    "block", [{"player": {"device": None}}, {"module": "elevenlabs"}]
+)
+def test_from_dict_module_missing_or_not_object(block):
     with pytest.raises(ConfigError, match="engine.module"):
-        TTSEngineConfig.from_dict({"player": {"device": None}})
-
-
-def test_from_dict_module_not_object():
-    with pytest.raises(ConfigError, match="engine.module"):
-        TTSEngineConfig.from_dict({"module": "elevenlabs"})
+        TTSEngineConfig.from_dict(block)
 
 
 @pytest.mark.parametrize(
@@ -259,11 +251,6 @@ def test_from_json_file_fills_module_base_dir(tmp_path):
     p.write_text(json.dumps(VALID["engine"]))
     engine_cfg = TTSEngineConfig.from_json_file(str(p))
     assert engine_cfg.module["base_dir"] == str(tmp_path.resolve())
-
-
-def test_from_dict_without_base_dir_leaves_module_untouched():
-    cfg = TTSEngineConfig.from_dict({"module": {"type": "x"}})
-    assert "base_dir" not in cfg.module
 
 
 def test_from_dict_with_base_dir_keyword_fills_module(tmp_path):

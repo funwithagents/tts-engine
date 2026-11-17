@@ -6,6 +6,7 @@ hardware."""
 from __future__ import annotations
 
 import asyncio
+import importlib.resources
 import json
 import tomllib
 import wave
@@ -525,7 +526,8 @@ def test_choices_file_is_refused_naming_the_field(tmp_path, data, message, capsy
 
 
 def test_template_is_package_data_and_the_command_is_declared():
-    assert "/*AUDITION_DATA*/null" in audition._TEMPLATE.read_text(encoding="utf-8")
+    template = importlib.resources.files("tts_engine.audition") / "page.html"
+    assert "/*AUDITION_DATA*/null" in template.read_text(encoding="utf-8")
     pyproject = tomllib.loads((_REPO_ROOT / "pyproject.toml").read_text("utf-8"))
     scripts = pyproject["project"]["scripts"]
     assert scripts["tts-engine-audition"] == "tts_engine.audition.cli:main"

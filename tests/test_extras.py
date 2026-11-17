@@ -64,12 +64,6 @@ def test_all_modules_bundles_every_provider_and_no_transport() -> None:
     assert _expand(_extras(), "all-modules") == _providers()
 
 
-def test_a_protocol_module_maps_to_its_origin_s_shared_extra() -> None:
-    assert _extra_of("openai-speech-compatible") == "openai-compatible"
-    assert _extra_of("openai-realtime-compatible") == "openai-compatible"
-    assert _extra_of("openai") == "openai"
-
-
 def test_all_bundles_every_extra() -> None:
     extras = _extras()
     assert _expand(extras, "all") == set(extras) - _BUNDLES

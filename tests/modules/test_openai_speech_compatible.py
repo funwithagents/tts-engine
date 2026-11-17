@@ -118,15 +118,6 @@ def _samples(pcm: bytes) -> list[int]:
     return np.frombuffer(pcm, dtype="<i2").tolist()
 
 
-# --- lazy import gate --------------------------------------------------------
-
-
-def test_missing_extra_raises_config_error(monkeypatch):
-    monkeypatch.setitem(sys.modules, "openai", None)  # -> ImportError
-    with pytest.raises(ConfigError, match=r"tts-engine\[openai-compatible\]"):
-        OpenAISpeechCompatibleModule(_BASE)
-
-
 # --- config ------------------------------------------------------------------
 
 
@@ -213,13 +204,6 @@ def test_custom_values_reach_the_request(fake):
 # --- synthesize_text ---------------------------------------------------------
 
 
-def test_chunks_reach_the_callback_unchanged(fake):
-    received = bytearray()
-    _say(OpenAISpeechCompatibleModule(_BASE), received.extend)
-    assert _samples(bytes(received)) == [1, 2, 3, -4, 5]
-    assert fake.responses[0].closed
-
-
 @pytest.mark.parametrize(
     ("config", "slice_samples"),
     [
@@ -246,6 +230,7 @@ def test_odd_byte_is_carried_over_and_audio_fed_in_100ms_slices(
     half = slice_samples // 2
     assert [len(c) for c in chunks] == [2 * slice_samples, 2 * half, 2 * half]
     assert _samples(b"".join(chunks)) == samples.tolist()
+    assert fake.responses[0].closed
 
 
 def test_body_shorter_than_the_wav_check_is_fed(fake):
