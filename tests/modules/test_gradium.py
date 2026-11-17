@@ -429,6 +429,41 @@ async def test_cancel_while_the_server_is_silent_stops_promptly(fake_gradium):
     assert fake_gradium.tts.closed is True
 
 
+# --- idle deadline (the server owes audio and sends nothing) -----------------
+
+
+def test_a_server_silent_after_the_whole_text_is_a_tts_error(fake_gradium):
+    # The text and end-of-stream are sent, one audio message comes, then
+    # nothing and no end of stream: the utterance must fail after `timeout`
+    # rather than hold the engine's lock for as long as the socket stays open.
+    fake_gradium.silent = True
+    fake_gradium.messages = [_audio(b"\x01\x02")]
+    callback = MagicMock()
+    module = GradiumModule({**VALID_CONFIG, "timeout": 0.02})
+
+    with pytest.raises(TTSError, match="no message for 0.02 s after the end"):
+        asyncio.run(module.synthesize_text("hello", TTSOptions(), callback))
+
+    callback.assert_called_once_with(b"\x01\x02")
+    assert fake_gradium.tts.closed is True
+
+
+def test_a_slow_sink_is_not_the_servers_silence(fake_gradium):
+    # Each chunk takes the sink longer than `timeout` (a device playing at
+    # real time): that wait is ours, and the server answered in time.
+    fake_gradium.messages = [_audio(b"a"), _audio(b"b")]
+    fed: list[bytes] = []
+
+    def slow_sink(chunk: bytes) -> None:
+        time.sleep(0.04)
+        fed.append(chunk)
+
+    module = GradiumModule({**VALID_CONFIG, "timeout": 0.02})
+    asyncio.run(module.synthesize_text("hello", TTSOptions(), slow_sink))
+
+    assert fed == [b"a", b"b"]
+
+
 # --- text stream (sender + receiver on one connection) -----------------------
 
 
@@ -438,6 +473,43 @@ def _source(*pieces: str):
             yield piece
 
     return source()
+
+
+@pytest.mark.asyncio
+async def test_text_stream_pause_longer_than_the_timeout_is_not_a_failure(
+    fake_gradium,
+):
+    # While text is still arriving, the server's silence is legitimate (the
+    # LLM is thinking): the idle deadline only runs once the text is complete.
+    fake_gradium.reactive = True
+    loop = asyncio.get_running_loop()
+    got_audio = asyncio.Event()
+
+    async def source():
+        yield "Hello "
+        await got_audio.wait()
+        await asyncio.sleep(0.05)  # more than twice the timeout
+        yield "world."
+
+    module = GradiumModule({**VALID_CONFIG, "timeout": 0.02})
+    await asyncio.wait_for(
+        module.synthesize_text_stream(source(), TTSOptions(), _signal(loop, got_audio)),
+        timeout=5,
+    )
+    assert fake_gradium.tts.sent == ["Hello ", "world."]
+
+
+def test_text_stream_server_silent_after_end_of_stream_is_a_tts_error(fake_gradium):
+    fake_gradium.silent = True
+    module = GradiumModule({**VALID_CONFIG, "timeout": 0.02})
+
+    with pytest.raises(TTSError, match="no message for 0.02 s after the end"):
+        asyncio.run(
+            module.synthesize_text_stream(_source("Hello."), TTSOptions(), MagicMock())
+        )
+
+    assert fake_gradium.tts.eos is True
+    assert fake_gradium.tts.closed is True
 
 
 def test_text_stream_sends_word_groups_then_eos(fake_gradium):

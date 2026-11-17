@@ -37,7 +37,7 @@ Prefer referencing an environment variable so secrets do not appear in configura
 | `rewrite_rules` | no | the voice's language | Text-rewriting rules applied before synthesis; `none` disables them. |
 | `pronunciation_id` | no | — | Pronunciation dictionary ID. |
 | `base_url` | no | SDK default | API base URL, for a regional or self-hosted endpoint. |
-| `timeout` | no | `30` | Seconds to wait for the provider before a stalled request fails; also how long a cancel issued during such a stall can take. |
+| `timeout` | no | `30` | Seconds to wait for the connection to be ready, and for the next message once the whole text has been sent; past either, the utterance fails. A cancel does not wait for it. |
 
 The module emits mono PCM at the configured `sample_rate`. Voice-setting fields are sent only when set, so the API's own defaults apply otherwise.
 

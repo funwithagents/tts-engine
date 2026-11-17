@@ -284,6 +284,7 @@ class _FakeStreamInput:
         self.sent: list[dict] = []
         self.closed = False
         self.endless = False  # keep producing audio forever (cancel test)
+        self.silent_after_end = False  # never answer the end-of-stream frame
         self.fail_send: Exception | None = None  # raised by send() on text
         self.fail_recv: Exception | None = None  # raised by recv() once
         # Delivered instead of audio for the first text message: a protocol
@@ -305,6 +306,10 @@ class _FakeStreamInput:
             return
         if self.fail_send is not None:
             raise self.fail_send
+        if self.silent_after_end and (
+            message.get("text") == "" or message.get("close_socket")
+        ):
+            return
         if message.get("text") == "":
             self._inbox.put({"isFinal": True})
         elif message.get("close_socket"):
@@ -806,6 +811,68 @@ async def test_text_stream_cancel_while_the_server_is_silent_stops_promptly(
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(task, timeout=5)
     assert ws.closed is True
+
+
+# --- idle deadline (the server owes audio and sends nothing) -----------------
+
+
+@patch("websockets.sync.client.connect")
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
+def test_text_stream_server_silent_after_end_of_stream_is_a_tts_error(
+    mock_elevenlabs_cls, mock_stream_any, mock_connect
+):
+    # The whole text and the end-of-stream frame are sent, audio comes for the
+    # text, then nothing and no final message: the utterance must fail after
+    # `timeout` rather than hold the engine's lock while the socket stays open.
+    module, ws, _ = _stream_input_module(
+        mock_elevenlabs_cls,
+        mock_stream_any,
+        mock_connect,
+        {**VALID_CONFIG, "timeout": 0.02},
+    )
+    ws.silent_after_end = True
+    callback = MagicMock()
+
+    with pytest.raises(TTSError, match="no message for 0.02 s after the end"):
+        asyncio.run(
+            module.synthesize_text_stream(_source("Hello."), TTSOptions(), callback)
+        )
+
+    assert callback.called  # the audio that did come was played
+    assert ws.texts == ["Hello.", ""]
+    assert ws.closed is True
+
+
+@pytest.mark.asyncio
+@patch("websockets.sync.client.connect")
+@patch("miniaudio.stream_any")
+@patch("elevenlabs.ElevenLabs")
+async def test_text_stream_pause_longer_than_the_timeout_is_not_a_failure(
+    mock_elevenlabs_cls, mock_stream_any, mock_connect
+):
+    # While text is still arriving, the server's silence is legitimate (the
+    # LLM is thinking): the idle deadline only runs once the text is complete.
+    module, ws, _ = _stream_input_module(
+        mock_elevenlabs_cls,
+        mock_stream_any,
+        mock_connect,
+        {**VALID_CONFIG, "timeout": 0.02},
+    )
+    loop = asyncio.get_running_loop()
+    got_audio = asyncio.Event()
+
+    async def source():
+        yield "Hello "
+        await got_audio.wait()
+        await asyncio.sleep(0.05)  # more than twice the timeout
+        yield "world."
+
+    await asyncio.wait_for(
+        module.synthesize_text_stream(source(), TTSOptions(), _signal(loop, got_audio)),
+        timeout=5,
+    )
+    assert ws.texts == ["Hello ", "world.", ""]
 
 
 # --- voice listing -----------------------------------------------------------
