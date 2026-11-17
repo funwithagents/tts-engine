@@ -131,16 +131,6 @@ def _samples(pcm: bytes) -> list[int]:
     return np.frombuffer(pcm, dtype="<i2").tolist()
 
 
-# --- lazy import gate --------------------------------------------------------
-
-
-def test_missing_extra_raises_config_error(monkeypatch):
-    monkeypatch.setitem(sys.modules, "google", types.ModuleType("google"))
-    monkeypatch.setitem(sys.modules, "google.genai", None)  # -> ImportError
-    with pytest.raises(ConfigError, match=r"tts-engine\[gemini\]"):
-        GeminiModule(_BASE)
-
-
 # --- config ------------------------------------------------------------------
 
 

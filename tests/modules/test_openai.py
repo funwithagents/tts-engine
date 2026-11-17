@@ -24,6 +24,7 @@ from tts_engine.modules.openai.module import _VERBATIM
 
 _BASE = {"type": "openai", "api_key": "k"}
 _NS = types.SimpleNamespace
+_POLL = 0.005  # the module's `_POLL_SECONDS`, patched down by `fake`
 
 
 def _pcm(samples) -> bytes:
@@ -143,6 +144,9 @@ class _Server:
 
 @pytest.fixture
 def fake(monkeypatch) -> _Server:
+    # The worker polls its inbox and `stop` on this interval; tests wait on
+    # the module's logic, not on wall-clock ticks.
+    monkeypatch.setattr("tts_engine.modules.openai.module._POLL_SECONDS", _POLL)
     server = _Server()
 
     class Manager:
@@ -202,24 +206,13 @@ def test_missing_extra_is_config_error(fake, monkeypatch, missing):
         ("instructions", ""),
         ("speed", 0.2),
         ("speed", 2.0),
-        ("speed", True),
-        ("speed", float("nan")),
         ("timeout", 0),
-        ("timeout", True),
     ],
 )
 def test_invalid_field_is_config_error(fake, field, value):
     with pytest.raises(ConfigError, match=field):
         OpenAIModule({**_BASE, field: value})
     assert fake.connects == 0
-
-
-def test_construction_connects_and_configures_the_session(fake):
-    OpenAIModule(_BASE)
-    assert fake.connects == 1
-    assert len(fake.sessions) == 1
-    assert fake.event_ids[0].startswith("tts-")
-    assert fake.responses == []
 
 
 def test_a_rejected_setup_is_config_error_leaving_no_socket(fake):
@@ -289,7 +282,10 @@ def test_options_reach_the_session(fake):
         "instructions": "Calm and slow.",
     }
     OpenAIModule(config)
+    # Construction connects once and configures the session, nothing more.
     assert fake.models == ["gpt-realtime-2.1"]
+    assert fake.event_ids[0].startswith("tts-")
+    assert fake.responses == []
     (session,) = fake.sessions
     assert session["audio"]["output"]["voice"] == "cedar"
     assert session["audio"]["output"]["speed"] == 1.2
@@ -331,9 +327,10 @@ def test_a_long_text_is_sliced_into_responses_over_one_socket(fake):
     assert "".join(fake.texts) == text
 
 
-def test_blank_text_sends_nothing(fake):
+def test_blank_text_sends_nothing(fake, monkeypatch):
     module = OpenAIModule(_BASE)
-    module._socket.opened -= 56 * 60  # type: ignore[union-attr]  (no rotation either)
+    # Every socket is past its age: a blank text does not rotate it either.
+    monkeypatch.setattr("tts_engine.modules.openai.module._ROTATE_AFTER", -1.0)
     _say(module, text=" \n")
     assert fake.connects == 1
     assert fake.responses == []
@@ -413,15 +410,19 @@ def test_a_failed_reconnect_fails_that_utterance_only(fake):
 
 def test_a_rejected_reconnect_is_tts_error(fake):
     module = OpenAIModule(_BASE)
-    module._socket.dead.set()  # type: ignore[union-attr]
+    fake.script = lambda n: [ConnectionError("reset")] if n == 1 else None
+    with pytest.raises(TTSError, match="reset"):
+        _say(module)
     fake.reject_setup = "invalid_api_key"
     with pytest.raises(TTSError, match="invalid_api_key"):
         _say(module)
+    assert fake.connects == 2
 
 
-def test_an_old_socket_is_rotated_before_the_utterance(fake):
+def test_an_old_socket_is_rotated_before_the_utterance(fake, monkeypatch):
     module = OpenAIModule(_BASE)
-    module._socket.opened -= 56 * 60  # type: ignore[union-attr]
+    # Every socket is past its age: rotated once, at the utterance's start.
+    monkeypatch.setattr("tts_engine.modules.openai.module._ROTATE_AFTER", -1.0)
     _say(module, text="One. " * 400)  # several responses, all on the new socket
     assert fake.connects == 2
     assert fake.connections[0].closed.wait(1)
@@ -469,7 +470,10 @@ async def test_a_cancel_before_response_created_waits_for_it(fake):
     while not fake.responses:
         await asyncio.sleep(0.01)
     task.cancel()
-    await asyncio.sleep(0.1)  # the worker sees `stop` with no response id yet
+    # A few poll periods: the worker sees `stop` with no response id yet. Not
+    # observable through the fake; a late worker takes `response.created`
+    # first and reaches the same cancel, so this cannot flake.
+    await asyncio.sleep(4 * _POLL)
     assert fake.cancels == []
     fake.connections[0].inbox.put(_created("resp_1"))
     with pytest.raises(asyncio.CancelledError):

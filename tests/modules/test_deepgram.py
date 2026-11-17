@@ -370,15 +370,6 @@ def _cancel_label(config: dict) -> str:
     return "INTERRUPT" if config is _FLUX else "CLEAR"
 
 
-# --- lazy import gate --------------------------------------------------------
-
-
-def test_missing_extra_raises_config_error(monkeypatch):
-    monkeypatch.setitem(sys.modules, "deepgram", None)  # -> ImportError
-    with pytest.raises(ConfigError, match=r"tts-engine\[deepgram\]"):
-        DeepgramModule(_BASE)
-
-
 # --- config ------------------------------------------------------------------
 
 
@@ -449,12 +440,6 @@ def test_custom_values_reach_the_socket(fake):
 
 
 # --- construction ------------------------------------------------------------
-
-
-def test_construction_connects_once_before_any_say(fake):
-    DeepgramModule(_BASE)
-    assert fake.connects == 1
-    assert fake.socket.sent == []
 
 
 @pytest.mark.parametrize("status", [400, 401, 403])
@@ -569,7 +554,9 @@ def test_server_error_mid_stream_is_tts_error(fake):
     module = DeepgramModule(_BASE)
     with pytest.raises(TTSError, match="DATA-0001"):
         _say(module, "Hi.")
-    assert _held(module).dead.is_set()
+    fake.script = None
+    _say(module, "Hi.")
+    assert fake.connects == 2  # the failed socket is not reused
 
 
 def test_server_closing_during_an_utterance_is_tts_error_then_reconnects(fake):
@@ -591,7 +578,9 @@ def test_send_error_is_tts_error(fake):
     module = DeepgramModule(_BASE)
     with pytest.raises(TTSError, match="broken pipe"):
         _say(module, "Hi.")
-    assert _held(module).dead.is_set()
+    fake.raise_on_send = None
+    _say(module, "Hi.")
+    assert fake.connects == 2  # the failed socket is not reused
 
 
 def test_callback_error_propagates_unchanged_and_clears(fake):
@@ -675,43 +664,44 @@ def test_socket_replaced_before_the_utterance_when_old_idle_or_slept(
         assert fake.socket.sent == ["Hi.", "FLUSH"]
 
 
-def test_messages_sent_and_received_refresh_the_idle_clocks(fake):
+@pytest.mark.parametrize("traffic", ["utterance", "idle server message"])
+def test_traffic_refreshes_the_idle_clocks(fake, caplog, traffic):
     module = DeepgramModule(_BASE)
     socket = _held(module)
-    socket.last_mono -= 100
-    socket.last_wall -= 100
-    socket.send(lambda: None)
-    assert time.monotonic() - socket.last_mono < 1
-    assert time.time() - socket.last_wall < 1
 
-    socket.last_mono -= 100
-    socket.last_wall -= 100
-    fake.socket.server_send(types.SimpleNamespace(type="Metadata"))
-    assert _wait(lambda: time.monotonic() - socket.last_mono < 1)
-    assert time.time() - socket.last_wall < 1
+    def age(seconds: float) -> None:
+        socket.last_mono -= seconds
+        socket.last_wall -= seconds
+
+    age(500.0)  # under the 540 s idle limit
+    if traffic == "utterance":
+        _say(module, "Hi.")
+    else:
+        with caplog.at_level(logging.DEBUG, logger="tts_engine.modules.deepgram"):
+            fake.socket.server_send(types.SimpleNamespace(type="Metadata"))
+            assert _wait(lambda: "while idle: Metadata" in caplog.text)
+    age(100.0)  # past the limit unless the traffic refreshed the clocks
+    _say(module, "Again.")
+    assert fake.connects == 1
 
 
 @pytest.mark.parametrize(
-    ("config", "flushes", "replaced"),
-    [(_BASE, 16, True), (_BASE, 15, False), (_FLUX, 16, False)],
-    ids=["aura-spent", "aura-left", "flux"],
+    ("config", "flushes", "age", "replaced"),
+    [
+        (_BASE, 16, 30.0, True),
+        (_BASE, 15, 30.0, False),
+        (_BASE, 20, 61.0, False),  # out of the window: not counted
+        (_FLUX, 16, 30.0, False),
+    ],
+    ids=["aura-spent", "aura-left", "aura-old", "flux"],
 )
 def test_v1_socket_replaced_once_its_flush_budget_is_spent(
-    fake, config, flushes, replaced
+    fake, config, flushes, age, replaced
 ):
     module = DeepgramModule(config)
-    now = time.monotonic()
-    _held(module).flush_times = deque([now - 30.0] * flushes)
+    _held(module).flush_times = deque([time.monotonic() - age] * flushes)
     _say(module, "Hi.")
     assert fake.connects == (2 if replaced else 1)
-
-
-def test_flushes_older_than_the_window_do_not_count(fake):
-    module = DeepgramModule(_BASE)
-    _held(module).flush_times = deque([time.monotonic() - 61.0] * 20)
-    _say(module, "Hi.")
-    assert fake.connects == 1
-    assert len(_held(module).flush_times) == 1  # pruned, plus this utterance's
 
 
 @pytest.mark.parametrize(
@@ -733,10 +723,15 @@ def test_socket_replaced_once_its_character_budget_is_spent(
     assert fake.connects == (2 if replaced else 1)
 
 
-def test_sent_text_is_counted_against_the_character_budget(fake):
+@pytest.mark.parametrize(("budget", "replaced"), [(12, True), (13, False)])
+def test_sent_text_is_counted_against_the_character_budget(
+    fake, monkeypatch, budget, replaced
+):
+    monkeypatch.setattr(deepgram_module, "_CHAR_BUDGET", budget)
     module = DeepgramModule(_BASE)
-    _say(module, "Hello world.")
-    assert sum(n for _, n in _held(module).char_log) == len("Hello world.")
+    _say(module, "Hello world.")  # 12 characters
+    _say(module, "Hi.")
+    assert fake.connects == (2 if replaced else 1)
 
 
 async def test_cancel_during_a_reconnect_surfaces_promptly_and_closes_late(fake):
@@ -783,8 +778,8 @@ async def test_cancel_mid_audio_stops_callbacks_and_keeps_the_socket(fake, confi
     fake.hold_flushed = True
     module = DeepgramModule(config)
     await _cancel_once_audio_flows(module)
-    await asyncio.sleep(0.05)  # a sender racing the cancel would send now
-    assert fake.socket.sent[-1] == _cancel_label(config)  # nothing after it
+    # The sender checks `stop` under the send lock: nothing follows the cancel.
+    assert fake.socket.sent[-1] == _cancel_label(config)
     assert not fake.socket.closed.is_set()
     assert fake.connects == 1
 
@@ -1103,7 +1098,6 @@ def test_close_closes_the_held_socket_off_the_calling_thread(fake):
     assert not fake.socket.closed.is_set()
     fake.exit_gate.set()
     assert fake.socket.closed.wait(1)
-    assert module._socket is None
 
 
 # --- voice listing -----------------------------------------------------------

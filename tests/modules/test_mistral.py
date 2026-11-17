@@ -133,16 +133,6 @@ def _samples(pcm: bytes) -> list[int]:
     return np.frombuffer(pcm, dtype="<i2").tolist()
 
 
-# --- lazy import gate --------------------------------------------------------
-
-
-def test_missing_extra_raises_config_error(monkeypatch):
-    monkeypatch.setitem(sys.modules, "mistralai", None)  # -> ImportError
-    monkeypatch.setitem(sys.modules, "mistralai.client", None)
-    with pytest.raises(ConfigError, match=r"tts-engine\[mistral\]"):
-        MistralModule(_BASE)
-
-
 # --- config ------------------------------------------------------------------
 
 

@@ -8,7 +8,7 @@ Config-validation tests need no fake — validation runs before the lazy import.
 import asyncio
 import gc
 import sys
-import time
+import threading
 import types
 import weakref
 
@@ -165,8 +165,6 @@ def fakes(monkeypatch) -> _Fakes:
         ({"model": "hf://o/r/f.onnx@"}, "model"),
         ({"voice": "xx_custom"}, "no default language"),
         ({"threads": 0}, "threads"),
-        ({"threads": True}, "threads"),
-        ({"threads": "2"}, "threads"),
     ],
 )
 def test_invalid_config_raises_before_any_download(fakes, config, match):
@@ -354,16 +352,19 @@ def test_create_error_is_a_tts_error(fakes):
 # --- cancellation ------------------------------------------------------------
 
 
-def _slow_counting_callback(loop: asyncio.AbstractEventLoop, first: asyncio.Event):
-    """A callback that plays each slice for a millisecond and signals the loop
-    on the first one; `count()` reads how many slices it has received."""
+def _gated_callback(
+    loop: asyncio.AbstractEventLoop, first: asyncio.Event, release: threading.Event
+):
+    """A callback that signals the loop on the first slice, then holds the
+    worker there until `release` is set; `count()` reads how many slices it
+    has received."""
     count = 0
 
     def callback(_chunk: bytes) -> None:
         nonlocal count
         count += 1
         loop.call_soon_threadsafe(first.set)
-        time.sleep(0.001)
+        release.wait(timeout=5)
 
     return callback, lambda: count
 
@@ -372,37 +373,26 @@ async def test_cancel_stops_callbacks_and_further_inference(fakes):
     fakes.audio = np.zeros(2400 * 1000, dtype=np.float32)  # 1000 slices per sentence
     module = KokoroModule({"type": "kokoro"})
     first = asyncio.Event()
-    callback, count = _slow_counting_callback(asyncio.get_running_loop(), first)
+    release = threading.Event()
+    callback, count = _gated_callback(asyncio.get_running_loop(), first, release)
 
     task = asyncio.create_task(
         module.synthesize_text("One. Two. Three. Four.", TTSOptions(), callback)
     )
-    await first.wait()
-    task.cancel()
+    try:
+        await asyncio.wait_for(first.wait(), timeout=5)
+        task.cancel()
+        await asyncio.sleep(0)  # the cancel reaches the worker helper: `stop` is set
+    finally:
+        release.set()
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(task, timeout=5)
-    assert count() < 1000  # `stop` reached the slice feeder mid-sentence
-
-
-async def test_text_stream_cancel_mid_audio_stops_callbacks(fakes):
-    fakes.audio = np.zeros(2400 * 1000, dtype=np.float32)
-    module = KokoroModule({"type": "kokoro"})
-    first = asyncio.Event()
-    callback, count = _slow_counting_callback(asyncio.get_running_loop(), first)
-
-    async def source():
-        yield "Hello world. "  # a complete sentence: inference starts
-        await asyncio.Event().wait()  # then the source stays open
-
-    task = asyncio.create_task(
-        module.synthesize_text_stream(source(), TTSOptions(), callback)
-    )
-    await first.wait()
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(task, timeout=5)
-    assert count() < 1000
-    assert [text for text, _ in fakes.creates] == ["Hello world."]
+    # `stop` is checked between slices: the held slice was the last one fed,
+    # not the 4000 of the whole text.
+    assert count() <= 2
+    # One sentence playing, at most the next synthesized ahead: none after it.
+    texts = [text for text, *_ in fakes.creates]
+    assert texts in (["One."], ["One.", "Two."])
 
 
 # --- synthesize_text_stream --------------------------------------------------

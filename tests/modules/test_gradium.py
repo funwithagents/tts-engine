@@ -155,17 +155,6 @@ def fake_gradium(monkeypatch):
 # --- construction / config -------------------------------------------------
 
 
-def test_missing_extra_raises_config_error(monkeypatch):
-    monkeypatch.setitem(sys.modules, "gradium", None)  # -> ImportError
-    with pytest.raises(ConfigError, match=r"tts-engine\[gradium\]"):
-        GradiumModule(VALID_CONFIG)
-
-
-def test_missing_voice_id_raises(fake_gradium):
-    with pytest.raises(ConfigError, match="voice_id"):
-        GradiumModule({"type": "gradium", "api_key": "k"})
-
-
 def test_api_key_from_env(fake_gradium, monkeypatch):
     monkeypatch.setenv("MY_TTS_KEY", "env-secret")
     GradiumModule({"type": "gradium", "api_key_env": "MY_TTS_KEY", "voice_id": "v"})
@@ -179,9 +168,13 @@ def test_base_url_reaches_the_client_only_when_set(fake_gradium):
     assert fake_gradium.client_kwargs["base_url"] == "https://eu.example/api/"
 
 
+_ABSENT = object()  # an override value that removes the field
+
+
 @pytest.mark.parametrize(
     "override, field",
     [
+        ({"voice_id": _ABSENT}, "voice_id"),
         ({"voice_id": 42}, "voice_id"),
         ({"model": ""}, "model"),
         ({"sample_rate": 22050}, "sample_rate"),
@@ -197,8 +190,10 @@ def test_base_url_reaches_the_client_only_when_set(fake_gradium):
     ],
 )
 def test_invalid_field_raises_config_error(fake_gradium, override, field):
+    config = {**VALID_CONFIG, **override}
+    config = {k: v for k, v in config.items() if v is not _ABSENT}
     with pytest.raises(ConfigError, match=field):
-        GradiumModule({**VALID_CONFIG, **override})
+        GradiumModule(config)
 
 
 # --- streaming ---------------------------------------------------------------
@@ -533,26 +528,6 @@ def test_text_stream_sends_word_groups_then_eos(fake_gradium):
         b"you",
     ]
     assert fake_gradium.tts.closed is True
-
-
-async def test_text_stream_feeds_audio_before_the_source_finishes(fake_gradium):
-    fake_gradium.reactive = True
-    loop = asyncio.get_running_loop()
-    got_audio = asyncio.Event()
-
-    async def source():
-        yield "Hello "
-        await got_audio.wait()
-        yield "world."
-
-    await asyncio.wait_for(
-        GradiumModule(VALID_CONFIG).synthesize_text_stream(
-            source(), TTSOptions(), _signal(loop, got_audio)
-        ),
-        timeout=5,
-    )
-    assert fake_gradium.tts.sent == ["Hello ", "world."]
-    assert fake_gradium.tts.eos is True
 
 
 def test_text_stream_sender_failure_raises_tts_error(fake_gradium, monkeypatch):

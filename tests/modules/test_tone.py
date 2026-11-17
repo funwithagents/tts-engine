@@ -2,7 +2,7 @@
 
 import asyncio
 import math
-import time
+import threading
 
 import pytest
 
@@ -70,28 +70,52 @@ def test_same_text_yields_identical_bytes():
     assert b"".join(_stream(module, "hello")) == b"".join(_stream(module, "hello"))
 
 
-async def test_cancel_stops_callbacks_before_stream_raises():
-    module = ToneModule({"type": "tone"})
-
-    loop = asyncio.get_running_loop()
-    first_chunk = asyncio.Event()
+def _gated_callback(
+    loop: asyncio.AbstractEventLoop,
+    first_chunk: asyncio.Event,
+    release: threading.Event,
+):
+    """A sink that signals the loop on the first chunk, then holds the worker
+    there until `release` is set; `count()` reads how many chunks it got."""
     count = 0
 
     def callback(_chunk: bytes) -> None:
         nonlocal count
         count += 1
-        time.sleep(0.005)  # slow sink, so the stream is still running at cancel
         loop.call_soon_threadsafe(first_chunk.set)
+        release.wait(timeout=5)
+
+    return callback, lambda: count
+
+
+async def _cancel_while_held(
+    task: asyncio.Task, first_chunk: asyncio.Event, release: threading.Event
+) -> None:
+    """Cancel `task` while its worker is held in the sink, then release it:
+    the call must raise CancelledError."""
+    try:
+        await asyncio.wait_for(first_chunk.wait(), timeout=5)
+        task.cancel()
+        await asyncio.sleep(0)  # the cancel reaches the worker helper: `stop` is set
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=5)
+
+
+async def test_cancel_stops_callbacks_before_stream_raises():
+    module = ToneModule({"type": "tone"})
+    first_chunk = asyncio.Event()
+    release = threading.Event()
+    callback, count = _gated_callback(asyncio.get_running_loop(), first_chunk, release)
 
     task = asyncio.create_task(
         module.synthesize_text("x" * 2000, TTSOptions(), callback)
     )
-    await first_chunk.wait()
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(task, timeout=5)
-    # The tone loop checks `stop`: it ends well before its ~586 chunks.
-    assert count < _TOTAL_CHUNKS
+    await _cancel_while_held(task, first_chunk, release)
+    # The tone loop checks `stop` between chunks: the held chunk was the last
+    # one fed, not the ~586 of the whole tone.
+    assert count() <= 2 < _TOTAL_CHUNKS
 
 
 # --- text stream -------------------------------------------------------------
@@ -150,15 +174,9 @@ async def test_text_stream_feeds_audio_before_the_source_finishes():
 
 async def test_text_stream_cancel_mid_audio_stops_callbacks_before_raising():
     module = ToneModule({"type": "tone"})
-    loop = asyncio.get_running_loop()
     first_chunk = asyncio.Event()
-    count = 0
-
-    def callback(_chunk: bytes) -> None:
-        nonlocal count
-        count += 1
-        time.sleep(0.005)  # slow sink, so audio is still flowing at cancel
-        loop.call_soon_threadsafe(first_chunk.set)
+    release = threading.Event()
+    callback, count = _gated_callback(asyncio.get_running_loop(), first_chunk, release)
 
     async def source():
         yield "x" * 2000  # ~100 s of tone: the audio outlasts the cancel
@@ -167,8 +185,5 @@ async def test_text_stream_cancel_mid_audio_stops_callbacks_before_raising():
     task = asyncio.create_task(
         module.synthesize_text_stream(source(), TTSOptions(), callback)
     )
-    await first_chunk.wait()
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(task, timeout=5)
-    assert count < _TOTAL_CHUNKS
+    await _cancel_while_held(task, first_chunk, release)
+    assert count() <= 2 < _TOTAL_CHUNKS
