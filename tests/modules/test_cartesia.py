@@ -722,9 +722,17 @@ def test_construction_connects_once_with_open_timeout(fake):
     assert fake.ws.contexts == []
 
 
-def test_rejected_key_at_construction_is_config_error(fake):
-    fake.raise_on_connect = InvalidStatus(types.SimpleNamespace(status_code=401))  # type: ignore[arg-type]
-    with pytest.raises(ConfigError, match="rejected the key.*401"):
+@pytest.mark.parametrize("status", [401, 403])
+def test_rejected_key_at_construction_is_config_error(fake, status):
+    fake.raise_on_connect = InvalidStatus(types.SimpleNamespace(status_code=status))  # type: ignore[arg-type]
+    with pytest.raises(ConfigError, match=f"rejected the key.*{status}"):
+        CartesiaModule(_BASE)
+    assert fake.client_closed
+
+
+def test_other_handshake_rejection_at_construction_is_tts_error(fake):
+    fake.raise_on_connect = InvalidStatus(types.SimpleNamespace(status_code=500))  # type: ignore[arg-type]
+    with pytest.raises(TTSError, match="Cartesia request failed"):
         CartesiaModule(_BASE)
     assert fake.client_closed
 

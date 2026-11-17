@@ -37,6 +37,14 @@ class _FakeChunk:
         return self._arr
 
 
+_AFTER_STOP = -0.5  # the endless fake's frame decoded after `stop`
+
+
+def _fed_after_stop(fed: list[bytes]) -> bool:
+    """Whether the frame the endless fake decodes after `stop` was fed."""
+    return any(np.frombuffer(chunk, dtype="<i2").min() < 0 for chunk in fed)
+
+
 class _FakeModel:
     sample_rate = 24000
 
@@ -49,6 +57,9 @@ class _FakeModel:
         self.raise_on_stream: Exception | None = None
         self.raise_on_voice: Exception | None = None
         self.endless = False
+        # `stop` is set while the module waits in `next` (a cancel landing
+        # mid-inference), and the library still returns that frame.
+        self.stop_inside_next = False
         self.texts: list[str] = []
         self.stops: list = []
         # Appended when a generator runs to its end (not merely abandoned or
@@ -71,13 +82,22 @@ class _FakeModel:
         self.texts.append(text)
         if self.raise_on_stream is not None:
             raise self.raise_on_stream
+        if self.stop_inside_next:
+            assert stop is not None
+            yield _FakeChunk([0.1])
+            stop.set()
+            yield _FakeChunk([_AFTER_STOP])
+            self.finished.append(True)
+            return
         if self.endless:
             # Like the library: generation ends once the stop event is set,
             # after the frames it had already queued.
             while stop is None or not stop.is_set():
                 time.sleep(0.005)
                 yield _FakeChunk([0.1])
-            yield _FakeChunk([0.1])  # one already-decoded frame still comes
+            # One already-decoded frame still comes; the only negative one, so
+            # a test can tell whether it was fed.
+            yield _FakeChunk([_AFTER_STOP])
             self.finished.append(True)
             return
         yield from self.chunks
@@ -285,6 +305,23 @@ def test_stream_wraps_backend_error_in_tts_error(monkeypatch, fresh_model):
         asyncio.run(module.synthesize_text("hi", TTSOptions(), lambda _b: None))
 
 
+def test_a_frame_returned_after_stop_was_set_inside_next_is_not_fed(
+    monkeypatch, fresh_model
+):
+    # The loop's own `stop` check runs before `next`; a cancel that lands
+    # while `next` is blocked in inference must still drop the frame it yields.
+    _install_fakes(monkeypatch)
+    fresh_model.stop_inside_next = True
+    fed: list[bytes] = []
+    asyncio.run(
+        PocketModule({"type": "pocket"}).synthesize_text(
+            "Hi.", TTSOptions(), fed.append
+        )
+    )
+    assert len(fed) == 1 and not _fed_after_stop(fed)
+    assert fresh_model.finished == [True]  # the generator still ran to its end
+
+
 def test_callback_failure_stops_the_library_generation(monkeypatch, fresh_model):
     # A sink failure ends the utterance: the library's generation thread must
     # be told to stop (as on cancel), not left running the sentence out in the
@@ -293,15 +330,19 @@ def test_callback_failure_stops_the_library_generation(monkeypatch, fresh_model)
     fresh_model.endless = True
     module = PocketModule({"type": "pocket"})
 
-    def bad_callback(_b):
+    fed: list[bytes] = []
+
+    def bad_callback(chunk: bytes) -> None:
+        fed.append(chunk)
         raise ValueError("playback failed")
 
     with pytest.raises(ValueError, match="playback failed"):
         asyncio.run(module.synthesize_text("hi", TTSOptions(), bad_callback))
     assert fresh_model.stops[0].is_set()
     # And the generator was run to its end (its decoder joined) before the
-    # error surfaced, not abandoned at its yield.
+    # error surfaced, not abandoned at its yield, its post-stop frame unfed.
     assert fresh_model.finished == [True]
+    assert len(fed) == 1 and not _fed_after_stop(fed)
 
 
 async def test_cancel_stops_the_library_and_runs_its_generator_to_its_end(
@@ -316,23 +357,32 @@ async def test_cancel_stops_the_library_and_runs_its_generator_to_its_end(
     module = PocketModule({"type": "pocket"})
     loop = asyncio.get_running_loop()
     first_chunk = asyncio.Event()
+    fed: list[bytes] = []
 
     task = asyncio.create_task(
-        module.synthesize_text("hi", TTSOptions(), _signal(loop, first_chunk))
+        module.synthesize_text("hi", TTSOptions(), _signal(loop, first_chunk, fed))
     )
-    await first_chunk.wait()
+    await asyncio.wait_for(first_chunk.wait(), timeout=5)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(task, timeout=5)
 
     assert fresh_model.stops[0].is_set()  # the library's generation was told too
     assert fresh_model.finished == [True]
+    assert fed and not _fed_after_stop(fed)
 
 
-def _signal(loop: asyncio.AbstractEventLoop, event: asyncio.Event):
-    """A callback that sets `event` on `loop` from the module's worker thread."""
+def _signal(
+    loop: asyncio.AbstractEventLoop,
+    event: asyncio.Event,
+    fed: list[bytes] | None = None,
+):
+    """A callback that sets `event` on `loop` from the module's worker thread,
+    recording the chunks it gets in `fed` when given."""
 
-    def callback(_chunk: bytes) -> None:
+    def callback(chunk: bytes) -> None:
+        if fed is not None:
+            fed.append(chunk)
         loop.call_soon_threadsafe(event.set)
 
     return callback

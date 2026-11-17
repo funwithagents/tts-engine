@@ -35,6 +35,7 @@ from tts_engine.modules.base import (
     segment_sentences,
     slice_bytes_for,
     slice_text,
+    split_at_last_space,
 )
 
 
@@ -136,6 +137,20 @@ def test_resolve_path_relative_without_base_dir_uses_cwd(tmp_path, monkeypatch):
 
 
 # --- segment_sentences -------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("buffer", "expected"),
+    [
+        ("hello wor", ("hello ", "wor")),  # the unfinished last word is held back
+        ("hello world ", ("hello world ", "")),  # trailing space: all complete
+        ("hello", ("", "hello")),  # no whitespace: nothing complete yet
+        ("", ("", "")),
+        ("one\ttwo\nthr", ("one\ttwo\n", "thr")),  # any whitespace counts
+    ],
+)
+def test_split_at_last_space_holds_back_the_unfinished_last_word(buffer, expected):
+    assert split_at_last_space(buffer) == expected
 
 
 @pytest.mark.parametrize(
@@ -339,6 +354,24 @@ async def test_cancellable_worker_repeated_cancel_still_waits_for_the_thread():
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(task, timeout=5)
     assert exited is True
+
+
+async def test_cancellable_worker_error_while_unwinding_a_cancel_is_discarded():
+    # The caller's outcome is the cancellation: a worker that fails on its way
+    # out after `stop` was set must not replace CancelledError with its error.
+    loop = asyncio.get_running_loop()
+    started = asyncio.Event()
+
+    def worker(stop):
+        loop.call_soon_threadsafe(started.set)
+        stop.wait(5)
+        raise TTSError("connection closed during cancel")
+
+    task = asyncio.create_task(run_cancellable_worker(worker))
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=5)
 
 
 async def test_text_stream_worker_source_cancelled_error_is_a_source_failure():

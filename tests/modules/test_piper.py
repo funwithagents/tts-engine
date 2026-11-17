@@ -539,3 +539,17 @@ def test_list_voices_has_one_entry_per_voice_or_speaker(monkeypatch, tmp_path):
         {"voice": "en_US-arctic-medium", "speaker": "bdl"},
     )
     assert rms.config == {"voice": "en_US-arctic-medium", "speaker": "rms"}
+
+
+@pytest.mark.parametrize(
+    "download_error, match",
+    [
+        (ConnectionError("hub down"), "voice listing failed: hub down"),
+        (None, "voice listing failed: .*voices.json"),  # the fake path: unreadable
+    ],
+    ids=["download", "unreadable-catalog"],
+)
+def test_list_voices_failure_is_a_tts_error(fakes, download_error, match):
+    fakes.download_error = download_error
+    with pytest.raises(TTSError, match=match):
+        PiperModule.list_voices({"type": "piper"})

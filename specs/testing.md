@@ -66,7 +66,7 @@ Delete or merge a test if it: asserts a private implementation attribute; is ful
 
 ### Shared helpers are tested once
 
-The helpers in `modules/base.py` (the worker runners, `segment_sentences`, `feed_with_lookahead`, `cleanup`, `open_cancellable`, `resolve_path`, `resolve_api_key`, `optional_str`/`finite_number`, `float_to_int16_pcm`, `PCMFeeder`) carry their full behavioural matrix in `tests/modules/test_tts_module_interface.py`. A module's test file does **not** repeat that matrix; it keeps only what the module itself decides:
+The helpers in `modules/base.py` (the worker runners, `split_at_last_space`, `segment_sentences`, `feed_with_lookahead`, `cleanup`, `open_cancellable`, `resolve_path`, `resolve_api_key`, `optional_str`/`finite_number`, `float_to_int16_pcm`, `PCMFeeder`) carry their full behavioural matrix in `tests/modules/test_tts_module_interface.py`. A module's test file does **not** repeat that matrix; it keeps only what the module itself decides:
 
 - **One wiring test per helper the module uses**, proving it calls the helper with its own arguments — the resolved key reaches the SDK client; the feeder spans the whole utterance (a sample split across two chunks) and slices at the module's declared rate; the text stream is consumed incrementally (the first sentence is spoken before the source ends).
 - **One validation row per field and per bound** the module chooses (plus its `null` policy where it picked one); not the helper's bool/string/NaN/infinity variants.

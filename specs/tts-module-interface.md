@@ -343,7 +343,7 @@ def split_at_last_space(buffer: str) -> tuple[str, str]:
     """Split `buffer` after its last whitespace: (complete words, the rest)."""
 ```
 
-A backend that takes text incrementally (Gradium, ElevenLabs) forwards only up to the last whitespace of what it has buffered, holding back a possibly unfinished last word for the next piece or the end of stream, so a sub-word token never reaches the server alone — whichever side the tokenizer puts its spaces on.
+A backend that takes text incrementally (Gradium, ElevenLabs, Deepgram, Cartesia) forwards only up to the last whitespace of what it has buffered, holding back a possibly unfinished last word for the next piece or the end of stream, so a sub-word token never reaches the server alone — whichever side the tokenizer puts its spaces on.
 
 ### `segment_sentences` — sentence grouping for non-incremental backends
 

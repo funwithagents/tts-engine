@@ -477,3 +477,20 @@ def test_list_voices_missing_voices_file_is_a_config_error(monkeypatch, tmp_path
         KokoroModule.list_voices(
             {"type": "kokoro", "voices": str(tmp_path / "none.bin")}
         )
+
+
+def test_list_voices_download_failure_is_a_tts_error(fakes):
+    fakes.download_error = ConnectionError("hub down")
+    with pytest.raises(TTSError, match="voice listing failed: hub down"):
+        KokoroModule.list_voices({"type": "kokoro"})
+    # Only the voices file was requested: listing never fetches the model.
+    assert fakes.downloads == [("fastrtc/kokoro-onnx", "voices-v1.0.bin", _REVISION)]
+
+
+def test_list_voices_unreadable_voices_file_is_a_tts_error(monkeypatch, tmp_path):
+    _fake_hub_without_downloads(monkeypatch)
+    (tmp_path / "voices.bin").write_bytes(b"not an npz archive")
+    with pytest.raises(TTSError, match="cannot read the voices file .*voices.bin"):
+        KokoroModule.list_voices(
+            {"type": "kokoro", "voices": "voices.bin", "base_dir": str(tmp_path)}
+        )
