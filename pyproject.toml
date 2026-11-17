@@ -37,9 +37,11 @@ elevenlabs = [
 pocket = [
     "pocket-tts>=4.0.1,<5",
 ]
-# The official async SDK (aiohttp WebSocket); raw PCM output, so no codec — see specs/modules/gradium.md.
+# The official async SDK (aiohttp WebSocket); raw PCM output, so no codec. <0.7:
+# pre-1.0, so the minor is the bound; the module was validated against 0.6.4
+# (`tts_realtime`, `Tts.__aenter__`, `voice_get`) — see specs/modules/gradium.md.
 gradium = [
-    "gradium>=0.6",
+    "gradium>=0.6,<0.7",
 ]
 # The official SDK; streamed float32 PCM, so no codec. <4: 3.x moved the client to
 # mistralai.client, which the module imports — see specs/modules/mistral.md.

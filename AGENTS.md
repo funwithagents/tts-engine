@@ -44,7 +44,7 @@ Where things live. This is a coarse, module-level map — for the full file inve
 
 ## Keeping statuses current
 
-Specs and plans each carry a `**Status:**` line near the top, mirrored in their `_index.md`; update both in the same change that does the work.
+Specs and plans each carry a `**Status:**` line near the top, mirrored in their `_index.md`; update both in the same change that does the work (`tests/test_project_map.py` fails when a file and its index row disagree).
 
 - **Spec status** tracks design maturity *and* whether code matches: `Not started` → `Draft` (load-bearing open questions) → `Stable` (design settled and reviewed — the design-review gate, **not** an implementation claim) → `Implemented` (a `Done` plan built it and the code matches). Editing an `Implemented` spec in a way that needs new code flips it to `Updated` (code now lags) until a new plan closes the gap and returns it to `Implemented`. Purely editorial edits keep the status.
 - **Plan status**: `Todo` → `In progress` → `Done`. Mark a plan `Done` only once it is implemented and verified (lint, type check, tests pass — see Verification).
@@ -93,7 +93,7 @@ Never `echo`/print a key itself; when checking whether one is set, redact the va
 2. Register it in `modules/__init__.py`: `from tts_engine.modules.<name> import <ClassName>` and `REGISTRY["<name>"] = <ClassName>`.
 3. Write `specs/modules/<name>.md` (config fields, audio format), add it to [specs/_index.md](specs/_index.md), and add `examples/config.<name>.json` a page `docs/modules/<name>.md` (install, a minimal config, the option table with the spec's fields, voices, troubleshooting), and a row in the module tables of `docs/modules/index.md` and the README (`tests/test_docs.py` checks the rows, the `kind` and *Voice listing* cells, and the page's fields).
 4. Add a `pytest.param` row to the `MODULES` table in `tests-e2e/support.py` (plus a `_REQUIRED_IMPORT` entry if the backend sits behind an extra) so it gets live conformance coverage.
-5. Add its models to `benchmarks/matrix.json` (the default model tagged `default`, plus a `REQUIRED_IMPORT` entry in `bench.py` if it sits behind an extra) so the latency benchmark covers it ([specs/benchmark.md](specs/benchmark.md)).
+5. Add its models to `benchmarks/matrix.json` (the default model tagged `default`, plus a `REQUIRED_IMPORT` entry in `bench.py` if it sits behind an extra) so the latency benchmark covers it ([specs/benchmark.md](specs/benchmark.md)). `tests/test_project_map.py` fails for a registered module with no live row (step 4) or no benchmark entry.
 
 ## Conventions
 

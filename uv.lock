@@ -2940,7 +2940,7 @@ requires-dist = [
     { name = "deepgram-sdk", marker = "extra == 'deepgram'", specifier = ">=7.15,<8" },
     { name = "elevenlabs", marker = "extra == 'elevenlabs'", specifier = ">=2.39,<3" },
     { name = "google-genai", marker = "extra == 'gemini'", specifier = ">=2.33,<3" },
-    { name = "gradium", marker = "extra == 'gradium'", specifier = ">=0.6" },
+    { name = "gradium", marker = "extra == 'gradium'", specifier = ">=0.6,<0.7" },
     { name = "huggingface-hub", marker = "extra == 'kokoro'" },
     { name = "huggingface-hub", marker = "extra == 'piper'" },
     { name = "kokoro-onnx", marker = "extra == 'kokoro'", specifier = ">=0.6.1,<0.7" },

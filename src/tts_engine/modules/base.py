@@ -565,8 +565,8 @@ def cut_at_boundary(text: str, room: int) -> int:
 
 def slice_text(text: str, max_chars: int) -> Iterator[str]:
     """Yield ``text`` verbatim in slices of at most ``max_chars`` characters,
-    each cut with ``cut_at_boundary`` (a word longer than that is the one
-    slice allowed past the bound). For a backend that takes text
+    each cut with ``cut_at_boundary`` (a word longer than that is cut at the
+    bound, so no slice ever passes it). For a backend that takes text
     incrementally: a complete text sent in slices gives an admission gate
     its grain, the way an LLM's pieces do for a stream."""
     while text:
@@ -750,7 +750,7 @@ def finite_number(
     if (
         isinstance(value, bool)
         or not isinstance(value, int | float)
-        or not math.isfinite(value)
+        or not _is_finite(value)
         or (minimum is not None and value < minimum)
         or (maximum is not None and value > maximum)
         or (exclusive_minimum is not None and value <= exclusive_minimum)
@@ -760,6 +760,15 @@ def finite_number(
             + _describe_bounds(minimum, maximum, exclusive_minimum)
         )
     return float(value)
+
+
+def _is_finite(value: float) -> bool:
+    """`math.isfinite`, with an integer too large for a float (valid JSON,
+    `1e400` written out) counted as not finite instead of raising."""
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def positive_int(config: dict, field: str, *, label: str) -> int | None:
