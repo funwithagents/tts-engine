@@ -78,6 +78,7 @@ Implementation plans for TTS Engine — each plan turns a settled part of a spec
 | [Small drift fixes](202611171400_small-drift-fixes.md) | The audition page clamps its suggested `gain_db` and `--target` is checked; an integer too large for a float is a `ConfigError`; `slice_text` wording; `gradium<0.7`; public API inventories; guards for spec/plan statuses and for a registered module missing from the live table or the benchmark matrix; live-tier engines in `async with` | Done |
 | [Export the error types](202611171600_export-error-types.md) | `ConfigError` and `TTSError` re-exported from `tts_engine`; their submodule paths keep working; the docs' error-handling example imports them from the top level | Done |
 | [Unit tier cleanup](202611171800_test-tier-cleanup.md) | The unit tier reviewed against `specs/testing.md`: covered tests deleted or merged (1021 → 994), assertions on private state and real-time waits rewritten (OpenAI's poll patched down, no settle sleeps, gated callbacks, a scripted clock for the CPU sampler), module specs' *Testing* sections aligned | Done |
+| [Unit tier coverage gaps](202611171900_test-coverage-gaps.md) | The spec-listed paths the unit-tier review found untested: tools and MCP error paths, `split_at_last_space`, voice-listing failures, handshake rejections, text-stream cancel with the source open, Tone's text-stream errors; Pocket now never feeds a frame decoded after `stop` (a re-check after `next`) | Done |
 
 ## Status legend
 

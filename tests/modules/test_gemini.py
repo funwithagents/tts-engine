@@ -328,6 +328,42 @@ async def test_text_stream_requests_per_sentence_as_the_source_arrives(fake):
     assert fake.closed == [True, True, True]
 
 
+async def test_text_stream_cancel_with_the_source_open_closes_the_stream(fake):
+    # An endless stream, the worker held in the sink on its first chunk while
+    # the source stays open: the cancel lands mid-audio.
+    fake.block = threading.Event()
+    fake.block.set()
+    module = GeminiModule(_BASE)
+    loop = asyncio.get_running_loop()
+    first_chunk = asyncio.Event()
+    release = threading.Event()
+    fed: list[bytes] = []
+
+    def callback(chunk: bytes) -> None:
+        fed.append(chunk)
+        loop.call_soon_threadsafe(first_chunk.set)
+        release.wait(timeout=5)
+
+    async def source():
+        yield "Hello. "
+        await asyncio.Event().wait()  # the source stays open
+
+    task = asyncio.create_task(
+        module.synthesize_text_stream(source(), TTSOptions(), callback)
+    )
+    try:
+        await asyncio.wait_for(first_chunk.wait(), timeout=5)
+        task.cancel()
+        await asyncio.sleep(0)  # the cancel reaches the worker helper: `stop` is set
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=5)
+    assert fake.texts == ["Hello."]
+    assert fake.closed == [True]
+    assert len(fed) == 1  # the held chunk was the last fed of the endless stream
+
+
 def test_close_closes_the_sdk_client(fake):
     GeminiModule(_BASE).close()
     assert fake.client_closed

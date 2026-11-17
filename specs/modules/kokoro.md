@@ -200,7 +200,8 @@ Registered in `REGISTRY` as `"kokoro"` ([modules/__init__.py](../../src/tts_engi
   - an exception from `create` → `TTSError`; a callback error propagates unchanged;
   - lookahead: the second sentence's `create` runs while the first sentence's audio is still being fed (the callback waits on an event that the fake `create` sets for sentence two), event-driven, no sleeps;
   - cancellation while feeding (the callback holds the worker on its first slice until the cancel has landed) stops callbacks before `CancelledError` surfaces, and the producer starts no `create` call past the one-ahead lookahead; the text-stream cancel path is `run_text_stream_worker`'s, tested once in `tests/modules/test_tts_module_interface.py`;
-  - `synthesize_text_stream`: one `create` per sentence, and audio reaches the callback before the source finishes.
+  - `synthesize_text_stream`: one `create` per sentence, and audio reaches the callback before the source finishes;
+  - `list_voices`: names, language and gender read from the voices file; a missing local voices file → `ConfigError`; a failed download of the pinned voices file or an unreadable voices file → `TTSError`.
 - **Lazy imports (`tests/modules/test_lazy_imports.py`)** — `kokoro_onnx` joins the poisoned libraries, `kokoro` the expected registry keys, and constructing `{"type": "kokoro"}` must raise the `tts-engine[kokoro]` hint.
 - **Live (`tests-e2e/test_modules.py`)** — one `MODULES` row, `pytest.param("kokoro", {}, id="kokoro")`, plus `_REQUIRED_IMPORT["kokoro"] = "kokoro_onnx"`. It needs no key and the extra comes with the `dev` group, so the row runs in CI on Linux as well as on the Mac (first run downloads ~353 MB into the Hugging Face cache). Robust properties only (PCM produced, drained once, cancellation stops audio), never audio content.
 

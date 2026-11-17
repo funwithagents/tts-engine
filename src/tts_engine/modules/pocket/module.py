@@ -192,6 +192,10 @@ class PocketModule(TTSModule):
                     break
                 except Exception as exc:
                     raise TTSError(f"pocket-tts synthesis failed: {exc}") from exc
+                if stop.is_set():
+                    # Set while `next` was blocked: this frame was decoded
+                    # after `stop` and is never fed.
+                    break
                 # The tensor to CPU/numpy here; the conversion is shared.
                 callback(float_to_int16_pcm(chunk.detach().to("cpu").numpy()))
         except BaseException:

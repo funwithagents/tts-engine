@@ -191,7 +191,8 @@ Registered in `REGISTRY` as `"piper"` ([modules/__init__.py](../../src/tts_engin
   - `sample_rate` is the voice's rate (a 16 kHz voice reports 16000);
   - `synthesize_text`: one `synthesize` call per sentence; the `SynthesisConfig` carries only the set fields (`length_scale` = voice default / `speed`); the chunks' bytes reach the callback unchanged, in slices of at most 100 ms; a chunk at another rate → `TTSError`; a library error → `TTSError`; a callback error propagates unchanged;
   - cancellation while feeding (the callback holds the worker on its first slice until the cancel has landed) stops callbacks before `CancelledError` surfaces, and no sentence past the one-ahead lookahead is synthesized; the text-stream cancel path is `run_text_stream_worker`'s, tested once in `tests/modules/test_tts_module_interface.py`;
-  - `synthesize_text_stream`: one `synthesize` call per sentence, and audio before the source finishes.
+  - `synthesize_text_stream`: one `synthesize` call per sentence, and audio before the source finishes;
+  - `list_voices`: one entry per catalog voice, or per speaker of a multi-speaker voice; a failed catalog download or an unreadable catalog → `TTSError`.
 - **Shared helper (`tests/modules/test_tts_module_interface.py`)** — `feed_with_lookahead` gets its own tests (see the interface spec); the kokoro tests keep covering kokoro's use of it.
 - **Lazy imports (`tests/modules/test_lazy_imports.py`)** — `piper` joins the poisoned libraries, `piper` the expected registry keys, and constructing `{"type": "piper"}` must raise the `tts-engine[piper]` hint.
 - **Live (`tests-e2e/test_modules.py`)** — one `MODULES` row, `pytest.param("piper", {}, id="piper")`, plus `_REQUIRED_IMPORT["piper"] = "piper"`. No key, the extra comes with the `dev` group: the row runs in CI on Linux and on the Mac (first run downloads 63 MB). Robust properties only.

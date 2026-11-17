@@ -43,6 +43,18 @@ async def test_say_catches_tts_error_and_returns_error_string(tools, mock_engine
     assert result == "TTS error: synthesis failed"
 
 
+async def test_say_lets_a_non_tts_error_propagate_unchanged(tools, mock_engine):
+    # Only TTSError is an expected failure; a playback/device or programming
+    # error keeps its identity instead of being mislabeled as a TTS error.
+    error = RuntimeError("audio device lost")
+    mock_engine.say.side_effect = error
+
+    with pytest.raises(RuntimeError) as excinfo:
+        await tools.say("hello")
+
+    assert excinfo.value is error
+
+
 def test_bound_method_is_registerable_as_a_tool(tools):
     """A bound method carries the name/doc a framework needs for a tool schema."""
     assert tools.say.__name__ == "say"

@@ -226,6 +226,7 @@ class _FakeConnection:
         if self._backend.exit_gate is not None:
             self._backend.exit_gate.wait(5)  # a slow close handshake
         assert self.socket is not None
+        self._backend.exits += 1
         self.socket.closed.set()
         self.socket._outbox.put(_END)
         return False
@@ -254,6 +255,7 @@ class _FakeBackend:
         self.connect_gate: threading.Event | None = None  # holds the handshake
         self.exit_gate: threading.Event | None = None  # holds the close
         self.connecting = threading.Event()
+        self.exits = 0  # managers exited (sockets closed by the module)
 
     def segment_done(self) -> types.SimpleNamespace:
         """The answer marking a flushed segment generated, per API."""
@@ -1100,15 +1102,29 @@ def test_close_closes_the_held_socket_off_the_calling_thread(fake):
     assert fake.socket.closed.wait(1)
 
 
+def test_close_after_the_socket_died_completes_and_closes_it_once(fake):
+    module = DeepgramModule(_BASE)
+    fake.socket.server_close()
+    assert _wait(_held(module).dead.is_set)
+    module.close()
+    module.close()  # nothing left to close
+    assert _wait(lambda: fake.exits == 1)
+    assert fake.connects == 1
+
+
 # --- voice listing -----------------------------------------------------------
 
 
-def _fake_models_sdk(monkeypatch, tts_models) -> dict:
+def _fake_models_sdk(
+    monkeypatch, tts_models, *, error: Exception | None = None
+) -> dict:
     calls: dict = {}
 
     class Models:
         def list(self, **kwargs):
             calls["list"] = kwargs
+            if error is not None:
+                raise error
             return types.SimpleNamespace(stt=[object()], tts=tts_models)
 
     class DeepgramClient:
@@ -1165,3 +1181,9 @@ def test_list_voices_selects_each_voice_by_its_model(monkeypatch):
         None,
         (),
     )
+
+
+def test_list_voices_failure_is_a_tts_error(monkeypatch):
+    _fake_models_sdk(monkeypatch, [], error=RuntimeError("boom"))
+    with pytest.raises(TTSError, match="voice listing failed: boom"):
+        DeepgramModule.list_voices({"type": "deepgram", "api_key": "k"})

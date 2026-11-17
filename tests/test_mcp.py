@@ -5,10 +5,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
+from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import TextContent
 
 from tts_engine.engine import TTSEngine
 from tts_engine.mcp import create_server
+from tts_engine.modules.base import TTSError
 
 
 @pytest.fixture
@@ -30,6 +32,23 @@ async def test_say_tool_returns_ok_on_success(mock_engine):
 
     mock_engine.say.assert_awaited_once_with("hello")
     assert result == "OK"
+
+
+async def test_say_tool_returns_a_tts_error_as_text_content(mock_engine):
+    mock_engine.say.side_effect = TTSError("synthesis failed")
+
+    result = await _call_say(create_server(mock_engine), "hello")
+
+    assert result == "TTS error: synthesis failed"
+
+
+async def test_say_tool_surfaces_other_errors_as_tool_execution_failures(mock_engine):
+    mock_engine.say.side_effect = RuntimeError("audio device lost")
+
+    with pytest.raises(ToolError, match="audio device lost") as excinfo:
+        await create_server(mock_engine).call_tool("say", {"text": "hello"})
+
+    assert isinstance(excinfo.value.__cause__, RuntimeError)
 
 
 # --- Host-header policy -------------------------------------------------------

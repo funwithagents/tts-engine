@@ -7,6 +7,7 @@ import threading
 import pytest
 
 from tts_engine.config import ConfigError
+from tts_engine.modules import base
 from tts_engine.modules.base import TTSOptions
 from tts_engine.modules.tone import ToneModule
 
@@ -187,3 +188,44 @@ async def test_text_stream_cancel_mid_audio_stops_callbacks_before_raising():
     )
     await _cancel_while_held(task, first_chunk, release)
     assert count() <= 2 < _TOTAL_CHUNKS
+
+
+def test_text_stream_callback_error_propagates_unchanged():
+    # A sink failure is the caller's playback error, never relabeled TTSError.
+    async def source():
+        yield "first piece"
+        yield "second piece"
+
+    def bad_callback(_chunk: bytes) -> None:
+        raise ValueError("playback failed")
+
+    module = ToneModule({"type": "tone"})
+    with pytest.raises(ValueError, match="playback failed"):
+        asyncio.run(module.synthesize_text_stream(source(), TTSOptions(), bad_callback))
+
+
+async def test_text_stream_cancel_while_the_source_is_idle(monkeypatch):
+    # The worker has spoken the only piece and waits for more text: the cancel
+    # must still end it (the wait for text polls `stop`, patched down here).
+    monkeypatch.setattr(base, "_POLL_SECONDS", 0.005)
+    module = ToneModule({"type": "tone"})
+    loop = asyncio.get_running_loop()
+    got_audio = asyncio.Event()
+    chunks: list[bytes] = []
+
+    def callback(chunk: bytes) -> None:
+        chunks.append(chunk)
+        loop.call_soon_threadsafe(got_audio.set)
+
+    async def source():
+        yield "ab"  # 2400 frames: one chunk
+        await asyncio.Event().wait()  # then the source stays open, yielding nothing
+
+    task = asyncio.create_task(
+        module.synthesize_text_stream(source(), TTSOptions(), callback)
+    )
+    await asyncio.wait_for(got_audio.wait(), timeout=5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=5)
+    assert len(b"".join(chunks)) == 2 * round(2 * 0.05 * 24000)
