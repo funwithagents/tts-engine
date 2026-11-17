@@ -32,6 +32,8 @@ log = logging.getLogger(__name__)
 
 # The thread count the first Phonon model of this process was loaded with
 # (None: ptts's default): ptts sizes its pool once, so later values cannot apply.
+# `_pool_sized` says whether a model was loaded yet, since None is also a count.
+_pool_sized = False
 _pool_threads: int | None = None
 
 _LANGUAGES = {"en", "fr", "de", "es", "pt", "none"}
@@ -96,7 +98,7 @@ class PhononModule(TTSModule):
             # A name: loading it here fails fast on an unknown voice.
             kwargs["voice"] = voice
 
-        global _pool_threads
+        global _pool_sized, _pool_threads
         if threads is not None:
             # Sizes ptts's process-global pool, built once at the first model
             # load: the first Phonon model of a process decides for the others,
@@ -105,7 +107,7 @@ class PhononModule(TTSModule):
                 ptts.set_num_threads(threads)
             except Exception as exc:
                 raise ConfigError(f"Phonon module 'threads': {exc}") from exc
-        if _pool_threads is not None and _pool_threads != threads:
+        if _pool_sized and _pool_threads != threads:
             log.warning(
                 "Phonon module 'threads' %s cannot apply: a model already loaded "
                 "in this process sized the thread pool (threads=%s)",
@@ -124,8 +126,8 @@ class PhononModule(TTSModule):
         except Exception as exc:
             raise TTSError(f"phonon model load failed: {exc}") from exc
 
-        if _pool_threads is None:
-            _pool_threads = threads
+        if not _pool_sized:
+            _pool_sized, _pool_threads = True, threads
         self._tts = tts
         self._voice: str | None = voice
         self._sample_rate = int(tts.sample_rate)

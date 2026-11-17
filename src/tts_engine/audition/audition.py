@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import statistics
@@ -30,6 +31,8 @@ from tts_engine.config import ConfigError
 from tts_engine.level import DEFAULT_TARGET_DBFS, measure_level
 from tts_engine.modules import REGISTRY, resolve_type
 from tts_engine.modules.base import TTSError
+
+log = logging.getLogger(__name__)
 
 _TEMPLATE = files("tts_engine.audition") / "page.html"
 _DATA_PLACEHOLDER = "/*AUDITION_DATA*/null"
@@ -384,6 +387,7 @@ async def render_candidate(
         return {"status": "error", "error": f"{type(exc).__name__}: {exc}"}
 
     ttfa: list[float] = []
+    error: str | None = None
     try:
         await engine.say(text)  # warm-up: connection, model load, kernels
         for _ in range(runs):
@@ -391,12 +395,23 @@ async def render_candidate(
             start = time.perf_counter()
             await engine.say(text)
             if sink.first_at is None:
-                return {"status": "error", "error": "the engine produced no audio"}
+                error = "the engine produced no audio"
+                break
             ttfa.append(round((sink.first_at - start) * 1000, 1))
     except Exception as exc:  # noqa: BLE001 — recorded, and the pass goes on
-        return {"status": "error", "error": f"{type(exc).__name__}: {exc}"}
-    finally:
+        error = f"{type(exc).__name__}: {exc}"
+    # A failing close is recorded like any other failure of the candidate, so
+    # it never stops the pass; after another error it is only logged (the
+    # `cleanup` precedence rule, for an async close).
+    try:
         await engine.close()
+    except Exception as exc:
+        if error is None:
+            error = f"closing the engine failed: {type(exc).__name__}: {exc}"
+        else:
+            log.warning("%s: closing the engine failed", candidate["id"], exc_info=True)
+    if error is not None:
+        return {"status": "error", "error": error}
 
     pcm = b"".join(sink.chunks)
     rate = engine.sample_rate

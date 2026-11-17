@@ -21,7 +21,7 @@ The [`examples/`](../examples) directory holds one complete MCP-server config pe
 
 | Source | Constructor | Expected shape |
 |---|---|---|
-| Python-owned values | `TTSEngineConfig(module=...)` | Constructor arguments; `player` defaults to the system device |
+| Python-owned values | `TTSEngineConfig(module=...)` | Constructor arguments, validated like a loaded config; `player` defaults to the system device |
 | Dictionary, including one extracted from a larger config | `TTSEngineConfig.from_dict(...)` | Engine block |
 | JSON string | `TTSEngineConfig.from_json(...)` | Engine block |
 | Standalone engine JSON file | `TTSEngineConfig.from_json_file(...)` | Engine block |

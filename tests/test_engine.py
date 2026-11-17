@@ -388,6 +388,47 @@ async def test_a_failing_source_close_never_hides_the_utterance_error(
         await engine.say_stream(_Source_with_error())
 
 
+@pytest.mark.asyncio
+async def test_say_stream_closes_a_source_cancelled_while_queued(engine, mock_module):
+    # The call never starts its utterance: it is cancelled while it waits for
+    # the one in flight. The source is still the engine's to close, and the
+    # sink is not drained for an utterance that never ran.
+    release = asyncio.Event()
+
+    async def in_flight(*args, **kwargs):
+        await release.wait()
+
+    mock_module.synthesize_text.side_effect = in_flight
+    first = asyncio.create_task(engine.say("first"))
+    await asyncio.sleep(0)
+    source = _Source(["never read"])
+    queued = asyncio.create_task(engine.say_stream(source))
+    await asyncio.sleep(0)
+
+    queued.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await queued
+    assert source.closed == 1
+    mock_module.synthesize_text_stream.assert_not_called()
+
+    release.set()
+    await first
+    await engine.say("the lock was left free")
+
+
+@pytest.mark.asyncio
+async def test_say_stream_closes_its_source_on_a_closed_engine(
+    engine, mock_module, mock_player
+):
+    await engine.close()
+    source = _Source(["never read"])
+
+    with pytest.raises(RuntimeError, match="closed"):
+        await engine.say_stream(source)
+    assert source.closed == 1
+    mock_player.drain.assert_not_called()
+
+
 def _Source_with_error() -> _Source:
     source = _Source(["hello"])
     source.close_error = OSError("stream gone")
