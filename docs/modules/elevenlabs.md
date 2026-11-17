@@ -33,7 +33,7 @@ Prefer referencing an environment variable so secrets do not appear in configura
 | `model` | no | `eleven_flash_v2_5` | Model ID. `eleven_flash_v2_5` favors latency; `eleven_multilingual_v2` favors quality; `eleven_v4_turbo`, `eleven_v4` and `eleven_v3*` stream over the text-to-dialogue socket, which holds a dialogue session from a separate, smaller pool. |
 | `stability` | no | `0.5` | Voice stability from 0.0 to 1.0. |
 | `similarity_boost` | no | `0.75` | Similarity boost from 0.0 to 1.0. |
-| `timeout` | no | `30` | Seconds to wait for the provider before a stalled request fails; also how long a cancel issued during such a stall can take. |
+| `timeout` | no | `30` | Seconds to wait for the provider before a stalled request fails: each read of a `say()` response, the opening of the `say_stream()` socket, and the next message once the whole text has been sent. A cancel issued while a `say()` request is stalled can take that long. |
 
 The module emits mono PCM at 44,100 Hz.
 

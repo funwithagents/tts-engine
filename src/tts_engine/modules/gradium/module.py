@@ -269,8 +269,8 @@ class GradiumModule(TTSModule):
                 return
             raise TTSError(f"Gradium request failed: {exc}") from exc
 
-    @staticmethod
     async def _receive(
+        self,
         tts,
         callback: Callable[[bytes], None],
         stop: threading.Event,
@@ -279,18 +279,30 @@ class GradiumModule(TTSModule):
         """Feed audio messages to `callback` until the server ends the stream
         or `stop` is set. With a `sender` task, race it against each message so
         a sender failure ends the utterance instead of waiting for audio that
-        will never come."""
+        will never come.
+
+        Once the whole text is with the server (no `sender`, or it has sent
+        end-of-stream) the server owes the rest of the audio, so its silence
+        is bounded: `timeout` without a message is a `TTSError`. While text is
+        still arriving a silence is legitimate (a paused source) and is not."""
         try:
             stream_iter = tts.__aiter__()
         except Exception as exc:
             raise TTSError(f"Gradium request failed: {exc}") from exc
 
+        loop = asyncio.get_running_loop()
+        # When the wait for the current message began, once the text is
+        # complete. Started after `callback` returns, so the time a blocking
+        # sink takes to play a chunk is never counted as the server's silence.
+        idle_since: float | None = None
         # The pending receive outlives a poll: waiting on it with a timeout
         # (never cancelling and re-issuing it) is what lets `stop` be honored
         # while the server is silent without losing a message.
         pending: asyncio.Future | None = None
         try:
             while not stop.is_set():
+                if idle_since is None and (sender is None or sender.done()):
+                    idle_since = loop.time()
                 current: asyncio.Future = (
                     pending
                     if pending is not None
@@ -310,8 +322,17 @@ class GradiumModule(TTSModule):
                     if sender_error is not None:
                         raise sender_error  # a TTSError, see _send_all
                 if not current.done():
+                    if (
+                        idle_since is not None
+                        and loop.time() - idle_since >= self._timeout
+                    ):
+                        raise TTSError(
+                            "Gradium request failed: no message for "
+                            f"{self._timeout:g} s after the end of the text"
+                        )
                     continue  # a poll: re-check `stop`, keep the receive pending
                 pending = None
+                idle_since = None
                 try:
                     msg = current.result()
                 except StopAsyncIteration:

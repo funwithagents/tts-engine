@@ -364,6 +364,9 @@ class ElevenLabsModule(TTSModule):
         # and written from both threads; a float store is atomic under the GIL
         # and a stale read only sends one keep-alive early.
         last_sent = [time.monotonic()]
+        # Set once the end-of-stream frame is out: the whole text is with the
+        # server, which then owes the rest of the audio and the final message.
+        end_sent = threading.Event()
 
         def send_frame(frame: dict) -> None:
             ws.send(json.dumps(frame))
@@ -395,6 +398,7 @@ class ElevenLabsModule(TTSModule):
                         nothing_sent.set()  # empty stream: no request to finish
                         return
                     send_frame(protocol.end_frame)
+                    end_sent.set()
                 except Exception as exc:  # noqa: BLE001  (surfaced by the receiver)
                     if not stop.is_set():
                         sender_errors.append(exc)
@@ -407,14 +411,32 @@ class ElevenLabsModule(TTSModule):
             )
             sender.start()
 
+            # When the wait for the current message began, once the text is
+            # complete. Started when this generator is resumed, so the time
+            # the decoder and a blocking sink take with a chunk is never
+            # counted as the server's silence.
+            idle_since: float | None = None
             while not stop.is_set():
                 if sender_errors:
                     raise sender_errors[0]
                 if nothing_sent.is_set():
                     break
+                if idle_since is None and end_sent.is_set():
+                    idle_since = time.monotonic()
                 try:
                     raw = ws.recv(timeout=_RECV_POLL_SECONDS)
                 except TimeoutError:
+                    if (
+                        idle_since is not None
+                        and time.monotonic() - idle_since >= self._timeout
+                    ):
+                        # The server owes audio and sends nothing: without
+                        # this bound the utterance would hold the engine's
+                        # lock for as long as the socket stays open.
+                        raise TTSError(
+                            "ElevenLabs request failed: no message for "
+                            f"{self._timeout:g} s after the end of the text"
+                        ) from None
                     if (
                         protocol.keep_alive_frame is not None
                         and time.monotonic() - last_sent[0] >= _KEEP_ALIVE_SECONDS
@@ -432,6 +454,7 @@ class ElevenLabsModule(TTSModule):
                     raise TTSError(
                         "ElevenLabs closed the stream before its final message"
                     ) from None
+                idle_since = None
                 message = json.loads(raw)
                 if "error" in message:
                     # A protocol error (the API sends `error`, `message` and a
