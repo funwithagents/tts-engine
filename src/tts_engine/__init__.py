@@ -3,10 +3,10 @@
 import logging
 
 from tts_engine.audio import AudioSink
-from tts_engine.config import MCPServerConfig, TTSEngineConfig
+from tts_engine.config import ConfigError, MCPServerConfig, TTSEngineConfig
 from tts_engine.engine import TTSEngine
 from tts_engine.modules import list_voices
-from tts_engine.modules.base import VoiceInfo, VoiceListingUnsupported
+from tts_engine.modules.base import TTSError, VoiceInfo, VoiceListingUnsupported
 from tts_engine.tools import TTSTools
 
 # Well-behaved library: attach a NullHandler to the package logger so importing
@@ -16,9 +16,11 @@ logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 __all__ = [
     "AudioSink",
+    "ConfigError",
     "MCPServerConfig",
     "TTSEngine",
     "TTSEngineConfig",
+    "TTSError",
     "TTSTools",
     "VoiceInfo",
     "VoiceListingUnsupported",

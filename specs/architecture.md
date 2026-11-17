@@ -246,7 +246,7 @@ await engine.say_stream(llm_tokens())
 | `level.py` | Speech level and `gain_db` calibration: `measure_level`, `suggest_gain`, `calibrate` (an engine with a capture sink and no gain); see [level.md](level.md) |
 | `level_cli.py` | The `tts-engine-level` entry point over `calibrate`; configures logging for its process |
 | `mcp_server_cli.py` | Argument parsing (`--config`, `--log-level`); imports the MCP stack inside `main`, exiting with the `pip install tts-engine[mcp]` hint when the extra is absent; `MCPServerConfig.from_json_file` → `TTSEngine(cfg.engine)` → MCP server; `logging.basicConfig(level=args.log_level)`; starts uvicorn |
-| `__init__.py` | Public API surface: re-exports `TTSEngine`, `TTSEngineConfig`, `MCPServerConfig`, `TTSTools`, `AudioSink`, `list_voices`, `VoiceInfo`, `VoiceListingUnsupported` |
+| `__init__.py` | Public API surface: re-exports `TTSEngine`, `TTSEngineConfig`, `MCPServerConfig`, `TTSTools`, `AudioSink`, `list_voices`, `VoiceInfo`, `VoiceListingUnsupported`, `ConfigError`, `TTSError` |
 
 ## Ownership and lifetime
 
@@ -263,9 +263,10 @@ The package exposes the library entry points at the top level:
 ```python
 from tts_engine import TTSEngine, TTSEngineConfig, MCPServerConfig, TTSTools, AudioSink
 from tts_engine import list_voices, VoiceInfo, VoiceListingUnsupported
+from tts_engine import ConfigError, TTSError
 ```
 
-`TTSEngine` exposes `say`, `say_stream`, `sample_rate`, `close` and the async context-manager protocol. `TTSTools` is curated so agents can register its bound methods directly (see [tools.md](tools.md), "Consumers"). `AudioSink` is exported so embedders can type their own playback destination against the seam ([audio-sink.md](audio-sink.md)). `list_voices`, `VoiceInfo` and `VoiceListingUnsupported` are the voice listing ([tts-module-interface.md](tts-module-interface.md), "Voice listing"). The two exception types a caller handles are not re-exported: `ConfigError` is imported from `tts_engine.config` and `TTSError` from `tts_engine.modules.base`, the paths the user documentation shows. Everything else (modules, the concrete `AudioPlayer`, `level`, mcp, the entry points) is reachable by submodule import but is not part of the curated top-level surface. None of the top-level names needs an extra: `MCPServerConfig` is a plain dataclass, while `tts_engine.mcp` itself requires the `mcp` extra.
+`TTSEngine` exposes `say`, `say_stream`, `sample_rate`, `close` and the async context-manager protocol. `TTSTools` is curated so agents can register its bound methods directly (see [tools.md](tools.md), "Consumers"). `AudioSink` is exported so embedders can type their own playback destination against the seam ([audio-sink.md](audio-sink.md)). `list_voices`, `VoiceInfo` and `VoiceListingUnsupported` are the voice listing ([tts-module-interface.md](tts-module-interface.md), "Voice listing"). `ConfigError` and `TTSError` are the two exception types a caller handles (a bad config or missing extra; a failing backend), so they are exported too: catching them should not need a submodule path. They stay defined where they are (`tts_engine.config`, `tts_engine.modules.base`), and those paths keep working. Everything else (modules, the concrete `AudioPlayer`, `level`, mcp, the entry points) is reachable by submodule import but is not part of the curated top-level surface. None of the top-level names needs an extra: `MCPServerConfig` is a plain dataclass, while `tts_engine.mcp` itself requires the `mcp` extra.
 
 ## Threading / async model
 

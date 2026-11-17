@@ -19,8 +19,7 @@ Pieces are concatenated verbatim (tokens carry their own spaces). The ElevenLabs
 These rules hold for `say()` as well as `say_stream()`.
 
 ```python
-from tts_engine.config import ConfigError
-from tts_engine.modules.base import TTSError
+from tts_engine import ConfigError, TTSError
 
 try:
     async with TTSEngine(config) as engine:
@@ -35,8 +34,6 @@ except TTSError as exc:  # the backend failed: network, API error, bad response
 - **`TTSError`** is raised when the backend fails, during an utterance or, for a backend that connects or loads a model up front, at construction.
 - An exception raised by your text source, or by a custom sink's `feed()`, propagates unchanged.
 - `RuntimeError` is raised by `say()` and `say_stream()` once the engine is closed.
-
-Both exceptions are imported from their submodules, as above; they are not re-exported from `tts_engine`.
 
 **Cancelling.** To interrupt speech (the user started talking), cancel the task that awaits the call:
 

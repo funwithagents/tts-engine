@@ -551,3 +551,13 @@ async def test_an_odd_length_chunk_is_a_module_bug_the_gain_does_not_hide(
         await engine.say("hello")
     assert sink.chunks == []
     assert sink.drains == 1
+
+
+def test_the_error_types_a_caller_handles_are_top_level_exports():
+    import tts_engine
+    from tts_engine.config import ConfigError
+    from tts_engine.modules.base import TTSError
+
+    assert tts_engine.ConfigError is ConfigError
+    assert tts_engine.TTSError is TTSError
+    assert {"ConfigError", "TTSError"} <= set(tts_engine.__all__)

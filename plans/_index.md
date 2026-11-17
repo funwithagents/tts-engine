@@ -76,6 +76,7 @@ Implementation plans for TTS Engine — each plan turns a settled part of a spec
 | [Lifecycle and error paths](202611171000_lifecycle-and-error-paths.md) | Four spec/code gaps from the 2026-11-16 audit: `say_stream` closes a source it never starts (cancelled while queued, closed engine); configs built in Python validated in `__post_init__` like loaded ones; an audition candidate's failing close recorded instead of stopping the pass; Phonon's thread warning after a default-sized first model | Done |
 | [Idle deadline for the polling receive loops](202611171130_idle-deadline.md) | Gradium and the ElevenLabs stream-input socket fail an utterance as `TTSError` when the server sends nothing for `timeout` seconds once the whole text is with it, instead of holding the engine's lock; a source pause and a slow sink are not counted; the `timeout` rows of both module pages corrected | Done |
 | [Small drift fixes](202611171400_small-drift-fixes.md) | The audition page clamps its suggested `gain_db` and `--target` is checked; an integer too large for a float is a `ConfigError`; `slice_text` wording; `gradium<0.7`; public API inventories; guards for spec/plan statuses and for a registered module missing from the live table or the benchmark matrix; live-tier engines in `async with` | Done |
+| [Export the error types](202611171600_export-error-types.md) | `ConfigError` and `TTSError` re-exported from `tts_engine`; their submodule paths keep working; the docs' error-handling example imports them from the top level | Done |
 
 ## Status legend
 
