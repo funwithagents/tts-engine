@@ -13,6 +13,8 @@ import pytest
 from tts_engine.config import (
     ConfigError,
     MCPServerConfig,
+    PlayerConfig,
+    ServerConfig,
     TTSEngineConfig,
 )
 
@@ -329,3 +331,37 @@ def test_gain_db_accepts_a_number_within_range(value):
 def test_gain_db_invalid_rejected(bad):
     with pytest.raises(ConfigError, match="engine.gain_db"):
         TTSEngineConfig.from_dict({"module": {"type": "x"}, "gain_db": bad})
+
+
+# --- direct construction: the same rules as the loaders -------------------------
+
+
+@pytest.mark.parametrize(
+    "build, match",
+    [
+        (
+            lambda: TTSEngineConfig(module={"type": "tone"}, gain_db=float("nan")),
+            "gain_db",
+        ),
+        (lambda: TTSEngineConfig(module={"type": "tone"}, gain_db=30), "gain_db"),
+        (lambda: TTSEngineConfig(module={"type": ""}), "module.type"),
+        (lambda: TTSEngineConfig(module="tone"), "engine.module"),  # type: ignore[arg-type]
+        (
+            lambda: TTSEngineConfig(module={"type": "tone"}, player={}),  # type: ignore[arg-type]
+            "engine.player",
+        ),
+        (lambda: PlayerConfig(device=1, discard=True), "discard"),
+        (lambda: PlayerConfig(device=True), "player.device"),
+        (lambda: ServerConfig(port=0), "server.port"),
+        (lambda: ServerConfig(host=""), "server.host"),
+    ],
+)
+def test_direct_construction_is_validated_like_the_loaders(build, match):
+    with pytest.raises(ConfigError, match=match):
+        build()
+
+
+def test_direct_construction_stores_the_gain_as_a_float():
+    config = TTSEngineConfig(module={"type": "tone"}, gain_db=-6)
+    assert config.gain_db == -6.0
+    assert isinstance(config.gain_db, float)

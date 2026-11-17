@@ -162,15 +162,23 @@ class TTSEngine:
         engine owns the iterator for the utterance: once it is over, on every
         path, the iterator's `aclose()` is awaited when it has one (an async
         generator's `finally` runs then), and a failing `aclose` never hides
-        the utterance's own outcome. Raises `RuntimeError` once closed.
+        the utterance's own outcome. That includes a call that never starts
+        its utterance: cancelled while it waits for the one in flight, or
+        finding the engine closed. Raises `RuntimeError` once closed.
         """
         if isinstance(text_stream, str):
             raise TypeError("say_stream takes an iterable of text pieces, not a str")
         source = _as_async_iterator(text_stream)
-        async with self._say_lock:
-            self._check_open()
-            options = TTSOptions()
+        try:
+            await self._say_lock.acquire()
+        except BaseException:  # cancelled while queued behind another utterance
+            await _aclose(source, failed=True)
+            raise
+        try:
             try:
+                self._check_open()
+                options = TTSOptions()
+                # The sink is drained only for an utterance that was admitted.
                 with cleanup(self._sink.drain, "sink drain"):
                     await self._module.synthesize_text_stream(
                         source, options, callback=self._sink.feed
@@ -180,6 +188,8 @@ class TTSEngine:
                 raise
             else:
                 await _aclose(source, failed=False)
+        finally:
+            self._say_lock.release()
 
 
 async def _aclose(source: AsyncIterator[str], *, failed: bool) -> None:

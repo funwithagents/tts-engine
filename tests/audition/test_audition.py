@@ -15,6 +15,8 @@ import pytest
 
 from tts_engine import VoiceInfo, VoiceListingUnsupported
 from tts_engine.audition import audition, cli
+from tts_engine.modules import REGISTRY
+from tts_engine.modules.base import TTSError
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _EXAMPLES = _REPO_ROOT / "examples" / "auditions"
@@ -350,6 +352,48 @@ def test_render_skips_an_unset_key_and_records_a_failing_config(tmp_path, monkey
     assert results["hosted"]["reason"] == "AUDITION_TEST_KEY is not set"
     assert results["broken"]["status"] == "error"
     assert "Unknown TTS module type" in results["broken"]["error"]
+    assert results["fine"]["status"] == "ok"
+
+
+def test_a_failing_close_is_recorded_and_the_pass_goes_on(
+    tmp_path, monkeypatch, caplog
+):
+    from tts_engine.modules.tone import ToneModule
+
+    class _FailingClose(ToneModule):
+        def close(self) -> None:
+            raise OSError("socket already gone")
+
+    class _FailingBoth(_FailingClose):
+        async def synthesize_text(self, text, options, callback):
+            raise TTSError("no voice")
+
+    monkeypatch.setitem(REGISTRY, "failing-close", _FailingClose)
+    monkeypatch.setitem(REGISTRY, "failing-both", _FailingBoth)
+    path = _write(
+        tmp_path / "closing.json",
+        {
+            "text": "Hi.",
+            "candidates": [
+                {"id": "close", "config": {"type": "failing-close"}},
+                {"id": "both", "config": {"type": "failing-both"}},
+                {"id": "fine", "config": {"type": "tone"}},
+            ],
+        },
+    )
+
+    with caplog.at_level("WARNING", logger=audition.__name__):
+        results = _render(path, runs=1)
+
+    assert results["close"]["status"] == "error"
+    assert "socket already gone" in results["close"]["error"]
+    # The synthesis failure is the one reported; the close failure is logged.
+    assert results["both"] == {
+        "key": results["both"]["key"],
+        "status": "error",
+        "error": "TTSError: no voice",
+    }
+    assert "both: closing the engine failed" in caplog.text
     assert results["fine"]["status"] == "ok"
 
 

@@ -119,7 +119,8 @@ def fake(monkeypatch) -> _FakeBackend:
 
     backend = _FakeBackend()
     monkeypatch.setitem(sys.modules, "ptts", _fake_ptts(backend))
-    monkeypatch.setattr(phonon_module, "_pool_threads", None)  # a fresh process
+    monkeypatch.setattr(phonon_module, "_pool_sized", False)  # a fresh process
+    monkeypatch.setattr(phonon_module, "_pool_threads", None)
     return backend
 
 
@@ -206,7 +207,6 @@ def test_threads_size_the_pool_before_the_load_and_stay_out_of_the_kwargs(fake):
 def test_a_second_model_with_another_thread_count_warns(fake, monkeypatch, caplog):
     from tts_engine.modules.phonon import module as phonon_module
 
-    monkeypatch.setattr(phonon_module, "_pool_threads", None)  # a fresh process
     PhononModule({"type": "phonon", "threads": 2})
     with caplog.at_level("WARNING", logger=phonon_module.__name__):
         PhononModule({"type": "phonon", "threads": 2})
@@ -224,6 +224,25 @@ def test_a_second_model_with_another_thread_count_warns(fake, monkeypatch, caplo
         ),
     ]
     assert fake.threads_set == [2, 2, 4]  # still passed on; ptts ignores it
+
+
+def test_a_count_after_a_default_first_model_warns(fake, caplog):
+    # The first model sized the pool with the library's default: a later count
+    # cannot apply either, and the default is the size to name from then on.
+    from tts_engine.modules.phonon import module as phonon_module
+
+    PhononModule({"type": "phonon"})
+    with caplog.at_level("WARNING", logger=phonon_module.__name__):
+        PhononModule({"type": "phonon"})
+        assert caplog.records == []  # the default again: nothing to say
+        PhononModule({"type": "phonon", "threads": 2})
+        PhononModule({"type": "phonon"})
+    assert [r.getMessage() for r in caplog.records] == [
+        (
+            "Phonon module 'threads' 2 cannot apply: a model already loaded in "
+            "this process sized the thread pool (threads=default)"
+        )
+    ]
 
 
 def test_threads_the_library_rejects_is_a_config_error(fake, monkeypatch):
