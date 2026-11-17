@@ -10,7 +10,7 @@ Every module declares its `kind` ([modules/index.md](modules/index.md)):
 - **`hosted`** (`elevenlabs`, `gradium`, `mistral`, `deepgram`, `gemini`, `cartesia`, `openai`, `openai-speech-compatible`): a cloud API. A key, a network path to the provider, and usually a bill or a quota. `openai-speech-compatible` can also target a server you host yourself, through `base_url`.
 - **`fixture`** (`tone`, `audiofile`): no synthesis, for tests and demos only.
 
-Playback is always local, whichever backend synthesizes.
+With the default player, the audio plays on the machine running the engine, whichever backend synthesizes; a [custom sink](audio-sinks.md) can route it elsewhere.
 
 Then check the platform and the licenses on the module's page:
 

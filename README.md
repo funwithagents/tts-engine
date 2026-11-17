@@ -57,8 +57,8 @@ from tts_engine import TTSEngine, TTSEngineConfig
 async def main() -> None:
     config = TTSEngineConfig(module={"type": "pocket", "voice": "alba"})
 
-    engine = TTSEngine(config)
-    await engine.say("Hello from the TTS engine")
+    async with TTSEngine(config) as engine:
+        await engine.say("Hello from the TTS engine")
 
 
 asyncio.run(main())
@@ -83,7 +83,7 @@ text stream → TTSEngine.say_stream() ↗                 └─ AudioPlayer by
 
 The module declares its output sample rate, and the engine configures the default player to match it. Calls to `say()` and `say_stream()` on the same engine are serialized, and each call returns after the sink has been drained.
 
-An engine holds its module's client or loaded model for its lifetime. Release it with `await engine.close()`, or use the engine as an async context manager; after that, `say()` and `say_stream()` raise `RuntimeError`. The sink is not touched: an injected sink is yours to close.
+An engine holds its module's client or loaded model for its lifetime. Release it with `await engine.close()`, or use the engine as an async context manager, as the quick start does; after that, `say()` and `say_stream()` raise `RuntimeError`. The sink is not touched: an injected sink is yours to close.
 
 ```python
 async with TTSEngine(config) as engine:

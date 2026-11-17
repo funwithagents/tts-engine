@@ -10,6 +10,7 @@ The documentation of `tts-engine`, by what you want to do. The [README](../READM
 | find a backend's voices from code | [voices.md](voices.md): `list_voices` and `VoiceInfo` |
 | make several voices play at the same volume | [configuration.md](configuration.md#output-gain): the engine's `gain_db`, and `tts-engine-level` to find its value for a voice |
 | speak an LLM response while it is generated | [streaming.md](streaming.md): `say_stream` and what each backend does with a text stream |
+| handle a failure, or interrupt speech | [streaming.md](streaming.md#errors-and-cancellation): `ConfigError`, `TTSError`, and what a cancelled call guarantees |
 | capture the audio, or play it somewhere else | [audio-sinks.md](audio-sinks.md): the default player and custom sinks |
 | give an agent a `say` tool, or run the MCP server | [agents-and-mcp.md](agents-and-mcp.md) |
 | find out why nothing is heard, why a voice is too loud or too quiet, or why a backend fails | [troubleshooting.md](troubleshooting.md) |

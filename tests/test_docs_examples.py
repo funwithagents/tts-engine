@@ -163,6 +163,16 @@ def test_streaming_an_llm_response():
     assert _RecordingPlayer.fed
 
 
+def test_errors_and_cancellation():
+    from tts_engine import TTSEngine
+
+    source = _python_block(
+        _REPO_ROOT / "docs" / "streaming.md", "Errors and cancellation"
+    )
+    _run(source, {"TTSEngine": TTSEngine, "config": _config()})
+    assert _RecordingPlayer.fed
+
+
 def test_tools_in_an_agent():
     source = _python_block(
         _REPO_ROOT / "docs" / "agents-and-mcp.md", "Use `TTSTools` in an agent"
