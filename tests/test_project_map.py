@@ -1,3 +1,5 @@
+import ast
+import json
 import re
 from pathlib import Path
 
@@ -140,4 +142,77 @@ def test_every_concept_module_is_governed_by_a_spec():
         f"src package modules not named in any spec's `code:` frontmatter: {sorted(ungoverned)}. "
         "Add each to the frontmatter of the spec that governs it "
         f"(package glue exempt from this rule: {sorted(_NON_CONCEPT_MODULES)})."
+    )
+
+
+# --- statuses and module coverage ------------------------------------------------
+
+_STATUS_LINE = re.compile(r"^\*\*Status:\*\*\s*(.+?)\s*$", re.MULTILINE)
+_INDEX_ROW = re.compile(r"^\| \[[^\]]+\]\(([^)]+)\) \|.*\| ([^|]+?) \|$", re.MULTILINE)
+
+
+def _status_mismatches(folder: Path, files: list[Path]) -> list[str]:
+    """Files whose `**Status:**` line differs from their row in the folder's
+    `_index.md`, or that have no row (or no status line) at all."""
+    index = (folder / "_index.md").read_text(encoding="utf-8")
+    rows = {target: status for target, status in _INDEX_ROW.findall(index)}
+    mismatches = []
+    for path in files:
+        rel = path.relative_to(folder).as_posix()
+        own = _STATUS_LINE.search(path.read_text(encoding="utf-8"))
+        if own is None or rows.get(rel) != own.group(1):
+            mismatches.append(
+                f"{rel}: file says {own.group(1) if own else None!r}, "
+                f"index says {rows.get(rel)!r}"
+            )
+    return mismatches
+
+
+def test_spec_statuses_match_the_index():
+    mismatches = _status_mismatches(_SPECS_DIR, _spec_files())
+    assert not mismatches, (
+        f"spec statuses out of step with specs/_index.md: {mismatches}. "
+        "Update the spec's `**Status:**` line and its index row together."
+    )
+
+
+def test_plan_statuses_match_the_index():
+    plans = _REPO_ROOT / "plans"
+    files = sorted(p for p in plans.glob("*.md") if not p.name.startswith("_"))
+    mismatches = _status_mismatches(plans, files)
+    assert not mismatches, (
+        f"plan statuses out of step with plans/_index.md: {mismatches}. "
+        "Update the plan's `**Status:**` line and its index row together."
+    )
+
+
+def _live_matrix_modules() -> set[str]:
+    """The module types of the `MODULES` table in tests-e2e/support.py, read
+    from its source: the live tier is not importable from the unit tier."""
+    tree = ast.parse((_REPO_ROOT / "tests-e2e" / "support.py").read_text("utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "MODULES" for t in node.targets
+        ):
+            return {
+                call.args[0].value
+                for call in ast.walk(node.value)
+                if isinstance(call, ast.Call)
+                and call.args
+                and isinstance(call.args[0], ast.Constant)
+                and isinstance(call.args[0].value, str)
+            }
+    raise AssertionError("no MODULES table in tests-e2e/support.py")
+
+
+def test_every_registered_module_has_a_live_row_and_a_benchmark_entry():
+    from tts_engine.modules import REGISTRY
+
+    matrix = json.loads((_REPO_ROOT / "benchmarks" / "matrix.json").read_text("utf-8"))
+    benchmarked = {entry["type"] for entry in matrix["entries"]}
+    assert set(REGISTRY) - _live_matrix_modules() == set(), (
+        "registered modules with no row in tests-e2e/support.py MODULES"
+    )
+    assert set(REGISTRY) - benchmarked == set(), (
+        "registered modules with no entry in benchmarks/matrix.json"
     )

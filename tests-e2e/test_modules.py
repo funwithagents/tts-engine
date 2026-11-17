@@ -47,19 +47,20 @@ async def test_module_say_produces_pcm(module_type: str, module_config: dict) ->
 
     sink = CaptureSink()
     engine_cfg = TTSEngineConfig.from_dict(engine_block(module_type, module_config))
-    engine = TTSEngine(engine_cfg, sink=sink)
+    async with TTSEngine(engine_cfg, sink=sink) as engine:
+        await engine.say("Conformance check for the TTS module")
 
-    await engine.say("Conformance check for the TTS module")
+        assert len(sink.data) > 0
+        assert len(sink.data) % 2 == 0  # whole signed-16-bit samples
+        assert sink.drains == 1
+        assert (
+            engine.sample_rate > 0
+        )  # module-declared rate the sink would resample from
 
-    assert len(sink.data) > 0
-    assert len(sink.data) % 2 == 0  # whole signed-16-bit samples
-    assert sink.drains == 1
-    assert engine.sample_rate > 0  # module-declared rate the sink would resample from
-
-    # The backend's own release step runs against the real client or model.
-    await engine.close()
-    with pytest.raises(RuntimeError):
-        await engine.say("closed")
+        # The backend's own release step runs against the real client or model.
+        await engine.close()
+        with pytest.raises(RuntimeError):
+            await engine.say("closed")
 
 
 @pytest.mark.parametrize("module_type, module_config", MODULES)
@@ -72,9 +73,8 @@ async def test_module_say_completes(module_type: str, module_config: dict) -> No
     require_module(module_type, module_config)
 
     engine_cfg = TTSEngineConfig.from_dict(engine_block(module_type, module_config))
-    engine = TTSEngine(engine_cfg)
-
-    await engine.say(spoken_text(module_type))
+    async with TTSEngine(engine_cfg) as engine:
+        await engine.say(spoken_text(module_type))
 
 
 @pytest.mark.parametrize("module_type, module_config", MODULES)
@@ -99,13 +99,12 @@ async def test_module_say_stream_produces_pcm(
 
     sink = CaptureSink()
     engine_cfg = TTSEngineConfig.from_dict(engine_block(module_type, module_config))
-    engine = TTSEngine(engine_cfg, sink=sink)
+    async with TTSEngine(engine_cfg, sink=sink) as engine:
+        await engine.say_stream(pieces())
 
-    await engine.say_stream(pieces())
-
-    assert len(sink.data) > 0
-    assert len(sink.data) % 2 == 0  # whole signed-16-bit samples
-    assert sink.drains == 1
+        assert len(sink.data) > 0
+        assert len(sink.data) % 2 == 0  # whole signed-16-bit samples
+        assert sink.drains == 1
 
 
 # --- cancellation ------------------------------------------------------------
@@ -169,11 +168,10 @@ async def test_module_say_cancel_stops_feeding(
     require_module(module_type, module_config)
     sink = _PacedCaptureSink()
     engine_cfg = TTSEngineConfig.from_dict(engine_block(module_type, module_config))
-    engine = TTSEngine(engine_cfg, sink=sink)
-
-    task = asyncio.create_task(engine.say(_LONG_TEXT))
-    elapsed = await _cancel_after_first_chunk(task, sink)
-    log.info("%s: say cancel surfaced after %.2f s", module_type, elapsed)
+    async with TTSEngine(engine_cfg, sink=sink) as engine:
+        task = asyncio.create_task(engine.say(_LONG_TEXT))
+        elapsed = await _cancel_after_first_chunk(task, sink)
+        log.info("%s: say cancel surfaced after %.2f s", module_type, elapsed)
 
 
 @pytest.mark.parametrize("module_type, module_config", MODULES)
@@ -185,16 +183,16 @@ async def test_module_say_stream_cancel_stops_feeding(
     require_module(module_type, module_config)
     sink = _PacedCaptureSink()
     engine_cfg = TTSEngineConfig.from_dict(engine_block(module_type, module_config))
-    engine = TTSEngine(engine_cfg, sink=sink)
+    async with TTSEngine(engine_cfg, sink=sink) as engine:
 
-    async def source():
-        for word in _FIRST_SENTENCE.split(" "):
-            yield word + " "
-        await asyncio.Event().wait()  # the source stays open
+        async def source():
+            for word in _FIRST_SENTENCE.split(" "):
+                yield word + " "
+            await asyncio.Event().wait()  # the source stays open
 
-    task = asyncio.create_task(engine.say_stream(source()))
-    elapsed = await _cancel_after_first_chunk(task, sink)
-    log.info("%s: say_stream cancel surfaced after %.2f s", module_type, elapsed)
+        task = asyncio.create_task(engine.say_stream(source()))
+        elapsed = await _cancel_after_first_chunk(task, sink)
+        log.info("%s: say_stream cancel surfaced after %.2f s", module_type, elapsed)
 
 
 @pytest.mark.parametrize("module_type, module_config", MODULES)
@@ -207,14 +205,12 @@ async def test_module_say_after_cancel(module_type: str, module_config: dict) ->
     require_module(module_type, module_config)
     sink = _PacedCaptureSink()
     engine_cfg = TTSEngineConfig.from_dict(engine_block(module_type, module_config))
-    engine = TTSEngine(engine_cfg, sink=sink)
+    async with TTSEngine(engine_cfg, sink=sink) as engine:
+        task = asyncio.create_task(engine.say(_LONG_TEXT))
+        await _cancel_after_first_chunk(task, sink)
+        cancelled = len(sink.data)
 
-    task = asyncio.create_task(engine.say(_LONG_TEXT))
-    await _cancel_after_first_chunk(task, sink)
-    cancelled = len(sink.data)
-
-    await asyncio.wait_for(engine.say("Hello again."), timeout=_FIRST_CHUNK_TIMEOUT)
-    assert len(sink.data) > cancelled
-    assert (len(sink.data) - cancelled) % 2 == 0  # whole signed-16-bit samples
-    assert sink.drains == 2
-    await engine.close()
+        await asyncio.wait_for(engine.say("Hello again."), timeout=_FIRST_CHUNK_TIMEOUT)
+        assert len(sink.data) > cancelled
+        assert (len(sink.data) - cancelled) % 2 == 0  # whole signed-16-bit samples
+        assert sink.drains == 2

@@ -365,3 +365,11 @@ def test_direct_construction_stores_the_gain_as_a_float():
     config = TTSEngineConfig(module={"type": "tone"}, gain_db=-6)
     assert config.gain_db == -6.0
     assert isinstance(config.gain_db, float)
+
+
+def test_an_integer_too_large_for_a_float_is_a_config_error():
+    # Valid JSON, and `math.isfinite` raises OverflowError on it.
+    with pytest.raises(ConfigError, match="gain_db"):
+        TTSEngineConfig.from_json(
+            '{"module": {"type": "tone"}, "gain_db": 1' + "0" * 400 + "}"
+        )

@@ -455,6 +455,27 @@ def test_page_embeds_the_data_without_secrets(tmp_path):
     assert _embedded_data(page)["target_dbfs"] == -18.0
 
 
+def test_page_carries_the_gain_range_and_refuses_a_target_outside_its_own(tmp_path):
+    # The page clamps its suggested gain_db to the field's range, as
+    # suggest_gain does, so it needs the bounds; and a target the library
+    # would refuse is refused by the command, before any synthesis.
+    from tts_engine.config import GAIN_DB_MAX, GAIN_DB_MIN
+
+    path = _tone_audition(tmp_path)
+    _render(path, runs=1)
+    out = audition.default_out_dir(path)
+    data = _embedded_data((out / "index.html").read_text(encoding="utf-8"))
+    assert (data["gain_db_min"], data["gain_db_max"]) == (GAIN_DB_MIN, GAIN_DB_MAX)
+    template = (
+        Path(audition.__file__).with_name("page.html").read_text(encoding="utf-8")
+    )
+    assert "DATA.gain_db_min" in template and "DATA.gain_db_max" in template
+
+    for bad in ("5", "-61", "nan"):
+        assert cli.main(["page", str(path), "--target", bad]) == 2
+        assert cli.main(["render", str(path), "--target", bad]) == 2
+
+
 def test_page_shows_the_description(tmp_path):
     path = _tone_audition(tmp_path, description="For a robot.\n\n[Credits](CREDITS.md)")
     assert cli.main(["page", str(path)]) == 0

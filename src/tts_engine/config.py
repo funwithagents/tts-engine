@@ -47,11 +47,20 @@ GAIN_DB_MIN = -60.0
 GAIN_DB_MAX = 24.0
 
 
+def _is_finite(value: float) -> bool:
+    """`math.isfinite`, with an integer too large for a float counted as not
+    finite instead of raising OverflowError."""
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
 def _check_gain_db(raw: Any) -> float:
     if (
         isinstance(raw, bool)
         or not isinstance(raw, (int, float))
-        or not math.isfinite(raw)
+        or not _is_finite(raw)
         or not (GAIN_DB_MIN <= raw <= GAIN_DB_MAX)
     ):
         raise ConfigError(

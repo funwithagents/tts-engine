@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import statistics
@@ -27,7 +28,7 @@ from tts_engine import (
     VoiceListingUnsupported,
     list_voices,
 )
-from tts_engine.config import ConfigError
+from tts_engine.config import GAIN_DB_MAX, GAIN_DB_MIN, ConfigError
 from tts_engine.level import DEFAULT_TARGET_DBFS, measure_level
 from tts_engine.modules import REGISTRY, resolve_type
 from tts_engine.modules.base import TTSError
@@ -450,6 +451,12 @@ def _write_results(out: Path, results: dict[str, Any]) -> None:
     )
 
 
+def check_target(target_dbfs: float) -> None:
+    """The page's target level, held to `suggest_gain`'s range (-60 to 0)."""
+    if not math.isfinite(target_dbfs) or not (-60 <= target_dbfs <= 0):
+        raise AuditionError(f"--target must be from -60 to 0 dBFS, got {target_dbfs!r}")
+
+
 async def render(
     audition_path: Path,
     out: Path,
@@ -464,6 +471,7 @@ async def render(
     results by id."""
     if runs < 1:
         raise AuditionError("--runs must be at least 1")
+    check_target(target_dbfs)  # before any synthesis, not when the page is written
     audition = load_audition(audition_path)
     choices = load_choices(choices_path, audition) if choices_path else {}
     ids = {c["id"] for c in audition["candidates"]}
@@ -524,6 +532,7 @@ def page_data(
     target_dbfs: float = DEFAULT_TARGET_DBFS,
     choices: dict[str, str] | None = None,
 ) -> dict[str, Any]:
+    check_target(target_dbfs)
     sections: list[str] = []
     for candidate in audition["candidates"]:
         if candidate["section"] not in sections:
@@ -533,6 +542,10 @@ def page_data(
         "description": audition["description"],
         "text": audition["text"],
         "target_dbfs": target_dbfs,
+        # The range of `engine.gain_db`: the page clamps its suggestion to it,
+        # as `suggest_gain` does, so it never shows a value the config rejects.
+        "gain_db_min": GAIN_DB_MIN,
+        "gain_db_max": GAIN_DB_MAX,
         "choices": choices or {},
         "sections": sections,
         "candidates": [

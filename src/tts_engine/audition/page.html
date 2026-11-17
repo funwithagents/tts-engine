@@ -131,8 +131,11 @@ function levelCell(result) {
 function levels() {
   const target = parseFloat(document.getElementById("target").value);
   for (const cell of document.querySelectorAll("td.level[data-level]")) {
-    const gain = Math.round((target - parseFloat(cell.dataset.level)) * 10) / 10;
-    cell.querySelector(".gain").textContent = Number.isFinite(gain) ? "gain_db " + fixed(gain) : "";
+    // suggest_gain's arithmetic: rounded, then clamped to the field's range.
+    const wanted = Math.round((target - parseFloat(cell.dataset.level)) * 10) / 10;
+    const gain = Math.min(Math.max(wanted, DATA.gain_db_min), DATA.gain_db_max);
+    cell.querySelector(".gain").textContent = Number.isFinite(gain)
+      ? "gain_db " + fixed(gain) + (gain !== wanted ? " (limited)" : "") : "";
     const peak = cell.querySelector(".peak");
     if (cell.dataset.peak === undefined || !Number.isFinite(gain)) { peak.textContent = ""; continue; }
     const after = parseFloat(cell.dataset.peak) + gain;

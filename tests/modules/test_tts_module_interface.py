@@ -669,7 +669,7 @@ def test_slice_text_cuts_at_sentence_ends_and_concatenates_back():
     assert "".join(slices) == text
 
 
-def test_slice_text_short_text_is_one_slice_and_a_long_word_passes_whole():
+def test_slice_text_short_text_is_one_slice_and_a_long_word_is_cut_at_the_bound():
     assert list(slice_text("short", 20)) == ["short"]
     assert list(slice_text("a" * 30 + " tail", 20)) == ["a" * 20, "a" * 10 + " tail"]
 
@@ -731,6 +731,12 @@ def test_optional_str_absent_null_and_default_policy():
     # With a default, an explicit null is a value the config names: rejected.
     with pytest.raises(ConfigError, match=message):
         optional_str({"f": None}, "f", label=_LABEL, default="d")
+
+
+def test_finite_number_rejects_an_integer_too_large_for_a_float():
+    # Valid JSON, and `math.isfinite` raises OverflowError on it.
+    with pytest.raises(ConfigError, match="'f' must be a finite number"):
+        finite_number({"f": 10**400}, "f", label=_LABEL)
 
 
 def test_finite_number_absent_null_and_default_policy():
