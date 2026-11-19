@@ -157,7 +157,7 @@ At construction:
 
 At synthesis:
 
-- Any exception from `create` → `TTSError(f"kokoro synthesis failed: {exc}")`, chained. This includes `ValueError("Nothing to synthesize …")` for a segment that produces no phonemes. `segment_sentences` never yields a blank segment, and a punctuation-only one (`...`) was measured to produce a short silence rather than an error, so this is not expected in practice.
+- Any exception from `create` → `TTSError(f"kokoro synthesis failed: {exc}")`, chained. This includes `ValueError("Nothing to synthesize …")` for a segment that produces no phonemes. `segment_sentences` never yields a segment with no letter or digit, so this is not expected in practice.
 - Exceptions raised by `callback` propagate unchanged.
 - Text-stream failures propagate unchanged through `run_text_stream_worker`.
 

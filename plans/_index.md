@@ -79,6 +79,7 @@ Implementation plans for TTS Engine — each plan turns a settled part of a spec
 | [Export the error types](202611171600_export-error-types.md) | `ConfigError` and `TTSError` re-exported from `tts_engine`; their submodule paths keep working; the docs' error-handling example imports them from the top level | Done |
 | [Unit tier cleanup](202611171800_test-tier-cleanup.md) | The unit tier reviewed against `specs/testing.md`: covered tests deleted or merged (1021 → 994), assertions on private state and real-time waits rewritten (OpenAI's poll patched down, no settle sleeps, gated callbacks, a scripted clock for the CPU sampler), module specs' *Testing* sections aligned | Done |
 | [Unit tier coverage gaps](202611171900_test-coverage-gaps.md) | The spec-listed paths the unit-tier review found untested: tools and MCP error paths, `split_at_last_space`, voice-listing failures, handshake rejections, text-stream cancel with the source open, Tone's text-stream errors; Pocket now never feeds a frame decoded after `stop` (a re-check after `next`) | Done |
+| [No word-free segments from `segment_sentences`](202611190951_no-word-free-segments.md) | `segment_sentences` drops a segment with no letter or digit (`…`, `---`, a lone emoji) instead of yielding it as a request of its own, which local models rendered as noise and phonon rejected | Done |
 
 ## Status legend
 

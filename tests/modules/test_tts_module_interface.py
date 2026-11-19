@@ -176,6 +176,42 @@ def test_segment_sentences_cuts_at_sentence_ends(pieces, expected):
     assert list(segment_sentences(pieces)) == expected
 
 
+def _in_chunks(text: str, size: int) -> list[str]:
+    return [text[i : i + size] for i in range(0, len(text), size)]
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("Sorry… …", ["Sorry…"]),
+        ("Sorry... ...", ["Sorry..."]),
+        ("… Hello.", ["Hello."]),
+        ("Hello. ... … ...\n...\n", ["Hello."]),
+        ("Welcome           …      ...…………\n... … …", ["Welcome           …"]),
+        ("… ... …", []),
+        ("Done! 🎉", ["Done!"]),
+        ("One.\n---\nTwo.", ["One.", "Two."]),
+        ("Sorry… … I didn't catch that.", ["Sorry…", "I didn't catch that."]),
+        # Unchanged: a single ellipsis, and digits count as something to say.
+        ("Sorry… I didn't catch that.", ["Sorry…", "I didn't catch that."]),
+        ("3.14 is pi. Next.", ["3.14 is pi.", "Next."]),
+        ("Wait. 42. Go", ["Wait.", "42.", "Go"]),
+        ("Été. 日本語。 Ok", ["Été.", "日本語。 Ok"]),
+    ],
+)
+@pytest.mark.parametrize("size", [None, 1, 4])
+def test_segment_sentences_never_yields_a_segment_without_a_letter_or_digit(
+    text, expected, size
+):
+    pieces = [text] if size is None else _in_chunks(text, size)
+    assert list(segment_sentences(pieces)) == expected
+
+
+def test_segment_sentences_drops_a_word_free_run_cut_at_max_chars():
+    out = list(segment_sentences(["Hello. " + "... " * 20 + "World"], max_chars=20))
+    assert out == ["Hello.", "World"]
+
+
 def test_segment_sentences_forces_a_cut_past_max_chars_at_a_clause_boundary():
     out = list(segment_sentences(["alpha beta, gamma delta epsilon"], max_chars=20))
     assert out == ["alpha beta,", "gamma delta epsilon"]
