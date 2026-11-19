@@ -362,7 +362,9 @@ def segment_sentences(
     ``max_chars`` is the one segment allowed past the bound (cut at the first
     whitespace after it). So no segment exceeds ``max_chars`` except such a
     word, however the input is chunked. The remainder is yielded at end of
-    input. Blank segments are never yielded.
+    input. A segment with no letter or digit (a blank one, ``…``, ``---``, an
+    emoji) is dropped, never yielded: the cut made it a request of its own,
+    and backends render it as noise or reject it.
     """
     buffer = ""
     for piece in pieces:
@@ -382,11 +384,16 @@ def segment_sentences(
             else:
                 break
             segment, buffer = buffer[:cut].strip(), buffer[cut:]
-            if segment:
+            if _has_words(segment):
                 yield segment
     tail = buffer.strip()
-    if tail:
+    if _has_words(tail):
         yield tail
+
+
+def _has_words(segment: str) -> bool:
+    """Whether a segment holds anything to speak: a letter or a digit."""
+    return any(c.isalnum() for c in segment)
 
 
 def _forced_cut(buffer: str, max_chars: int) -> int | None:
