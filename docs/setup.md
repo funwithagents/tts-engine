@@ -16,6 +16,14 @@ setup.prepare(config, "kokoro:model", on_progress=print)   # downloads one missi
 setup.probe(config)             # a light real check: {"ok": True, "message": ..., "duration_s": ...}
 ```
 
+## Try it: the demo page
+
+```
+uv run python -m examples.setup_demo
+```
+
+from a checkout opens a page built on these functions: choose a voice, fill its fields, install its extra and download its model with a click, then hear it. Its folder (saved config, settings, keys) is `~/.config/tts-engine-demo` unless `--folder` names another.
+
 ## The functions
 
 | Function | What it gives | Needs |

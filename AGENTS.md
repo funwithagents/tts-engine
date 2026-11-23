@@ -16,7 +16,7 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | `CONTRIBUTING.md` | How the project is run — one maintainer, feedback through issues, no external pull requests for now |
 | `docs/` | The user documentation, indexed by [docs/index.md](docs/index.md): configuration, streaming, sinks, agents and MCP, voices, choosing a backend, troubleshooting, and one page per backend under `docs/modules/` (its option table checked against the spec's by `tests/test_docs.py`) |
 | `src/tts_engine/` | The library itself — one module per core concept (see below); pluggable TTS backends in `modules/` — the registry and `base.py` at its root, then **one package per backend** (`modules/elevenlabs/`, `modules/pocket/`, `modules/gradium/`, `modules/phonon/`, `modules/mistral/`, `modules/deepgram/`, `modules/gemini/`, `modules/cartesia/`, `modules/openai/`, `modules/openai_speech_compatible/`, `modules/qwen3/`, `modules/kokoro/`, `modules/piper/`, `modules/tone/`, `modules/audiofile/`) |
-| `examples/` | One complete config per module (`config.<type>.json`, no secrets, none the default); example voice auditions under `auditions/` (`demo.json`, `reachy-mini.json` and its choices) |
+| `examples/` | One complete config per module (`config.<type>.json`, no secrets, none the default); example voice auditions under `auditions/` (`demo.json`, `reachy-mini.json` and its choices); `setup_demo/`, the demo page (`uv run python -m examples.setup_demo`, [specs/setup-demo.md](specs/setup-demo.md)) |
 | `specs/` | Design docs — written before the code, then kept as its living contract — one per concept, each with a `**Status:**` — indexed by [specs/_index.md](specs/_index.md). Per-backend specs live in `specs/modules/` (one `<backend>.md` each, mirroring `src/tts_engine/modules/<backend>/`); the contract they all implement stays at the top level ([tts-module-interface.md](specs/tts-module-interface.md)) |
 | `plans/` | Implementation plans (`YYYYMMDDHHmm_` prefixed) turning settled specs into buildable steps — indexed by [plans/_index.md](plans/_index.md) |
 | `tests/` | Fast, deterministic, no-network tests; mirrors the `src/tts_engine/` module structure — the only tier the default `pytest` collects; `tests/modules/` stays flat — one `test_<backend>.py` per backend, not a folder per backend |
@@ -112,11 +112,12 @@ After any code change, run linting, type checking, and tests, and fix any failur
 uv sync --dev                                # Full contributor environment (dev depends on tts-engine[all]: every extra, torch included)
 uv sync --no-dev --extra pocket              # Consumer-style install (or --extra elevenlabs / --extra mcp); --no-dev is required, uv includes dev by default
 uv run ruff check .
-uv run ruff format src tests tests-e2e benchmarks   # Code dirs only: `ruff format .` also reflows Python blocks in Markdown plans
+uv run ruff format src tests tests-e2e benchmarks examples   # Code dirs only: `ruff format .` also reflows Python blocks in Markdown plans
 uv run pyright
 uv run pytest                                # Unit tier only
 uv run pytest tests-e2e/                     # Opt-in live tier (see Testing for the key-sourcing invocation)
 uv run tts-engine-mcp --config examples/config.tone.json   # Start the MCP server on the tone fixture
+uv run python -m examples.setup_demo                     # The demo page: set a voice up, then hear it
 uv run tts-engine-level --config examples/config.tone.json   # Measure a config's level and suggest its gain_db (see specs/level.md)
 uv run tts-engine-audition render examples/auditions/demo.json   # Render a voice audition (see specs/voice-audition.md)
 ```
