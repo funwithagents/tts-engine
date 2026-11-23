@@ -13,7 +13,6 @@ import math
 import os
 import re
 import statistics
-import time
 import wave
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -319,19 +318,15 @@ def new(
 
 
 class _CaptureSink:
-    """Keeps the PCM of one utterance and when its first chunk arrived."""
+    """Keeps the PCM of one utterance."""
 
     def __init__(self) -> None:
         self.chunks: list[bytes] = []
-        self.first_at: float | None = None
 
     def reset(self) -> None:
         self.chunks = []
-        self.first_at = None
 
     def feed(self, chunk: bytes) -> None:
-        if self.first_at is None and chunk:
-            self.first_at = time.perf_counter()
         self.chunks.append(chunk)
 
     def drain(self) -> None:
@@ -393,12 +388,14 @@ async def render_candidate(
         await engine.say(text)  # warm-up: connection, model load, kernels
         for _ in range(runs):
             sink.reset()
-            start = time.perf_counter()
-            await engine.say(text)
-            if sink.first_at is None:
+            # The engine's own stamps: one definition of time to first audio
+            # (specs/utterance-timing.md), from the call to the first chunk.
+            timing = (await engine.say(text)).timing
+            if timing.first_audio_at is None:
                 error = "the engine produced no audio"
                 break
-            ttfa.append(round((sink.first_at - start) * 1000, 1))
+            waited = timing.first_audio_at - timing.started_at
+            ttfa.append(round(waited.total_seconds() * 1000, 1))
     except Exception as exc:  # noqa: BLE001 — recorded, and the pass goes on
         error = f"{type(exc).__name__}: {exc}"
     # A failing close is recorded like any other failure of the candidate, so

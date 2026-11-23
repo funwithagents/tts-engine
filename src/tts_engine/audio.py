@@ -70,6 +70,17 @@ class AudioPlayer(AudioSink):
         array = np.frombuffer(chunk, dtype=np.int16)
         self._stream.write(array)
 
+    @property
+    def output_latency(self) -> float | None:
+        """The output latency (seconds) the open device stream reports: how
+        long after a write its first sample is heard. `None` between
+        utterances (no stream is open) or when the stream reports none."""
+        stream = self._stream
+        if stream is None:
+            return None
+        latency = stream.latency
+        return float(latency) if isinstance(latency, int | float) else None
+
     def drain(self) -> None:
         # Detach first so a failing stop() cannot leave a stale stream on the
         # player; close() always runs so the device is released either way.

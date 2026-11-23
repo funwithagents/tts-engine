@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import contextvars
 import logging
 import math
 import os
@@ -18,6 +19,7 @@ from typing import Any, ClassVar, Literal, TypeVar, cast, overload
 import numpy as np
 
 from tts_engine.config import ConfigError
+from tts_engine.utterance import note_segment
 
 log = logging.getLogger(__name__)
 
@@ -365,6 +367,9 @@ def segment_sentences(
     input. A segment with no letter or digit (a blank one, ``…``, ``---``, an
     emoji) is dropped, never yielded: the cut made it a request of its own,
     and backends render it as noise or reject it.
+
+    Each segment handed on is reported to the utterance in flight
+    (``note_segment``), which stamps its ``first_segment`` event on the first.
     """
     buffer = ""
     for piece in pieces:
@@ -385,9 +390,11 @@ def segment_sentences(
                 break
             segment, buffer = buffer[:cut].strip(), buffer[cut:]
             if _has_words(segment):
+                note_segment()
                 yield segment
     tail = buffer.strip()
     if _has_words(tail):
+        note_segment()
         yield tail
 
 
@@ -470,7 +477,15 @@ def feed_with_lookahead(
             last = exc
         chunks.put(last)
 
-    threading.Thread(target=produce, name="tts-lookahead", daemon=True).start()
+    # A plain thread starts with an empty context: give the producer this
+    # one's, so the sentences it pulls are stamped on the utterance in flight
+    # (`note_segment`) and a span it opens nests under the utterance's.
+    threading.Thread(
+        target=contextvars.copy_context().run,
+        args=(produce,),
+        name="tts-lookahead",
+        daemon=True,
+    ).start()
     try:
         while not stop.is_set():
             try:

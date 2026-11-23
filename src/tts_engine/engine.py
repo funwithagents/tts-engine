@@ -2,15 +2,16 @@
 
 import asyncio
 import logging
-from collections.abc import AsyncIterable, AsyncIterator, Iterable
+from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable
 from typing import Self
 
 import numpy as np
 
 from tts_engine.audio import AudioPlayer, AudioSink, DiscardPlayer
 from tts_engine.config import TTSEngineConfig
-from tts_engine.modules import load_module
+from tts_engine.modules import RENAMED, load_module
 from tts_engine.modules.base import TTSOptions, cleanup
+from tts_engine.utterance import UtteranceInput, UtteranceRecorder, UtteranceResult
 
 log = logging.getLogger(__name__)
 
@@ -65,13 +66,6 @@ class _GainSink:
         self._inner.drain()
 
 
-def _default_sink(config: TTSEngineConfig, sample_rate: int) -> AudioSink:
-    """The sink `config.player` names: the local device, or none at all."""
-    if config.player.discard:
-        return DiscardPlayer(sample_rate=sample_rate)
-    return AudioPlayer(device=config.player.device, sample_rate=sample_rate)
-
-
 class TTSEngine:
     def __init__(
         self, config: TTSEngineConfig, *, sink: AudioSink | None = None
@@ -86,11 +80,20 @@ class TTSEngine:
         gain step; at 0 the sink is used as is and gets the module's bytes.
         """
         self._module = load_module(config.module)
-        self._sink: AudioSink = (
-            sink
-            if sink is not None
-            else _default_sink(config, self._module.sample_rate)
-        )
+        module_type = str(config.module.get("type"))
+        self._module_type = RENAMED.get(module_type, module_type)
+        # The default device player, when the engine built one: the only sink
+        # whose start of playback the engine can report (`playback_started`).
+        self._player: AudioPlayer | None = None
+        if sink is None:
+            sample_rate = self._module.sample_rate
+            if config.player.discard:
+                sink = DiscardPlayer(sample_rate=sample_rate)
+            else:
+                sink = self._player = AudioPlayer(
+                    device=config.player.device, sample_rate=sample_rate
+                )
+        self._sink: AudioSink = sink
         if config.gain_db != 0:
             self._sink = _GainSink(self._sink, config.gain_db)
         self._say_lock = asyncio.Lock()
@@ -126,7 +129,24 @@ class TTSEngine:
         if self._closed:
             raise RuntimeError("TTSEngine is closed")
 
-    async def say(self, text: str) -> None:
+    def _utterance(self, input: UtteranceInput) -> UtteranceRecorder:
+        """Open the span of a call that starts now (specs/utterance-timing.md)."""
+        return UtteranceRecorder(
+            input=input,
+            module=self._module_type,
+            module_kind=self._module.kind,
+            sample_rate=self._module.sample_rate,
+        )
+
+    def _feed(self, utterance: UtteranceRecorder) -> Callable[[bytes], None]:
+        """The sink's `feed`, stamped for `utterance`."""
+        player = self._player
+        return utterance.feeder(
+            self._sink.feed,
+            None if player is None else lambda: player.output_latency,
+        )
+
+    async def say(self, text: str) -> UtteranceResult:
         """Synthesize the complete `text` and feed it to the sink.
 
         The sink is drained exactly once, after the last `feed`, on every
@@ -135,16 +155,26 @@ class TTSEngine:
         the loop for that long. Synthesis, callback and cancellation outcomes
         take precedence over a failing drain, which is then only logged.
         Raises `RuntimeError` once the engine is closed.
-        """
-        async with self._say_lock:
-            self._check_open()
-            options = TTSOptions()
-            with cleanup(self._sink.drain, "sink drain"):
-                await self._module.synthesize_text(
-                    text, options, callback=self._sink.feed
-                )
 
-    async def say_stream(self, text_stream: AsyncIterable[str] | Iterable[str]) -> None:
+        The call is one `tts_engine.utterance` span, a child of the span
+        current where it is awaited; the same stamps are returned as an
+        `UtteranceResult` when it completes (specs/utterance-timing.md).
+        """
+        with self._utterance("text") as utterance:
+            async with self._say_lock:
+                self._check_open()
+                utterance.admitted()
+                utterance.text(text)
+                options = TTSOptions()
+                with cleanup(self._sink.drain, "sink drain"):
+                    await self._module.synthesize_text(
+                        text, options, callback=self._feed(utterance)
+                    )
+        return utterance.result()
+
+    async def say_stream(
+        self, text_stream: AsyncIterable[str] | Iterable[str]
+    ) -> UtteranceResult:
         """Synthesize text as it arrives from `text_stream` (an LLM response,
         token by token) and feed audio to the sink while the stream is still
         being produced.
@@ -165,31 +195,39 @@ class TTSEngine:
         the utterance's own outcome. That includes a call that never starts
         its utterance: cancelled while it waits for the one in flight, or
         finding the engine closed. Raises `RuntimeError` once closed.
+
+        Traced and timed like `say`: one `tts_engine.utterance` span, and an
+        `UtteranceResult` when the call completes.
         """
         if isinstance(text_stream, str):
             raise TypeError("say_stream takes an iterable of text pieces, not a str")
         source = _as_async_iterator(text_stream)
-        try:
-            await self._say_lock.acquire()
-        except BaseException:  # cancelled while queued behind another utterance
-            await _aclose(source, failed=True)
-            raise
-        try:
+        with self._utterance("text_stream") as utterance:
             try:
-                self._check_open()
-                options = TTSOptions()
-                # The sink is drained only for an utterance that was admitted.
-                with cleanup(self._sink.drain, "sink drain"):
-                    await self._module.synthesize_text_stream(
-                        source, options, callback=self._sink.feed
-                    )
-            except BaseException:
+                await self._say_lock.acquire()
+            except BaseException:  # cancelled while queued behind another utterance
                 await _aclose(source, failed=True)
                 raise
-            else:
-                await _aclose(source, failed=False)
-        finally:
-            self._say_lock.release()
+            try:
+                try:
+                    self._check_open()
+                    utterance.admitted()
+                    options = TTSOptions()
+                    # The sink is drained only for an utterance that was admitted.
+                    with cleanup(self._sink.drain, "sink drain"):
+                        await self._module.synthesize_text_stream(
+                            utterance.text_stream(source),
+                            options,
+                            callback=self._feed(utterance),
+                        )
+                except BaseException:
+                    await _aclose(source, failed=True)
+                    raise
+                else:
+                    await _aclose(source, failed=False)
+            finally:
+                self._say_lock.release()
+        return utterance.result()
 
 
 async def _aclose(source: AsyncIterator[str], *, failed: bool) -> None:

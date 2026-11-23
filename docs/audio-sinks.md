@@ -22,3 +22,5 @@ await engine.say("Capture this instead of playing it")
 ```
 
 The sink receives signed 16-bit little-endian mono PCM at `engine.sample_rate`. `feed()` calls are sequential but may happen off the event-loop thread. `drain()` is called once after every utterance, including when synthesis fails or is cancelled. When a custom sink is supplied, the engine does not construct or use the local audio player.
+
+The engine records when the first and the last chunk of each utterance reached `feed()` ([utterance-timing.md](utterance-timing.md)); a sink has nothing to implement for it. When sound actually starts at your destination is yours to measure.

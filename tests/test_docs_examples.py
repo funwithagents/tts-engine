@@ -66,6 +66,7 @@ class _RecordingPlayer:
     """Stands in for `AudioPlayer`: same constructor, records what it is fed."""
 
     fed: ClassVar[list[bytes]] = []
+    output_latency: ClassVar[float | None] = None
 
     def __init__(self, device: object = None, sample_rate: int = 24000) -> None:
         self.sample_rate = sample_rate
@@ -171,6 +172,17 @@ def test_errors_and_cancellation():
     )
     _run(source, {"TTSEngine": TTSEngine, "config": _config()})
     assert _RecordingPlayer.fed
+
+
+def test_reading_an_utterance_result(capsys: pytest.CaptureFixture[str]):
+    from tts_engine import TTSEngine
+
+    source = _python_block(
+        _REPO_ROOT / "docs" / "utterance-timing.md", "The result of a call"
+    )
+    namespace = _run(source, {"engine": TTSEngine(_config())})
+    assert namespace["time_to_first_audio"].total_seconds() >= 0
+    assert "25 characters, 1.25 s of audio" in capsys.readouterr().out
 
 
 def test_tools_in_an_agent():

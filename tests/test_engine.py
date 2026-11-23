@@ -38,6 +38,10 @@ def engine(mock_module, mock_player, mocker):
 class CaptureSink:
     """In-memory AudioSink: records fed chunks and drain calls."""
 
+    # What the engine reads on its default player, for the tests that put this
+    # sink in the player's place.
+    output_latency: float | None = None
+
     def __init__(self) -> None:
         self.chunks: list[bytes] = []
         self.drains = 0

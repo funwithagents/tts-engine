@@ -24,6 +24,24 @@ def test_feed_opens_stream_once_at_the_given_sample_rate(mocker):
     assert mock_stream.write.call_count == 2
 
 
+@pytest.mark.parametrize(
+    "reported, expected",
+    [(0.012, 0.012), (None, None), ((0.01, 0.02), None)],
+    ids=["seconds", "none", "not-a-number"],
+)
+def test_output_latency_is_the_open_streams(mocker, reported, expected):
+    mock_stream = mocker.MagicMock()
+    mock_stream.latency = reported
+    mocker.patch("sounddevice.OutputStream", return_value=mock_stream)
+    player = AudioPlayer(sample_rate=24000)
+
+    assert player.output_latency is None  # no stream before the first feed
+    player.feed(_pcm_bytes())
+    assert player.output_latency == expected
+    player.drain()
+    assert player.output_latency is None
+
+
 def test_drain_closes_stream(mocker):
     mock_stream = mocker.MagicMock()
     mocker.patch("sounddevice.OutputStream", return_value=mock_stream)
