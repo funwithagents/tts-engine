@@ -39,7 +39,7 @@ The page opens on its Setup tab with the `tone` fixture, which needs nothing ins
 
 `tests/examples/test_setup_demo.py`: a session speaks and reports what it said; an utterance in progress is interrupted; a refused config fails the start and frees its loop; `start` builds the engine from the saved section; the demo's default config passes the checks and starts through the app's model; the page builds with its Session content.
 
-The page was also run live: the checks over a kokoro config, a session started, an utterance spoken, a test sentence, the session stopped; and the piper extra, uninstalled, installed back by the page's model through uv and seen ready without a restart.
+The page was also run live: the checks over a kokoro config, a session started, an utterance spoken, a test sentence, the session stopped; and the piper extra, uninstalled, installed back by the page's model through uv and seen ready without a restart. It was then driven in a headless browser: Kokoro chosen, a voice picked from its list (54 voices), the output switched to `discard`, saved, a session started, a sentence spoken (first audio after about 200 ms), stopped.
 
 ## Open questions
 
