@@ -1,8 +1,12 @@
-"""A running engine for the demo's Session tab, with no gradio (specs/setup-demo.md).
+"""The demo's sessions, with no gradio (specs/setup-demo.md).
 
-The page's handlers run on gradio's worker threads; the engine's calls are coroutines. The
-session owns one event loop on a thread of its own and runs every call there, so a handler
-just waits for the result. One utterance at a time: a new one waits for the previous.
+A `SpeechSession` is a running engine. The page's handlers run on gradio's worker threads;
+the engine's calls are coroutines. The session owns one event loop on a thread of its own
+and runs every call there, so a handler just waits for the result. One utterance at a time:
+a new one waits for the previous.
+
+`Sessions` holds at most one, started from the app's saved config: what the page's Start and
+Stop do, and what locks the config while a session runs.
 """
 
 from __future__ import annotations
@@ -10,14 +14,18 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import threading
+from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
+
+from module_setup.app import AppModel
 
 from tts_engine.audio import AudioSink
 from tts_engine.config import TTSEngineConfig
 from tts_engine.engine import TTSEngine
 from tts_engine.utterance import UtteranceResult
 
-__all__ = ["SpeechSession", "describe_result"]
+__all__ = ["Sessions", "SpeechSession", "build_session", "describe_result"]
 
 
 class SpeechSession:
@@ -98,3 +106,60 @@ def describe_result(result: UtteranceResult) -> str:
         heard = (timing.playback_started_at - timing.started_at).total_seconds()
         parts.append(f"playback after {heard * 1000:.0f} ms")
     return "; ".join(parts) + "."
+
+
+def build_session(section: Mapping[str, Any], folder: Path) -> SpeechSession:
+    """The session for the saved `tts` section: the engine built from it, a relative path
+    in it (a voice file) resolved against the app's folder."""
+    return SpeechSession(TTSEngineConfig.from_dict(dict(section), base_dir=folder))
+
+
+class Sessions:
+    """At most one `SpeechSession`, started from the app's saved config."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._starting = False
+        self._stopping = False
+        self.session: SpeechSession | None = None
+        self.error: str | None = None  # why the last start failed
+
+    def busy(self) -> bool:
+        """Whether a session is running or starting: the config is in use."""
+        return self._starting or self.session is not None
+
+    def start(self, model: AppModel) -> list[str]:
+        """Start a session with the saved config; why it did not start, else []."""
+        with self._lock:
+            if self.busy():
+                return ["A session is already running."]
+            self._starting = True
+        try:
+            config = model.saved_config()
+            blockers = model.blockers(config)
+            if blockers:
+                return blockers
+            try:
+                session = build_session(model.used_config(config)["tts"], model.path)
+            except Exception as exc:  # noqa: BLE001 - said on the page
+                self.error = str(exc) or type(exc).__name__
+                return [f"The engine did not start: {self.error}"]
+            self.session, self.error = session, None
+            return []
+        finally:
+            self._starting = False
+
+    def stop(self) -> bool:
+        """Stop the running session; False when there is none (or it is already stopping).
+        The config stays locked until the engine has closed."""
+        with self._lock:
+            session = self.session
+            if session is None or self._stopping:
+                return False
+            self._stopping = True
+        try:
+            session.stop()
+        finally:
+            with self._lock:
+                self.session, self._stopping = None, False
+        return True

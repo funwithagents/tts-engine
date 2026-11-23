@@ -5,14 +5,19 @@ import threading
 import time
 from pathlib import Path
 
+import gradio as gr
 import pytest
 from module_setup.app import AppModel
 from module_setup.folder import ConfigFolder
 from module_setup.secrets import SecretStore
-from module_setup.session import SessionContext, SessionState
 
-from examples.setup_demo.app import APP, DEFAULT_CONFIG, start
-from examples.setup_demo.session import SpeechSession, describe_result
+from examples.setup_demo.app import APP, DEFAULT_CONFIG, build_page
+from examples.setup_demo.session import (
+    Sessions,
+    SpeechSession,
+    build_session,
+    describe_result,
+)
 from tts_engine.config import TTSEngineConfig
 
 
@@ -76,30 +81,28 @@ def test_an_utterance_in_progress_can_be_interrupted() -> None:
     assert not session.interrupt()
 
 
+def _model(tmp_path: Path, sessions: Sessions) -> AppModel:
+    """The demo's model over a folder of its own, its secrets kept off os.environ."""
+    folder = ConfigFolder(tmp_path, APP.default_config)
+    return AppModel(APP, folder, SecretStore(folder.env_path, {}), locked=sessions.busy)
+
+
+SILENT = {"tts": {**DEFAULT_CONFIG["tts"], "player": {"discard": True}}}
+
+
 def test_a_config_the_engine_refuses_fails_the_start_and_frees_its_loop() -> None:
     before = threading.active_count()
 
     with pytest.raises(ValueError, match="Unknown TTS module type"):
-        start(
-            SessionContext(
-                config={"tts": {"module": {"type": "nope"}}}, folder=Path(".")
-            )
-        )
+        build_session({"module": {"type": "nope"}}, Path("."))
 
     assert threading.active_count() == before
 
 
-def test_start_builds_the_engine_from_the_saved_section(tmp_path: Path) -> None:
-    session = start(
-        SessionContext(
-            config={
-                "tts": {
-                    "module": {"type": "tone", "sample_rate": 16000},
-                    "player": {"discard": True},
-                }
-            },
-            folder=tmp_path,
-        )
+def test_a_session_is_the_engine_built_from_the_saved_section(tmp_path: Path) -> None:
+    session = build_session(
+        {"module": {"type": "tone", "sample_rate": 16000}, "player": {"discard": True}},
+        tmp_path,
     )
     try:
         assert session.sample_rate == 16000
@@ -108,29 +111,56 @@ def test_start_builds_the_engine_from_the_saved_section(tmp_path: Path) -> None:
         session.stop()
 
 
-def test_the_demo_declares_one_tts_section_whose_default_starts(tmp_path: Path) -> None:
-    folder = ConfigFolder(tmp_path, APP.default_config)
-    folder.ensure()
-    folder.save_config({"tts": {**DEFAULT_CONFIG["tts"], "player": {"discard": True}}})
-    model = AppModel(APP, folder, SecretStore(folder.env_path, {}))
+def test_a_session_starts_from_the_saved_config_and_locks_it_until_stopped(
+    tmp_path: Path,
+) -> None:
+    sessions = Sessions()
+    model = _model(tmp_path, sessions)
+    model.save(SILENT)
+
+    assert sessions.start(model) == []
+    assert sessions.session is not None and sessions.busy()
+    assert sessions.start(model) == ["A session is already running."]
+    with pytest.raises(RuntimeError, match="Stop the session"):
+        model.save(DEFAULT_CONFIG)
+
+    assert sessions.stop() is True
+    assert not sessions.busy() and sessions.stop() is False
+    model.save(DEFAULT_CONFIG)
+
+
+def test_a_session_does_not_start_with_a_config_that_has_problems(
+    tmp_path: Path,
+) -> None:
+    sessions = Sessions()
+    model = _model(tmp_path, sessions)
+    model.save({"tts": {"module": {"type": "nope"}}})
+
+    blockers = sessions.start(model)
+
+    assert blockers and blockers[0].startswith("/tts/module")
+    assert sessions.session is None and not sessions.busy()
+
+
+def test_the_demo_declares_one_tts_section_whose_default_is_ready(
+    tmp_path: Path,
+) -> None:
+    model = _model(tmp_path, Sessions())
 
     assert [section.name for section in APP.sections] == ["tts"]
-    assert model.check_config(DEFAULT_CONFIG) == []
-    assert model.start_blockers(DEFAULT_CONFIG) == []
-
-    assert model.start() == []
-    assert model.runner.wait(10) is SessionState.RUNNING
-    assert isinstance(model.runner.session, SpeechSession)
-    model.stop()
-    assert model.runner.wait(10) is SessionState.STOPPED
+    assert model.saved_config() == DEFAULT_CONFIG
+    assert model.blockers(DEFAULT_CONFIG) == []
 
 
-def test_the_page_builds() -> None:
-    from module_setup.ui import build_page
+def test_the_page_puts_the_session_first_and_opens_on_setup(tmp_path: Path) -> None:
+    sessions = Sessions()
 
-    page = build_page(
-        AppModel(APP, ConfigFolder(Path("/nonexistent"), APP.default_config))
-    )
+    page = build_page(_model(tmp_path, sessions), sessions)
 
+    tabs = [b.label for b in page.blocks.values() if isinstance(b, gr.Tab)]
     labels = [getattr(block, "label", None) for block in page.blocks.values()]
-    assert "Text to speak" in labels
+    [selector] = [b for b in page.blocks.values() if isinstance(b, gr.Tabs)]
+    assert tabs == ["Session", "Setup", "Secrets"]
+    assert "Text to speak" in labels and "Section to test" in labels
+    assert "Variable" in labels
+    assert selector.selected == "setup"

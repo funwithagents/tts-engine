@@ -276,5 +276,5 @@ The contract's conformance check runs over the same examples.
 1. **`phonon`'s items stay `unknown`.** Its always-needed files (`config.json`, `tokenizer.json`) could at least prove a model was never fetched; a full answer needs the runtime to expose which files a config selects.
 2. **`check_setup` imports the providers**: `pocket`'s pulls torch, which takes about a second the first time. It loads no model.
 3. **Deprecated fields and renamed types** are accepted and not offered. Whether `check_config` should report them as warnings (a third kind of result) is deferred.
-4. **The demo app** — a page with a Setup tab over these functions and a Session tab that builds the engine and speaks — is a separate spec.
+4. **The demo app** — a page with a Setup panel over these functions and a Session tab that builds the engine and speaks — is a separate spec ([setup-demo.md](setup-demo.md)).
 5. **`phonon`'s progress is unmeasured.** Its runtime downloads inside the load with no hook, and which files (hence how many bytes) it fetches is its own choice; the Hugging Face cache's growth could be watched once the runtime says what it selects.

@@ -22,7 +22,7 @@ setup.probe(config)             # a light real check: {"ok": True, "message": ..
 uv run python -m examples.setup_demo
 ```
 
-from a checkout opens a page built on these functions: choose a voice, fill its fields, install its extra and download its model with a click, then hear it. Its folder (saved config, settings, keys) is `~/.config/tts-engine-demo` unless `--folder` names another.
+from a checkout opens a page built on these functions: choose a voice, fill its fields, install its extra and download its model with a click, then hear it. Its folder (saved config, keys) is `~/.config/tts-engine-demo` unless `--folder` names another.
 
 ## The functions
 
