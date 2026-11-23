@@ -40,12 +40,22 @@ class AudioPlayer(AudioSink):
         Called from a single module worker thread at a time (not concurrently).
         """
 
+    @property
+    def output_latency(self) -> float | None:
+        """
+        The output latency (seconds) the open device stream reports: how long
+        after a write its first sample is heard. None between utterances (no
+        stream is open) or when the stream reports no number.
+        """
+
     def drain(self) -> None:
         """
         Block until all buffered audio has been played, then close the stream.
         Called by TTSEngine after the module signals end-of-stream.
         """
 ```
+
+`output_latency` is not part of the `AudioSink` Protocol. The engine reads it on the player it built, once the first chunk of an utterance has been written, to stamp that utterance's `playback_started` event ([utterance-timing.md](utterance-timing.md)). The device is opened inside that first `feed`, so the stamp includes the opening time.
 
 ## Audio format
 

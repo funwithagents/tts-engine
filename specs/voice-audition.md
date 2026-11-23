@@ -177,7 +177,7 @@ my-assistant.audition/
 
    A failing synthesis is an `error` and the pass goes on. `results.json` is written after every candidate, so an interrupted pass keeps what it finished.
 
-**Latency is measured, not looked up.** The page shows the median and the range of the TTFA measured during the render, on this machine and network, after warm-up. That is the number a listener of this machine's application would get, independent of any benchmark result. Three runs keep the cost of a hosted voice at four syntheses of one sentence; `--runs` raises it when the numbers need to be firmer.
+**Latency is measured, not looked up.** The page shows the median and the range of the TTFA measured during the render, on this machine and network, after warm-up. Each run's TTFA is read from the engine's own stamps, `first_audio_at − started_at` of the `UtteranceResult` that `say` returns ([utterance-timing.md](utterance-timing.md)): from the call to the first chunk reaching the sink. That is the number a listener of this machine's application would get, independent of any benchmark result. Three runs keep the cost of a hosted voice at four syntheses of one sentence; `--runs` raises it when the numbers need to be firmer.
 
 ## Level and gain
 

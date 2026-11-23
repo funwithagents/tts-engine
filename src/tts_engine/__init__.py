@@ -8,6 +8,7 @@ from tts_engine.engine import TTSEngine
 from tts_engine.modules import list_voices
 from tts_engine.modules.base import TTSError, VoiceInfo, VoiceListingUnsupported
 from tts_engine.tools import TTSTools
+from tts_engine.utterance import UtteranceResult, UtteranceTiming
 
 # Well-behaved library: attach a NullHandler to the package logger so importing
 # tts_engine never emits output or configures logging. The application (e.g. the
@@ -22,6 +23,8 @@ __all__ = [
     "TTSEngineConfig",
     "TTSError",
     "TTSTools",
+    "UtteranceResult",
+    "UtteranceTiming",
     "VoiceInfo",
     "VoiceListingUnsupported",
     "list_voices",

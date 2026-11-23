@@ -29,6 +29,8 @@ _SCRIPT = textwrap.dedent(
 
 
     class FakeModule(TTSModule):
+        kind = "fixture"
+
         def __init__(self, config):
             pass
 
@@ -103,6 +105,8 @@ _DISCARD_SCRIPT = textwrap.dedent(
 
 
     class FakeModule(TTSModule):
+        kind = "fixture"
+
         # 0.25 s of audio in 50 ms slices, like a streaming backend.
         def __init__(self, config):
             pass

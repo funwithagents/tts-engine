@@ -1584,6 +1584,20 @@ wheels = [
 ]
 
 [[package]]
+name = "opentelemetry-sdk"
+version = "1.45.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-semantic-conventions" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a1/79/7392e21a1c8f0c61d90b223e31c7e48cb9d452e91a6b820ad24cca5f23c4/opentelemetry_sdk-1.45.1.tar.gz", hash = "sha256:63d24a6ca645019a631e6a51999c73e93adcac1196ca640b8ae78a7cc4762bf3", size = 218324, upload-time = "2026-10-06T17:33:13.26Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/95/3c/87c42b4bd6dd297536f04cd9383d212ac557ecd49f2cbdcd46da1c9ef5c8/opentelemetry_sdk-1.45.1-py3-none-any.whl", hash = "sha256:c604c11dc429810812348989115fa44bd558772a3d7442afc43d024f2c250ca4", size = 140063, upload-time = "2026-10-06T17:32:55.04Z" },
+]
+
+[[package]]
 name = "opentelemetry-semantic-conventions"
 version = "0.66b1"
 source = { registry = "https://pypi.org/simple" }
@@ -2827,6 +2841,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "numpy" },
+    { name = "opentelemetry-api" },
     { name = "sounddevice" },
 ]
 
@@ -2924,6 +2939,7 @@ qwen3 = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "opentelemetry-sdk" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -2950,6 +2966,7 @@ requires-dist = [
     { name = "numpy" },
     { name = "openai", marker = "extra == 'openai-compatible'", specifier = ">=3.37,<4" },
     { name = "openai", extras = ["realtime"], marker = "extra == 'openai'", specifier = ">=3.37,<4" },
+    { name = "opentelemetry-api", specifier = ">=1.20,<2" },
     { name = "piper-tts", marker = "extra == 'piper'", specifier = ">=1.8,<2" },
     { name = "pocket-tts", marker = "extra == 'pocket'", specifier = ">=4.0.1,<5" },
     { name = "ptts", marker = "extra == 'phonon'", specifier = ">=0.4.2,<0.6" },
@@ -2964,6 +2981,7 @@ provides-extras = ["elevenlabs", "pocket", "gradium", "mistral", "deepgram", "ge
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "opentelemetry-sdk", specifier = ">=1.20,<2" },
     { name = "pyright", specifier = ">=1.1.411" },
     { name = "pytest" },
     { name = "pytest-asyncio" },

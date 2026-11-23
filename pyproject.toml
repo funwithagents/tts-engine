@@ -12,6 +12,10 @@ requires-python = ">=3.11"
 dependencies = [
     "sounddevice",
     "numpy",
+    # The tracing API only, never the SDK: the span of each utterance is a no-op
+    # until the application installs an SDK. <2: the 1.x tracing API, stable
+    # since 1.0; validated on 1.45.1 — see specs/utterance-timing.md.
+    "opentelemetry-api>=1.20,<2",
 ]
 
 [project.scripts]
@@ -136,6 +140,8 @@ dev = [
     "pytest",
     "pytest-asyncio",
     "pytest-mock",
+    # The SDK's in-memory exporter, to assert on the utterance span in tests.
+    "opentelemetry-sdk>=1.20,<2",
     "ruff>=0.8.0",
     "pyright>=1.1.411",
     # Every extra, via the `all` bundle rather than a hand-maintained copy of

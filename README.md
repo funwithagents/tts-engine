@@ -81,7 +81,7 @@ text stream → TTSEngine.say_stream() ↗                 └─ AudioPlayer by
 - A `TTSModule` connects the engine to one synthesis backend. Exactly one module is selected when the engine is constructed.
 - An `AudioSink` consumes the streaming PCM chunks. The built-in `AudioPlayer` sends them to the local audio device.
 
-The module declares its output sample rate, and the engine configures the default player to match it. Calls to `say()` and `say_stream()` on the same engine are serialized, and each call returns after the sink has been drained.
+The module declares its output sample rate, and the engine configures the default player to match it. Calls to `say()` and `say_stream()` on the same engine are serialized, and each call returns after the sink has been drained. It returns an `UtteranceResult`: what the call consumed and produced, and when each step happened, time to first audio among them. The same stamps are on an OpenTelemetry span per call ([utterance timing](docs/utterance-timing.md)).
 
 An engine holds its module's client or loaded model for its lifetime. Release it with `await engine.close()`, or use the engine as an async context manager, as the quick start does; after that, `say()` and `say_stream()` raise `RuntimeError`. The sink is not touched: an injected sink is yours to close.
 
@@ -124,6 +124,7 @@ Start at [docs/index.md](docs/index.md), the documentation by task. The pages us
 | [docs/modules/index.md](docs/modules/index.md) | Every module, with one page each |
 | [docs/streaming.md](docs/streaming.md) | Speaking an LLM response while it is generated |
 | [docs/audio-sinks.md](docs/audio-sinks.md) | The default player, and capturing or routing the audio yourself |
+| [docs/utterance-timing.md](docs/utterance-timing.md) | What each call reports: time to first audio and the steps before it, as a returned value and as an OpenTelemetry span |
 | [docs/agents-and-mcp.md](docs/agents-and-mcp.md) | `TTSTools` for an agent, and the MCP server |
 | [docs/choosing-a-backend-and-voice.md](docs/choosing-a-backend-and-voice.md) | Where each backend runs, how fast it answers, its voices, and how to audition them |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | No audio, a missing extra, a voice louder or quieter than the others, and each backend's own errors |

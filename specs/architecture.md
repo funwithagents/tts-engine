@@ -196,7 +196,7 @@ Finding the value is `tts_engine.level`'s job: it measures a configuration's lev
 5. The module produces raw signed 16-bit PCM mono at its declared `sample_rate`, inside a single `asyncio.to_thread` worker: the ElevenLabs module opens an HTTPS streaming connection requesting MP3 (`mp3_44100_128`) and decodes each chunk via `miniaudio.stream_any` in-process; the pocket module runs local inference and converts each float32 chunk to int16; the `tone` module generates a sine wave and the `audiofile` module reads a WAV file.
 6. As PCM chunks are produced, the module calls `sink.feed(chunk)` for each one.
 7. With the default sink, `AudioPlayer.feed` writes the chunk to the open `sounddevice` output stream — playback begins on the first chunk. A custom sink does whatever its destination needs.
-8. When the stream ends, `engine.say` returns; `TTSTools.say` returns `"OK"`; `mcp.py` returns it to the client.
+8. When the stream ends, `engine.say` drains the sink and returns the utterance's `UtteranceResult` ("Utterance timing", below); `TTSTools.say` returns `"OK"`; `mcp.py` returns it to the client.
 
 ### From library code
 
@@ -216,7 +216,11 @@ await engine.say_stream(llm_tokens())
 
 1. `engine.say_stream` takes the lock, builds a `TTSOptions()`, and calls `module.synthesize_text_stream(text_stream, options, callback=sink.feed)`. A plain (sync) iterable is wrapped into an async iterator first — a convenience for in-memory sequences and tests only; a blocking sync generator would stall the event loop, so a blocking source must be made async by the caller. A bare `str` is rejected with `TypeError` (it is an iterable of characters, almost certainly a mistake — `say` is the method for a complete text).
 2. The module consumes the pieces as they arrive and feeds PCM as soon as it has any: a cloud provider forwards text to its socket and receives audio concurrently; a local model synthesizes each sentence as soon as it is complete (see [tts-module-interface.md](tts-module-interface.md), "`TTSModule` ABC"). Audio for the start of the response plays while the LLM is still producing the end.
-3. When the stream is exhausted and the module has fed its last chunk, `say_stream` drains the sink and releases the lock. If the text stream raises, the utterance is aborted and the source's exception propagates unchanged; `TTSError` and callback errors propagate exactly as for `say`.
+3. When the stream is exhausted and the module has fed its last chunk, `say_stream` drains the sink, releases the lock and returns the utterance's `UtteranceResult`. If the text stream raises, the utterance is aborted and the source's exception propagates unchanged; `TTSError` and callback errors propagate exactly as for `say`.
+
+## Utterance timing
+
+Every `say` / `say_stream` call is one OpenTelemetry span (`tts_engine.utterance`), opened in the caller's context when the call starts and ended on every exit path, with one event per step: `admitted`, `first_text`, `first_segment`, `first_audio`, `last_audio`, `playback_started`. A completed call returns the same stamps as an `UtteranceResult`. The engine takes them by wrapping the text iterator and the sink's `feed` it hands to the module, so no module changes for it; `segment_sentences` reports the first sentence. The names, what each event means and when it is absent, the clock and the threading rules are in [utterance-timing.md](utterance-timing.md).
 
 ## Component responsibilities
 
@@ -224,7 +228,8 @@ await engine.say_stream(llm_tokens())
 |-----------|---------------|
 | `mcp.py` | MCP protocol, tool registration, StreamableHTTP; thin wrappers over `tools`; builds the `FastMCP` app (behind the `mcp` extra) |
 | `tools.py` | `TTSTools`: engine-bound, provider/transport-agnostic operations (`say`); input guards; `TTSError` → string |
-| `engine.py` | Builds the module from `TTSEngineConfig`; uses an injected `AudioSink` or builds the default `AudioPlayer` (at the module's `sample_rate`); applies the static `gain_db` before the sink; `say()` and `say_stream()`; `sample_rate` property; no protocol knowledge |
+| `engine.py` | Builds the module from `TTSEngineConfig`; uses an injected `AudioSink` or builds the default `AudioPlayer` (at the module's `sample_rate`); applies the static `gain_db` before the sink; `say()` and `say_stream()`, each one span and one `UtteranceResult`; `sample_rate` property; no protocol knowledge |
+| `utterance.py` | The span, events and attributes of an utterance and their names; the recorder the engine opens per call; `UtteranceResult` / `UtteranceTiming`; see [utterance-timing.md](utterance-timing.md) |
 | `modules/base.py` | Defines `TTSModule` ABC (`synthesize_text`, `synthesize_text_stream`), shared dataclasses (`TTSOptions`), and the shared helpers (`run_cancellable_worker`, `run_text_stream_worker`, `segment_sentences`, `resolve_path`) |
 | `modules/elevenlabs/module.py` | ElevenLabs API interaction over HTTPS (complete text) and the stream-input WebSocket (text stream), MP3→PCM decoding via miniaudio (behind the `elevenlabs` extra, lazy import), config parsing |
 | `modules/gradium/module.py` | Gradium realtime WebSocket (both input shapes; the text stream is forwarded as it arrives), raw PCM output (behind the `gradium` extra, lazy import), config parsing |
@@ -246,7 +251,7 @@ await engine.say_stream(llm_tokens())
 | `level.py` | Speech level and `gain_db` calibration: `measure_level`, `suggest_gain`, `calibrate` (an engine with a capture sink and no gain); see [level.md](level.md) |
 | `level_cli.py` | The `tts-engine-level` entry point over `calibrate`; configures logging for its process |
 | `mcp_server_cli.py` | Argument parsing (`--config`, `--log-level`); imports the MCP stack inside `main`, exiting with the `pip install tts-engine[mcp]` hint when the extra is absent; `MCPServerConfig.from_json_file` → `TTSEngine(cfg.engine)` → MCP server; `logging.basicConfig(level=args.log_level)`; starts uvicorn |
-| `__init__.py` | Public API surface: re-exports `TTSEngine`, `TTSEngineConfig`, `MCPServerConfig`, `TTSTools`, `AudioSink`, `list_voices`, `VoiceInfo`, `VoiceListingUnsupported`, `ConfigError`, `TTSError` |
+| `__init__.py` | Public API surface: re-exports `TTSEngine`, `TTSEngineConfig`, `MCPServerConfig`, `TTSTools`, `AudioSink`, `list_voices`, `VoiceInfo`, `VoiceListingUnsupported`, `ConfigError`, `TTSError`, `UtteranceResult`, `UtteranceTiming` |
 
 ## Ownership and lifetime
 
@@ -264,9 +269,10 @@ The package exposes the library entry points at the top level:
 from tts_engine import TTSEngine, TTSEngineConfig, MCPServerConfig, TTSTools, AudioSink
 from tts_engine import list_voices, VoiceInfo, VoiceListingUnsupported
 from tts_engine import ConfigError, TTSError
+from tts_engine import UtteranceResult, UtteranceTiming
 ```
 
-`TTSEngine` exposes `say`, `say_stream`, `sample_rate`, `close` and the async context-manager protocol. `TTSTools` is curated so agents can register its bound methods directly (see [tools.md](tools.md), "Consumers"). `AudioSink` is exported so embedders can type their own playback destination against the seam ([audio-sink.md](audio-sink.md)). `list_voices`, `VoiceInfo` and `VoiceListingUnsupported` are the voice listing ([tts-module-interface.md](tts-module-interface.md), "Voice listing"). `ConfigError` and `TTSError` are the two exception types a caller handles (a bad config or missing extra; a failing backend), so they are exported too: catching them should not need a submodule path. They stay defined where they are (`tts_engine.config`, `tts_engine.modules.base`), and those paths keep working. Everything else (modules, the concrete `AudioPlayer`, `level`, mcp, the entry points) is reachable by submodule import but is not part of the curated top-level surface. None of the top-level names needs an extra: `MCPServerConfig` is a plain dataclass, while `tts_engine.mcp` itself requires the `mcp` extra.
+`TTSEngine` exposes `say` and `say_stream` (each returning an `UtteranceResult`), `sample_rate`, `close` and the async context-manager protocol. `TTSTools` is curated so agents can register its bound methods directly (see [tools.md](tools.md), "Consumers"). `AudioSink` is exported so embedders can type their own playback destination against the seam ([audio-sink.md](audio-sink.md)). `list_voices`, `VoiceInfo` and `VoiceListingUnsupported` are the voice listing ([tts-module-interface.md](tts-module-interface.md), "Voice listing"). `ConfigError` and `TTSError` are the two exception types a caller handles (a bad config or missing extra; a failing backend), so they are exported too: catching them should not need a submodule path. They stay defined where they are (`tts_engine.config`, `tts_engine.modules.base`), and those paths keep working. `UtteranceResult` and `UtteranceTiming` are what `say` and `say_stream` return ([utterance-timing.md](utterance-timing.md)). Everything else (modules, the concrete `AudioPlayer`, `level`, mcp, the entry points) is reachable by submodule import but is not part of the curated top-level surface. None of the top-level names needs an extra: `MCPServerConfig` is a plain dataclass, while `tts_engine.mcp` itself requires the `mcp` extra.
 
 ## Threading / async model
 
