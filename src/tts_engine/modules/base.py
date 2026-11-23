@@ -107,10 +107,21 @@ class TTSModule(ABC):
         invalid field. The first thing a constructor does, before any import:
         what `problems` accepts is what the constructor accepts."""
         values = read_fields(
-            config, cls.fields, label=f"{cls.title} module", error=ConfigError
+            config,
+            cls.fields_for(config),
+            label=f"{cls.title} module",
+            error=ConfigError,
         )
         cls.check_config(values, config)
         return values
+
+    @classmethod
+    def fields_for(cls, config: dict) -> tuple[Field, ...]:
+        """The fields as this config reads them: `fields`, unless a field's
+        rule depends on another's value (a range that follows the model), in
+        which case the module returns them narrowed. A form is drawn from
+        `fields`; a config is validated against these."""
+        return cls.fields
 
     @classmethod
     def check_config(cls, values: dict[str, Any], config: dict) -> None:
@@ -123,7 +134,9 @@ class TTSModule(ABC):
         """Everything that makes the module refuse this config block, as
         `(field name, message)`; the name is "" for a rule across fields.
         Empty when the constructor would accept its shape."""
-        found = field_problems(config, cls.fields, label=f"{cls.title} module")
+        found = field_problems(
+            config, cls.fields_for(config), label=f"{cls.title} module"
+        )
         if not found:
             try:
                 cls.validated(config)

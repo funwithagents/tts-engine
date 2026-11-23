@@ -60,11 +60,12 @@ A module declares its config fields as data, and both its constructor and `valid
 @dataclass(frozen=True)
 class Field:
     name: str
-    kind: Literal["string", "number", "integer", "boolean"]
+    kind: FieldKind | tuple[FieldKind, ...]   # "string", "number", "integer", "boolean", "objects"
     description: str
     default: Any = None
     implied: Any = None
     required: bool = False
+    nullable: bool = True
     choices: tuple[Any, ...] | None = None
     minimum: float | None = None
     maximum: float | None = None
@@ -81,11 +82,13 @@ def field_problems(config: dict, fields: Sequence[Field], *, label: str) -> list
 def fields_schema(fields: Sequence[Field]) -> dict: ...
 ```
 
+- **`kind`** is one kind, or several for a field that accepts more than one (piper's `speaker`: a name or an index from 0); bounds then apply to its numeric values. `"objects"` is a list of objects (audiofile's `files`): only its being a list is checked here, its content is the module's `check_config` to validate, and a form edits it as raw JSON.
 - **`default`** is the value an absent field takes, and it changes how `null` is read: without one, an explicit `null` counts as absent; with one, it is rejected like any other wrong value. This is the policy the shared helpers already had.
+- **`nullable=False`** refuses an explicit `null` on a field that has no default and may be absent (pocket's `voice`).
 - **`implied`** is for a field the module falls back on in code (`voice or _DEFAULT_VOICE`) or leaves to the provider: the value a form shows as the default, never used to validate, so `null` stays accepted.
 - **`allow_empty`** lets a string be empty (`api_key`, where an empty literal means "use `api_key_env`").
 - **`message`** replaces the default wording of an invalid value, for the fields whose message predates this spec (`"ElevenLabs module requires a non-empty 'voice_id'"`).
-- **`read_fields`** returns each field's value (its default when absent) or raises `error` on the first invalid one; a number comes back as a `float`. Its rules and wording are those of the shared helpers ([tts-module-interface.md](tts-module-interface.md), "Shared config helpers"): a present string is non-empty, a number is finite and within its bounds, a bool is never a number, an integer is never a float. `optional_str`, `finite_number` and `positive_int` are now thin wrappers over it, and go once no module calls them.
+- **`read_fields`** returns each field's value (its default when absent) or raises `error` on the first invalid one; a number comes back as a `float`. Its rules and wording are those of the shared helpers ([tts-module-interface.md](tts-module-interface.md), "Shared config helpers"): a present string is non-empty, a number is finite and within its bounds, a bool is never a number, an integer is never a float. `optional_str`, `finite_number` and `positive_int` are now thin wrappers over it; the constructors no longer call them, and `list_voices` still does, since it reads a config that may lack the required fields.
 - **`field_problems`** runs the same rules and returns every failure as `(field name, message)` instead of raising on the first.
 - **`fields_schema`** returns the `properties` and `required` of a JSON Schema object: for each field its `type` (with `null` when it has no default and is not required), `description`, `default` (the default, else the implied value), `enum`, the bounds, and the annotations `x-advanced`, `x-secret-env` (`secret="env"`), `x-secret` (`secret="literal"`) and `x-options`.
 
@@ -105,6 +108,8 @@ class TTSModule(ABC):
     @classmethod
     def validated(cls, config: dict) -> dict[str, Any]: ...
     @classmethod
+    def fields_for(cls, config: dict) -> tuple[Field, ...]: ...
+    @classmethod
     def check_config(cls, values: dict[str, Any], config: dict) -> None: ...
     @classmethod
     def problems(cls, config: dict) -> list[tuple[str, str]]: ...
@@ -115,9 +120,10 @@ class TTSModule(ABC):
 ```
 
 - **`title`, `extra`, `fields`** are declared by every module, with no default, like `kind`. The label of its messages is `"<title> module"`. `extra` replaces the name-to-extra rule `tests/test_extras.py` derives by pattern today; the test then compares `extra` with `pyproject.toml`.
-- **`validated`** is `read_fields` over the module's fields, then `check_config`. **It is the first statement of every constructor, before any import**, so a shape error is reported whether or not the extra is installed, and what `problems` accepts is what the constructor accepts.
+- **`validated`** is `read_fields` over `fields_for(config)`, then `check_config`. **It is the first statement of every constructor, before any import**, so a shape error is reported whether or not the extra is installed, and what `problems` accepts is what the constructor accepts.
+- **`fields_for`** returns `fields`, unless a field's rule depends on another's value: deepgram's `speed` range and its `expressivity` follow the model family, so it returns them narrowed for an Aura model. A form is drawn from `fields`; a config is validated against `fields_for`.
 - **`check_config`** is the module's hook for a rule a `Field` cannot state: across fields (kokoro's language following its voice) or on a field's content (an `hf://` reference's form). It raises `ConfigError` and looks at the config only: no provider import, no file, no network. It does nothing by default.
-- **`problems`** returns the field problems, or, when there are none, the `check_config` failure under the name `""`.
+- **`problems`** returns the problems of `fields_for(config)`, or, when there are none, the `check_config` failure under the name `""`.
 - **`items`** defaults to `[]`. A local module returns its weights.
 - **`prepare`** defaults to doing nothing.
 
@@ -156,11 +162,13 @@ Only the local modules have items, one per file or model a config selects:
 | Module | Item | How `check` knows |
 |---|---|---|
 | `kokoro`, `piper` | The model and voice files of the pinned Hub repository | The Hugging Face cache, read without network |
-| `pocket`, `phonon`, `qwen3` | The model (and the voice, when it is fetched separately) | The library's own cache when it can be read without loading the model; otherwise `unknown` |
+| `qwen3` | The talker and codec files of its quantization | The library's own offline lookup, then the Hugging Face cache per file |
+| `pocket` | The weights, the tokenizer and the voice of a packaged model | The library's own config naming each file, looked up in its caches; a custom `config` is one `unknown` item |
+| `phonon` | The model, and the voice when one is set | `unknown` for anything fetched from the Hub: its runtime picks the files inside the load, by device and quantization, so the set cannot be told from the config. A local path is `ready` or `missing` |
 
 A config pointing at local files has an item per file, `ready` or `missing`, never `preparable`: the detail says which path is absent.
 
-`prepare` fetches what `check` reports missing and preparable, through the same calls the constructor makes, so the constructor then finds everything in place. Hosted and fixture modules have no items and nothing to prepare.
+`prepare` fetches what `check` reports missing and preparable, through the same calls the constructor makes, so the constructor then finds everything in place. `phonon`'s runtime has no download-only call: its `prepare` loads the model and releases it, each time it is asked, since its items never become `ready`. Hosted and fixture modules have no items and nothing to prepare.
 
 ## `options`
 
@@ -203,6 +211,7 @@ The contract's conformance check runs over the same examples.
 
 ## Open questions
 
-1. **How much can `check` see for `pocket`, `phonon` and `qwen3`?** Their libraries download inside the model load; whether each cache can be inspected without loading has to be established per library. `unknown` is the fallback.
-2. **Deprecated fields and renamed types** are accepted and not offered. Whether `validate` should report them as warnings (a third kind of result) is deferred.
-3. **The demo app** — a page with a Setup tab over these functions and a Session tab that builds the engine and speaks — is a separate spec.
+1. **`phonon`'s items stay `unknown`.** Its always-needed files (`config.json`, `tokenizer.json`) could at least prove a model was never fetched; a full answer needs the runtime to expose which files a config selects.
+2. **`pocket`'s `check` imports its library, hence torch**, which takes about a second the first time. It loads no model.
+3. **Deprecated fields and renamed types** are accepted and not offered. Whether `validate` should report them as warnings (a third kind of result) is deferred.
+4. **The demo app** — a page with a Setup tab over these functions and a Session tab that builds the engine and speaks — is a separate spec.

@@ -47,7 +47,6 @@ from tts_engine.modules.base import (
     finite_number,
     normalize_gender,
     open_cancellable,
-    optional_str,
     resolve_api_key,
     run_cancellable_worker,
     run_text_stream_worker,
@@ -55,6 +54,7 @@ from tts_engine.modules.base import (
     slice_text,
     split_at_last_space,
 )
+from tts_engine.modules.fields import Field
 
 log = logging.getLogger(__name__)
 
@@ -275,8 +275,100 @@ def _read(socket: _Socket) -> None:
 
 class CartesiaModule(TTSModule):
     kind = "hosted"
+    title = "Cartesia"
+    extra = "cartesia"
+    fields = (
+        Field(
+            "voice_id",
+            "string",
+            "The id of the voice to speak with, from Cartesia's voice library "
+            "or one of your cloned voices.",
+            required=True,
+            message="Cartesia module requires a non-empty 'voice_id'",
+        ),
+        Field(
+            "model",
+            "string",
+            "The Cartesia Sonic model.",
+            default=_DEFAULT_MODEL,
+        ),
+        Field(
+            "api_key_env",
+            "string",
+            "The environment variable holding the Cartesia API key.",
+            allow_empty=True,
+            secret="env",
+            message="Cartesia module 'api_key_env' must be a string",
+        ),
+        Field(
+            "api_key",
+            "string",
+            "The Cartesia API key itself. Prefer 'api_key_env', which keeps the "
+            "key out of the config file.",
+            allow_empty=True,
+            secret="literal",
+            message="Cartesia module 'api_key' must be a string",
+        ),
+        Field(
+            "sample_rate",
+            "integer",
+            "The sample rate of the audio, in Hz.",
+            default=24000,
+            choices=_SAMPLE_RATES,
+            advanced=True,
+        ),
+        Field(
+            "language",
+            "string",
+            "The language of the text, as a code such as en or fr.",
+        ),
+        Field(
+            "speed",
+            "number",
+            "The speaking rate, as a multiplier from 0.6 to 1.5.",
+            implied=1.0,
+            minimum=_SPEED_RANGE[0],
+            maximum=_SPEED_RANGE[1],
+        ),
+        Field(
+            "volume",
+            "number",
+            "The loudness of the voice, as a multiplier from 0.5 to 2.",
+            implied=1.0,
+            minimum=_VOLUME_RANGE[0],
+            maximum=_VOLUME_RANGE[1],
+        ),
+        Field(
+            "emotion",
+            "string",
+            "The emotion to speak with, such as happy, calm or sympathetic.",
+        ),
+        Field(
+            "max_buffer_delay_ms",
+            "integer",
+            "How long Cartesia may wait for more text before speaking a "
+            "fragment with no sentence end, in milliseconds.",
+            implied=3000,
+            minimum=_BUFFER_DELAY_RANGE[0],
+            maximum=_BUFFER_DELAY_RANGE[1],
+            advanced=True,
+            message=(
+                "Cartesia module 'max_buffer_delay_ms' must be an integer "
+                f"between {_BUFFER_DELAY_RANGE[0]} and {_BUFFER_DELAY_RANGE[1]}"
+            ),
+        ),
+        Field(
+            "timeout",
+            "number",
+            "Seconds to wait for the provider before a stalled request fails.",
+            default=_DEFAULT_TIMEOUT,
+            exclusive_minimum=0,
+            advanced=True,
+        ),
+    )
 
     def __init__(self, config: dict) -> None:
+        values = self.validated(config)
         try:
             import websockets.sync.client  # noqa: F401  (the SDK's [websockets] extra)
             from cartesia import Cartesia
@@ -289,22 +381,9 @@ class CartesiaModule(TTSModule):
 
         api_key = resolve_api_key(config, label=_LABEL)
 
-        voice_id = config.get("voice_id")
-        if not isinstance(voice_id, str) or not voice_id:
-            raise ConfigError("Cartesia module requires a non-empty 'voice_id'")
-
-        model = optional_str(config, "model", label=_LABEL, default=_DEFAULT_MODEL)
-
-        sample_rate = config.get("sample_rate", 24000)
-        if (
-            isinstance(sample_rate, bool)
-            or not isinstance(sample_rate, int)
-            or sample_rate not in _SAMPLE_RATES
-        ):
-            raise ConfigError(
-                "Cartesia module 'sample_rate' must be one of "
-                + ", ".join(str(r) for r in _SAMPLE_RATES)
-            )
+        voice_id: str = values["voice_id"]
+        model: str = values["model"]
+        sample_rate: int = values["sample_rate"]
 
         context_kwargs: dict[str, Any] = {
             "model_id": model,
@@ -315,58 +394,30 @@ class CartesiaModule(TTSModule):
                 "sample_rate": sample_rate,
             },
         }
-        language = optional_str(config, "language", label=_LABEL)
+        language: str | None = values["language"]
         if language is not None:
             context_kwargs["language"] = language
 
         generation_config: dict[str, Any] = {}
-        speed = finite_number(
-            config,
-            "speed",
-            label=_LABEL,
-            minimum=_SPEED_RANGE[0],
-            maximum=_SPEED_RANGE[1],
-        )
+        speed: float | None = values["speed"]
         if speed is not None:
             generation_config["speed"] = speed
-        volume = finite_number(
-            config,
-            "volume",
-            label=_LABEL,
-            minimum=_VOLUME_RANGE[0],
-            maximum=_VOLUME_RANGE[1],
-        )
+        volume: float | None = values["volume"]
         if volume is not None:
             generation_config["volume"] = volume
-        emotion = optional_str(config, "emotion", label=_LABEL)
+        emotion: str | None = values["emotion"]
         if emotion is not None:
             generation_config["emotion"] = emotion
         if generation_config:
             context_kwargs["generation_config"] = generation_config
 
         buffer_delay = _DEFAULT_BUFFER_DELAY
-        max_buffer_delay_ms = config.get("max_buffer_delay_ms")
+        max_buffer_delay_ms: int | None = values["max_buffer_delay_ms"]
         if max_buffer_delay_ms is not None:
-            lo, hi = _BUFFER_DELAY_RANGE
-            if (
-                isinstance(max_buffer_delay_ms, bool)
-                or not isinstance(max_buffer_delay_ms, int)
-                or not (lo <= max_buffer_delay_ms <= hi)
-            ):
-                raise ConfigError(
-                    "Cartesia module 'max_buffer_delay_ms' must be an integer "
-                    f"between {lo} and {hi}"
-                )
             context_kwargs["max_buffer_delay_ms"] = max_buffer_delay_ms
             buffer_delay = max_buffer_delay_ms / 1000
 
-        timeout = finite_number(
-            config,
-            "timeout",
-            label=_LABEL,
-            default=_DEFAULT_TIMEOUT,
-            exclusive_minimum=0,
-        )
+        timeout: float = values["timeout"]
 
         self._sample_rate: int = sample_rate
         self._context_kwargs = context_kwargs

@@ -22,7 +22,6 @@ from tts_engine.modules.kokoro import KokoroModule
 from tts_engine.modules.tone import ToneModule
 
 _ROOT = Path(__file__).resolve().parent.parent
-_DECLARED = {name: cls for name, cls in REGISTRY.items() if hasattr(cls, "fields")}
 
 
 def _examples() -> dict[str, dict[str, Any]]:
@@ -36,9 +35,9 @@ def _examples() -> dict[str, dict[str, Any]]:
 # --- The declarations ---------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", sorted(_DECLARED))
+@pytest.mark.parametrize("name", sorted(REGISTRY))
 def test_a_module_declares_its_title_its_extra_and_documented_fields(name: str) -> None:
-    cls = _DECLARED[name]
+    cls = REGISTRY[name]
     extras = tomllib.loads((_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
         "project"
     ]["optional-dependencies"]
@@ -50,13 +49,13 @@ def test_a_module_declares_its_title_its_extra_and_documented_fields(name: str) 
     assert len({field.name for field in cls.fields}) == len(cls.fields)
 
 
-def test_describe_is_stable_and_offers_one_branch_per_declared_module() -> None:
+def test_describe_is_stable_and_offers_one_branch_per_registered_module() -> None:
     description = setup.describe()
 
     assert description == setup.describe()
     assert (description["contract"], description["distribution"]) == (1, "tts-engine")
     branches = description["schema"]["properties"]["module"]["oneOf"]
-    assert [b["properties"]["type"]["const"] for b in branches] == list(_DECLARED)
+    assert [b["properties"]["type"]["const"] for b in branches] == list(REGISTRY)
     eleven = next(
         b for b in branches if b["properties"]["type"]["const"] == "elevenlabs"
     )
@@ -67,9 +66,7 @@ def test_describe_is_stable_and_offers_one_branch_per_declared_module() -> None:
 
 
 def test_the_contract_s_conformance_check_passes_over_the_examples() -> None:
-    examples = [
-        block for block in _examples().values() if block["module"]["type"] in _DECLARED
-    ]
+    examples = list(_examples().values())
 
     check_contract(setup, examples)
 
@@ -163,6 +160,53 @@ MODULE_PROBLEMS = [
     ({"type": "kokoro", "threads": 0}, "/module/threads"),
     ({"type": "kokoro", "voice": "xx_unknown"}, "/module"),
     ({"type": "kokoro", "model": "hf://only-a-repo"}, "/module"),
+    ({"type": "gradium"}, "/module/voice_id"),
+    ({"type": "gradium", "voice_id": "v", "sample_rate": 22050}, "/module/sample_rate"),
+    ({"type": "gradium", "voice_id": "v", "temp": 2}, "/module/temp"),
+    ({"type": "mistral"}, "/module/voice_id"),
+    (
+        {"type": "mistral", "voice_id": "v", "expressiveness": 0.5},
+        "/module/expressiveness",
+    ),
+    ({"type": "deepgram", "speed": 0.6}, "/module/speed"),
+    ({"type": "deepgram", "model": "flux-haley-en", "speed": 0.53}, "/module"),
+    ({"type": "deepgram", "expressivity": 1}, "/module/expressivity"),
+    (
+        {"type": "deepgram", "model": "flux-haley-en", "expressivity": 3},
+        "/module/expressivity",
+    ),
+    ({"type": "gemini", "voice": ""}, "/module/voice"),
+    ({"type": "gemini", "api_key": 5}, "/module/api_key"),
+    ({"type": "cartesia"}, "/module/voice_id"),
+    (
+        {"type": "cartesia", "voice_id": "v", "sample_rate": 12345},
+        "/module/sample_rate",
+    ),
+    (
+        {"type": "cartesia", "voice_id": "v", "max_buffer_delay_ms": 5001},
+        "/module/max_buffer_delay_ms",
+    ),
+    ({"type": "openai", "voice": None}, "/module/voice"),
+    ({"type": "openai", "speed": 2}, "/module/speed"),
+    ({"type": "openai-speech-compatible"}, "/module/voice"),
+    (
+        {"type": "openai-speech-compatible", "voice": "marin", "sample_rate": 16000},
+        "/module",
+    ),
+    ({"type": "piper", "speaker": -1}, "/module/speaker"),
+    ({"type": "piper", "speaker": True}, "/module/speaker"),
+    ({"type": "piper", "voice": "a-b-c", "model": "x.onnx"}, "/module"),
+    ({"type": "pocket", "device": "gpu"}, "/module/device"),
+    ({"type": "pocket", "voice": None}, "/module/voice"),
+    ({"type": "pocket", "quantize": True, "device": "cuda"}, "/module"),
+    ({"type": "phonon", "language": "it"}, "/module/language"),
+    ({"type": "phonon", "device": None}, "/module/device"),
+    ({"type": "qwen3", "temperature": 0}, "/module/temperature"),
+    ({"type": "qwen3", "model": "Qwen/Qwen3-TTS-12Hz-0.6B-Base"}, "/module"),
+    ({"type": "audiofile"}, "/module"),
+    ({"type": "audiofile", "files": "a.wav"}, "/module/files"),
+    ({"type": "audiofile", "default_file": None, "files": []}, "/module/default_file"),
+    ({"type": "audiofile", "files": [{"text": "a"}]}, "/module"),
 ]
 
 
@@ -186,7 +230,10 @@ def test_a_config_validate_accepts_is_one_the_constructor_builds() -> None:
 
 
 def test_a_renamed_type_is_accepted_though_the_schema_does_not_offer_it() -> None:
-    assert setup.validate({"module": {"type": "openai-compatible"}}) == []
+    module = {"type": "openai-compatible", "voice": "marin"}
+
+    assert setup.validate({"module": module}) == []
+    assert setup.requirements({"module": module}) == ["tts-engine[openai-compatible]"]
 
 
 _NO_PROVIDER_SCRIPT = textwrap.dedent(

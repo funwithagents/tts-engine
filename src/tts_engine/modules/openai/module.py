@@ -31,9 +31,7 @@ from tts_engine.modules.base import (
     TTSOptions,
     VoiceInfo,
     VoiceListingUnsupported,
-    finite_number,
     open_cancellable,
-    optional_str,
     resolve_api_key,
     run_cancellable_worker,
     run_text_stream_worker,
@@ -41,6 +39,7 @@ from tts_engine.modules.base import (
     slice_bytes_for,
     slice_text,
 )
+from tts_engine.modules.fields import Field
 
 if TYPE_CHECKING:  # the SDK is an optional extra, imported lazily at runtime
     from openai.types.realtime import (
@@ -178,8 +177,65 @@ def _error_text(error) -> str:
 
 class OpenAIModule(TTSModule):
     kind = "hosted"
+    title = "OpenAI"
+    extra = "openai"
+    fields = (
+        Field(
+            "voice",
+            "string",
+            "The built-in voice to speak with: alloy, ash, ballad, coral, echo, "
+            "sage, shimmer, verse, marin or cedar.",
+            default=_DEFAULT_VOICE,
+        ),
+        Field(
+            "model",
+            "string",
+            "The OpenAI Realtime model.",
+            default=_DEFAULT_MODEL,
+        ),
+        Field(
+            "api_key_env",
+            "string",
+            "The environment variable holding the OpenAI API key.",
+            allow_empty=True,
+            secret="env",
+            message="OpenAI module 'api_key_env' must be a string",
+        ),
+        Field(
+            "api_key",
+            "string",
+            "The OpenAI API key itself. Prefer 'api_key_env', which keeps the "
+            "key out of the config file.",
+            allow_empty=True,
+            secret="literal",
+            message="OpenAI module 'api_key' must be a string",
+        ),
+        Field(
+            "instructions",
+            "string",
+            "A direction for the voice, such as its tone, pace or accent. The "
+            "text is still read word for word.",
+        ),
+        Field(
+            "speed",
+            "number",
+            "The speaking rate, as a multiplier from 0.25 to 1.5.",
+            implied=1.0,
+            minimum=_MIN_SPEED,
+            maximum=_MAX_SPEED,
+        ),
+        Field(
+            "timeout",
+            "number",
+            "Seconds to wait for the provider before a stalled request fails.",
+            default=_DEFAULT_TIMEOUT,
+            exclusive_minimum=0,
+            advanced=True,
+        ),
+    )
 
     def __init__(self, config: dict) -> None:
+        values = self.validated(config)
         try:
             import websockets.sync.client  # noqa: F401  (the SDK's Realtime transport)
             from openai import OpenAI
@@ -190,21 +246,11 @@ class OpenAIModule(TTSModule):
             ) from exc
 
         api_key = resolve_api_key(config, label=_LABEL)
-        self._model = optional_str(
-            config, "model", label=_LABEL, default=_DEFAULT_MODEL
-        )
-        voice = optional_str(config, "voice", label=_LABEL, default=_DEFAULT_VOICE)
-        instructions = optional_str(config, "instructions", label=_LABEL)
-        speed = finite_number(
-            config, "speed", label=_LABEL, minimum=_MIN_SPEED, maximum=_MAX_SPEED
-        )
-        self._timeout = finite_number(
-            config,
-            "timeout",
-            label=_LABEL,
-            default=_DEFAULT_TIMEOUT,
-            exclusive_minimum=0,
-        )
+        self._model: str = values["model"]
+        voice: str = values["voice"]
+        instructions: str | None = values["instructions"]
+        speed: float | None = values["speed"]
+        self._timeout: float = values["timeout"]
         self._slice_bytes = slice_bytes_for(_SAMPLE_RATE)
 
         # The verbatim rule always leads; a voice direction is added to it,

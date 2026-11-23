@@ -13,6 +13,7 @@ import logging
 import threading
 from collections.abc import AsyncIterator, Callable, Iterable, Iterator
 from pathlib import Path
+from typing import Any
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
@@ -21,15 +22,13 @@ from tts_engine.modules.base import (
     TTSOptions,
     VoiceInfo,
     feed_with_lookahead,
-    finite_number,
-    optional_str,
-    positive_int,
     resolve_path,
     run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
     slice_bytes_for,
 )
+from tts_engine.modules.fields import Field
 
 log = logging.getLogger(__name__)
 
@@ -82,33 +81,160 @@ def _model_ref(config: dict, value: str) -> _FileRef:
 
 class PiperModule(TTSModule):
     kind = "local"
+    title = "Piper"
+    extra = "piper"
+    fields = (
+        Field(
+            "voice",
+            "string",
+            "A voice of the rhasspy/piper-voices catalog, as "
+            "<locale>-<name>-<quality>, such as 'en_GB-alba-medium'. Not "
+            "together with 'model'.",
+            implied=_DEFAULT_VOICE,
+        ),
+        Field(
+            "model",
+            "string",
+            "A voice outside the catalog: hf://owner/repo/path/voice.onnx[@revision] "
+            "or a local .onnx path, with its .onnx.json next to it. Not "
+            "together with 'voice'.",
+            advanced=True,
+        ),
+        Field(
+            "speaker",
+            ("string", "integer"),
+            "For a voice with several speakers, the one to use: a speaker "
+            "name, or an index from 0. Absent, the voice's default speaker.",
+            minimum=0,
+            message="Piper module 'speaker' must be a speaker name or an index >= 0",
+        ),
+        Field(
+            "speed",
+            "number",
+            "The speaking rate, 1 being the voice's own pace.",
+            implied=1.0,
+            minimum=_MIN_SPEED,
+            maximum=_MAX_SPEED,
+        ),
+        Field(
+            "threads",
+            "integer",
+            "The number of CPU threads the model runs on. Absent, the runtime decides.",
+            minimum=1,
+            advanced=True,
+        ),
+    )
+
+    @classmethod
+    def _ref(cls, values: dict[str, Any], config: dict) -> _FileRef:
+        """Where the voice's .onnx is (its .onnx.json sits next to it)."""
+        if values["model"] is not None:
+            return _model_ref(config, values["model"])
+        return _catalog_voice(values["voice"] or _DEFAULT_VOICE)
+
+    @classmethod
+    def check_config(cls, values: dict[str, Any], config: dict) -> None:
+        if values["voice"] is not None and values["model"] is not None:
+            raise ConfigError("Piper module accepts 'voice' or 'model', not both")
+        cls._ref(values, config)
+
+    @classmethod
+    def _files(cls, config: dict) -> dict[str, _FileRef]:
+        """The two files of the configured voice, by item key."""
+        ref = cls._ref(cls.validated(config), config)
+        if isinstance(ref, Path):
+            return {"model": ref, "config": Path(f"{ref}.json")}
+        repo_id, filename, revision = ref
+        return {"model": ref, "config": (repo_id, f"{filename}.json", revision)}
+
+    @classmethod
+    def items(cls, config: dict) -> list[dict[str, Any]]:
+        try:
+            from huggingface_hub import try_to_load_from_cache
+        except ImportError:
+            try_to_load_from_cache = None
+        found = []
+        for key, ref in cls._files(config).items():
+            item: dict[str, Any] = {
+                "id": f"piper:{key}",
+                "title": f"Piper voice {key} file",
+            }
+            if isinstance(ref, Path):
+                present = ref.is_file()
+                item |= {
+                    "status": "ready" if present else "missing",
+                    "detail": str(ref) if present else f"File not found: {ref}",
+                    "preparable": False,
+                }
+            elif try_to_load_from_cache is None:
+                item |= {
+                    "status": "unknown",
+                    "detail": "The piper extra is not installed.",
+                    "preparable": True,
+                }
+            else:
+                repo_id, filename, revision = ref
+                cached = try_to_load_from_cache(repo_id, filename, revision=revision)
+                present = isinstance(cached, str)
+                item |= {
+                    "status": "ready" if present else "missing",
+                    "detail": (
+                        cached
+                        if present
+                        else f"{filename} of {repo_id} is not downloaded yet."
+                    ),
+                    "preparable": True,
+                }
+            found.append(item)
+        return found
+
+    @classmethod
+    def prepare(
+        cls,
+        config: dict,
+        on_progress: Callable[[dict[str, Any]], None] | None = None,
+    ) -> None:
+        files = cls._files(config)
+        for item in cls.items(config):
+            if item["status"] == "ready" or not item["preparable"]:
+                continue
+            ref = files[item["id"].split(":", 1)[1]]
+            assert not isinstance(ref, Path)
+            repo_id, filename, revision = ref
+            if on_progress is not None:
+                on_progress(
+                    {
+                        "id": item["id"],
+                        "fraction": None,
+                        "message": f"Downloading {filename}",
+                    }
+                )
+            try:
+                from huggingface_hub import hf_hub_download
+
+                hf_hub_download(repo_id, filename, revision=revision)
+            except ImportError as exc:
+                raise ConfigError(
+                    "The 'piper' module requires the piper extra: "
+                    "pip install tts-engine[piper]"
+                ) from exc
+            except Exception as exc:
+                raise TTSError(f"piper download failed: {exc}") from exc
+            if on_progress is not None:
+                on_progress(
+                    {"id": item["id"], "fraction": 1.0, "message": f"{filename} ready"}
+                )
 
     def __init__(self, config: dict) -> None:
-        voice_key = optional_str(config, "voice", label=_LABEL)
-        model = optional_str(config, "model", label=_LABEL)
-        if voice_key is not None and model is not None:
-            raise ConfigError("Piper module accepts 'voice' or 'model', not both")
-        if model is not None:
-            ref = _model_ref(config, model)
-        else:
+        values = self.validated(config)
+        voice_key: str | None = values["voice"]
+        model: str | None = values["model"]
+        if model is None:
             voice_key = voice_key or _DEFAULT_VOICE
-            ref = _catalog_voice(voice_key)
-
-        speaker = config.get("speaker")
-        if speaker is not None and (
-            isinstance(speaker, bool)
-            or not isinstance(speaker, int | str)
-            or (isinstance(speaker, int) and speaker < 0)
-            or speaker == ""
-        ):
-            raise ConfigError(
-                "Piper module 'speaker' must be a speaker name or an index >= 0"
-            )
-
-        speed = finite_number(
-            config, "speed", label=_LABEL, minimum=_MIN_SPEED, maximum=_MAX_SPEED
-        )
-        threads = positive_int(config, "threads", label=_LABEL)
+        ref = self._ref(values, config)
+        speaker: int | str | None = values["speaker"]
+        speed: float | None = values["speed"]
+        threads: int | None = values["threads"]
 
         try:
             from huggingface_hub import hf_hub_download

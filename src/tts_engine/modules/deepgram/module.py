@@ -33,6 +33,8 @@ import threading
 import time
 from collections import deque
 from collections.abc import AsyncIterator, Callable, Iterator
+from dataclasses import replace
+from typing import Any
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
@@ -46,7 +48,6 @@ from tts_engine.modules.base import (
     finite_number,
     normalize_gender,
     open_cancellable,
-    optional_str,
     resolve_api_key,
     run_cancellable_worker,
     run_text_stream_worker,
@@ -54,6 +55,7 @@ from tts_engine.modules.base import (
     slice_text,
     split_at_last_space,
 )
+from tts_engine.modules.fields import Field
 
 log = logging.getLogger(__name__)
 
@@ -248,16 +250,118 @@ class _Socket:
 
 class DeepgramModule(TTSModule):
     kind = "hosted"
+    title = "Deepgram"
+    extra = "deepgram"
+    fields = (
+        Field(
+            "model",
+            "string",
+            "The model, which is also the voice: an Aura model "
+            "('aura-2-<voice>-<language>') or a Flux model "
+            "('flux-<voice>-<language>').",
+            default=_DEFAULT_MODEL,
+        ),
+        Field(
+            "api_key_env",
+            "string",
+            "The environment variable holding the Deepgram API key.",
+            allow_empty=True,
+            secret="env",
+            message="Deepgram module 'api_key_env' must be a string",
+        ),
+        Field(
+            "api_key",
+            "string",
+            "The Deepgram API key itself. Prefer 'api_key_env', which keeps the "
+            "key out of the config file.",
+            allow_empty=True,
+            secret="literal",
+            message="Deepgram module 'api_key' must be a string",
+        ),
+        Field(
+            "sample_rate",
+            "integer",
+            "The sample rate of the audio in Hz.",
+            default=24000,
+            choices=_SAMPLE_RATES,
+            advanced=True,
+        ),
+        # The range of a Flux model, the wider one; an Aura model's starts
+        # higher (`fields_for`).
+        Field(
+            "speed",
+            "number",
+            "The speaking-rate multiplier: 0.7 to 1.5 with an Aura model, 0.5 to "
+            "1.5 in steps of 0.05 with a Flux model.",
+            implied=1.0,
+            minimum=_FLUX_SPEED_RANGE[0],
+            maximum=_FLUX_SPEED_RANGE[1],
+        ),
+        Field(
+            "expressivity",
+            "integer",
+            "How expressive the delivery is, an integer from -2 to 2. Flux "
+            "models only.",
+            minimum=_EXPRESSIVITY_RANGE[0],
+            maximum=_EXPRESSIVITY_RANGE[1],
+            message="Deepgram module 'expressivity' must be an integer from -2 to 2",
+        ),
+        Field(
+            "mip_opt_out",
+            "boolean",
+            "Whether to opt out of Deepgram's Model Improvement Program, which "
+            "uses requests to improve its models.",
+            advanced=True,
+        ),
+        Field(
+            "timeout",
+            "number",
+            "Seconds to wait for the service before a stalled request fails.",
+            default=_DEFAULT_TIMEOUT,
+            exclusive_minimum=0,
+            advanced=True,
+        ),
+    )
+
+    @classmethod
+    def fields_for(cls, config: dict) -> tuple[Field, ...]:
+        """The fields as this config's model reads them, which one `Field`
+        cannot state: an Aura model has a narrower `speed` range, and takes no
+        `expressivity` at all (no choice is valid, so any value is refused)."""
+        model = config.get("model", _DEFAULT_MODEL)
+        if isinstance(model, str) and model.startswith(_FLUX_PREFIX):
+            return cls.fields
+        low, high = _SPEED_RANGE
+        aura = {
+            "speed": {"minimum": low, "maximum": high},
+            "expressivity": {
+                "choices": (),
+                "message": "Deepgram module 'expressivity' requires a Flux model "
+                f"('{_FLUX_PREFIX}…')",
+            },
+        }
+        return tuple(replace(field, **aura.get(field.name, {})) for field in cls.fields)
+
+    @classmethod
+    def check_config(cls, values: dict[str, Any], config: dict) -> None:
+        flux = values["model"].startswith(_FLUX_PREFIX)
+        speed = values["speed"]
+        if speed is not None and flux:
+            steps = speed / _FLUX_SPEED_STEP
+            if abs(steps - round(steps)) > 1e-6:
+                raise ConfigError(
+                    "Deepgram module 'speed' must be a multiple of 0.05 "
+                    "with a Flux model"
+                )
 
     def __init__(self, config: dict) -> None:
-        # Read first (unvalidated) only to pick the SDK type to import; it is
-        # validated below with the other fields.
-        model_name = config.get("model", _DEFAULT_MODEL)
-        model_name = model_name if isinstance(model_name, str) else ""
+        values = self.validated(config)
+        model: str = values["model"]
+        flux = model.startswith(_FLUX_PREFIX)
         try:
             from deepgram import DeepgramClient
 
-            if model_name.startswith(_FLUX_PREFIX):
+            if flux:
                 from deepgram.speak.v2.types import SpeakV2Speak as speak_type
             else:
                 from deepgram.speak.v1.types import SpeakV1Text as speak_type
@@ -269,64 +373,17 @@ class DeepgramModule(TTSModule):
 
         api_key = resolve_api_key(config, label=_LABEL)
 
-        model = optional_str(config, "model", label=_LABEL, default=_DEFAULT_MODEL)
-        flux = model.startswith(_FLUX_PREFIX)
-
-        sample_rate = config.get("sample_rate", 24000)
-        if (
-            isinstance(sample_rate, bool)
-            or not isinstance(sample_rate, int)
-            or sample_rate not in _SAMPLE_RATES
-        ):
-            raise ConfigError(
-                "Deepgram module 'sample_rate' must be one of "
-                + ", ".join(str(r) for r in _SAMPLE_RATES)
-            )
-
+        sample_rate: int = values["sample_rate"]
         connect_kwargs: dict = {
             "model": model,
             "encoding": "linear16",
             "sample_rate": sample_rate,
         }
-        low, high = _FLUX_SPEED_RANGE if flux else _SPEED_RANGE
-        speed = finite_number(config, "speed", label=_LABEL, minimum=low, maximum=high)
-        if speed is not None:
-            steps = speed / _FLUX_SPEED_STEP
-            if flux and abs(steps - round(steps)) > 1e-6:
-                raise ConfigError(
-                    "Deepgram module 'speed' must be a multiple of 0.05 "
-                    "with a Flux model"
-                )
-            connect_kwargs["speed"] = speed
-        expressivity = config.get("expressivity")
-        if expressivity is not None:
-            if not flux:
-                raise ConfigError(
-                    "Deepgram module 'expressivity' requires a Flux model "
-                    f"('{_FLUX_PREFIX}…')"
-                )
-            if (
-                isinstance(expressivity, bool)
-                or not isinstance(expressivity, int)
-                or not _EXPRESSIVITY_RANGE[0] <= expressivity <= _EXPRESSIVITY_RANGE[1]
-            ):
-                raise ConfigError(
-                    "Deepgram module 'expressivity' must be an integer from -2 to 2"
-                )
-            connect_kwargs["expressivity"] = expressivity
-        mip_opt_out = config.get("mip_opt_out")
-        if mip_opt_out is not None:
-            if not isinstance(mip_opt_out, bool):
-                raise ConfigError("Deepgram module 'mip_opt_out' must be a boolean")
-            connect_kwargs["mip_opt_out"] = mip_opt_out
-
-        timeout = finite_number(
-            config,
-            "timeout",
-            label=_LABEL,
-            default=_DEFAULT_TIMEOUT,
-            exclusive_minimum=0,
-        )
+        # Only the fields that were set: the API's own defaults apply to the rest.
+        for name in ("speed", "expressivity", "mip_opt_out"):
+            if values[name] is not None:
+                connect_kwargs[name] = values[name]
+        timeout: float = values["timeout"]
 
         self._sample_rate: int = sample_rate
         self._connect_kwargs = connect_kwargs

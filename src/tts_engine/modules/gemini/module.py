@@ -25,14 +25,13 @@ from tts_engine.modules.base import (
     VoiceInfo,
     VoiceListingUnsupported,
     cleanup,
-    finite_number,
-    optional_str,
     resolve_api_key,
     run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
     slice_bytes_for,
 )
+from tts_engine.modules.fields import Field
 
 log = logging.getLogger(__name__)
 
@@ -63,8 +62,56 @@ def _reason_name(reason: object) -> str:
 
 class GeminiModule(TTSModule):
     kind = "hosted"
+    title = "Gemini"
+    extra = "gemini"
+    fields = (
+        Field(
+            "voice",
+            "string",
+            "The prebuilt voice to speak with, such as Kore, Puck, Charon or "
+            "Zephyr. Left empty, Gemini picks its default voice.",
+        ),
+        Field(
+            "model",
+            "string",
+            "The Gemini text-to-speech model.",
+            default=_DEFAULT_MODEL,
+        ),
+        Field(
+            "api_key_env",
+            "string",
+            "The environment variable holding the Gemini API key.",
+            allow_empty=True,
+            secret="env",
+            message="Gemini module 'api_key_env' must be a string",
+        ),
+        Field(
+            "api_key",
+            "string",
+            "The Gemini API key itself. Prefer 'api_key_env', which keeps the "
+            "key out of the config file.",
+            allow_empty=True,
+            secret="literal",
+            message="Gemini module 'api_key' must be a string",
+        ),
+        Field(
+            "language_code",
+            "string",
+            "The language to speak, as a BCP-47 code such as en-US or fr-FR. "
+            "Left empty, Gemini detects it from the text.",
+        ),
+        Field(
+            "timeout",
+            "number",
+            "Seconds to wait for the provider before a stalled request fails.",
+            default=_DEFAULT_TIMEOUT,
+            exclusive_minimum=0,
+            advanced=True,
+        ),
+    )
 
     def __init__(self, config: dict) -> None:
+        values = self.validated(config)
         try:
             # Not `from google import genai`: that binds None instead of raising
             # when sys.modules["google.genai"] is None (see the spec).
@@ -77,18 +124,10 @@ class GeminiModule(TTSModule):
 
         api_key = resolve_api_key(config, label=_LABEL)
 
-        model = optional_str(config, "model", label=_LABEL, default=_DEFAULT_MODEL)
-
-        voice = optional_str(config, "voice", label=_LABEL)
-        language_code = optional_str(config, "language_code", label=_LABEL)
-
-        timeout = finite_number(
-            config,
-            "timeout",
-            label=_LABEL,
-            default=_DEFAULT_TIMEOUT,
-            exclusive_minimum=0,
-        )
+        model: str = values["model"]
+        voice: str | None = values["voice"]
+        language_code: str | None = values["language_code"]
+        timeout: float = values["timeout"]
 
         # Only the fields that were set: the API's own defaults apply to the rest.
         speech_config: dict = {}

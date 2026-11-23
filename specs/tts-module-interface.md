@@ -436,6 +436,8 @@ This is a bound, not a latency device: the lead is what protects playback from a
 
 ## Shared config helpers
 
+Since [setup.md](setup.md), a module declares its config fields as data (`title`, `extra`, `fields`) and its constructor reads them through `validated(config)` before importing anything; the helpers below are wrappers over that same reader, kept for `list_voices`.
+
 Every module validates its own `engine.module` block in its constructor ("Error handling" below), but most of the fields are of three kinds every backend shares, and the first review of the modules found the same check copied ten times with small drifts (one copy accepting `NaN`, another a bool). `modules/base.py` therefore holds one validator per kind, and a module never re-implements them. Each takes a `label` (`"ElevenLabs module"`) that prefixes its messages, so an error still names the backend:
 
 ```python

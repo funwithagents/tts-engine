@@ -16,6 +16,7 @@ specs/modules/openai-speech-compatible.md).
 import logging
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator
+from typing import Any
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
@@ -26,7 +27,6 @@ from tts_engine.modules.base import (
     VoiceInfo,
     VoiceListingUnsupported,
     cleanup,
-    finite_number,
     optional_str,
     resolve_api_key,
     run_cancellable_worker,
@@ -34,6 +34,7 @@ from tts_engine.modules.base import (
     segment_sentences,
     slice_bytes_for,
 )
+from tts_engine.modules.fields import Field
 
 log = logging.getLogger(__name__)
 
@@ -48,8 +49,95 @@ _WAV_MAGIC = b"RIFF"
 
 class OpenAISpeechCompatibleModule(TTSModule):
     kind = "hosted"
+    title = "OpenAI speech-compatible"
+    extra = "openai-compatible"
+    fields = (
+        Field(
+            "voice",
+            "string",
+            "The voice to speak with: one of OpenAI's built-in voices (marin, "
+            "cedar, alloy, ...) or a voice name of the compatible server.",
+            required=True,
+            message="OpenAI speech-compatible module requires a non-empty 'voice'",
+        ),
+        Field(
+            "model",
+            "string",
+            "The speech model, OpenAI's or the compatible server's.",
+            default=_DEFAULT_MODEL,
+        ),
+        Field(
+            "api_key_env",
+            "string",
+            "The environment variable holding the API key.",
+            allow_empty=True,
+            secret="env",
+            message="OpenAI speech-compatible module 'api_key_env' must be a string",
+        ),
+        Field(
+            "api_key",
+            "string",
+            "The API key itself. Prefer 'api_key_env', which keeps the key out of "
+            "the config file; a server that needs no key takes any placeholder.",
+            allow_empty=True,
+            secret="literal",
+            message="OpenAI speech-compatible module 'api_key' must be a string",
+        ),
+        Field(
+            "instructions",
+            "string",
+            "A direction for the voice, such as its tone, pace or accent. Some "
+            "models ignore it.",
+        ),
+        Field(
+            "speed",
+            "number",
+            "The speaking rate, as a multiplier from 0.25 to 4.",
+            implied=1.0,
+            minimum=_MIN_SPEED,
+            maximum=_MAX_SPEED,
+        ),
+        Field(
+            "base_url",
+            "string",
+            "The base URL of an OpenAI-compatible server, including its /v1 "
+            "path. Left empty, requests go to OpenAI.",
+        ),
+        Field(
+            "timeout",
+            "number",
+            "Seconds to wait for the provider before a stalled request fails.",
+            default=_DEFAULT_TIMEOUT,
+            exclusive_minimum=0,
+            advanced=True,
+        ),
+        Field(
+            "sample_rate",
+            "integer",
+            "The sample rate of the server's PCM output, in Hz. OpenAI's is "
+            "always 24000; set it only with 'base_url', to match the server.",
+            default=_DEFAULT_SAMPLE_RATE,
+            exclusive_minimum=0,
+            advanced=True,
+            message=(
+                "OpenAI speech-compatible module 'sample_rate' must be a positive "
+                "integer"
+            ),
+        ),
+    )
+
+    @classmethod
+    def check_config(cls, values: dict[str, Any], config: dict) -> None:
+        if values["sample_rate"] != _DEFAULT_SAMPLE_RATE and values["base_url"] is None:
+            # OpenAI's own `pcm` is fixed at 24 kHz; the field only declares the
+            # rate of a compatible server's output.
+            raise ConfigError(
+                "OpenAI speech-compatible module 'sample_rate' other than 24000 requires 'base_url' "
+                "(OpenAI's pcm output is fixed at 24 kHz)"
+            )
 
     def __init__(self, config: dict) -> None:
+        values = self.validated(config)
         try:
             from openai import OpenAI
         except ImportError as exc:
@@ -60,44 +148,13 @@ class OpenAISpeechCompatibleModule(TTSModule):
 
         api_key = resolve_api_key(config, label=_LABEL)
 
-        voice = config.get("voice")
-        if not isinstance(voice, str) or not voice:
-            raise ConfigError(
-                "OpenAI speech-compatible module requires a non-empty 'voice'"
-            )
-
-        model = optional_str(config, "model", label=_LABEL, default=_DEFAULT_MODEL)
-
-        instructions = optional_str(config, "instructions", label=_LABEL)
-        speed = finite_number(
-            config, "speed", label=_LABEL, minimum=_MIN_SPEED, maximum=_MAX_SPEED
-        )
-        base_url = optional_str(config, "base_url", label=_LABEL)
-
-        timeout = finite_number(
-            config,
-            "timeout",
-            label=_LABEL,
-            default=_DEFAULT_TIMEOUT,
-            exclusive_minimum=0,
-        )
-
-        sample_rate = config.get("sample_rate", _DEFAULT_SAMPLE_RATE)
-        if (
-            isinstance(sample_rate, bool)
-            or not isinstance(sample_rate, int)
-            or sample_rate <= 0
-        ):
-            raise ConfigError(
-                "OpenAI speech-compatible module 'sample_rate' must be a positive integer"
-            )
-        if sample_rate != _DEFAULT_SAMPLE_RATE and base_url is None:
-            # OpenAI's own `pcm` is fixed at 24 kHz; the field only declares the
-            # rate of a compatible server's output.
-            raise ConfigError(
-                "OpenAI speech-compatible module 'sample_rate' other than 24000 requires 'base_url' "
-                "(OpenAI's pcm output is fixed at 24 kHz)"
-            )
+        voice: str = values["voice"]
+        model: str = values["model"]
+        instructions: str | None = values["instructions"]
+        speed: float | None = values["speed"]
+        base_url: str | None = values["base_url"]
+        timeout: float = values["timeout"]
+        sample_rate: int = values["sample_rate"]
         self._sample_rate = sample_rate
         self._slice_bytes = slice_bytes_for(sample_rate)
 

@@ -32,13 +32,15 @@ Done on 2026-11-23, with `options` (voices, output devices) brought forward from
 
 Review point: the contract and `Field` are adjusted here if the three modules show a gap, before the rest is converted.
 
-### Part 2 — the other twelve modules
+### Part 2 — the other twelve modules (done, but for step 11)
 
 7. Convert the hosted modules: `gradium`, `mistral`, `deepgram`, `gemini`, `cartesia`, `openai`, `openai-speech-compatible`.
 8. Convert the local ones: `piper` (Hugging Face cache, like `kokoro`), then `pocket`, `phonon`, `qwen3`, establishing for each whether its cache can be read without loading the model (`unknown` otherwise).
 9. Convert `audiofile`.
 10. Remove the tolerance of step 4: every registered module must declare its fields. Remove the shared helpers no module calls any more.
-11. Point the `module-setup` source at `main`.
+11. Point the `module-setup` source at `main` (waits for that project's pull request to be merged).
+
+Done on 2026-11-23. What the twelve modules added to the design: a field of several kinds (piper's `speaker`), a field that refuses `null` without a default (pocket's `voice`), a list-of-objects field (audiofile's `files`), and `fields_for(config)` for rules that follow another field (deepgram). Step 10's removal of the shared helpers stops short: `list_voices` still calls them. `phonon`'s items are `unknown`, for the reason given in the spec.
 12. Specs, project map and docs; `specs/setup.md` to `Implemented`.
 
 ## Verification

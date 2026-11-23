@@ -24,7 +24,9 @@ __all__ = [
     "read_fields",
 ]
 
-FieldKind = Literal["string", "number", "integer", "boolean"]
+# "objects" is a list of objects: only its being a list is checked here, its
+# content is the module's to validate.
+FieldKind = Literal["string", "number", "integer", "boolean", "objects"]
 
 
 @dataclass(frozen=True)
@@ -38,7 +40,9 @@ class Field:
     """
 
     name: str
-    kind: FieldKind
+    # One kind, or several for a field that accepts more than one (a speaker
+    # given by name or by index): a value is valid when it is for one of them.
+    kind: FieldKind | tuple[FieldKind, ...]
     description: str
     default: Any = None
     # The value the module ends up using when the field is absent and `default`
@@ -46,6 +50,9 @@ class Field:
     # by a form, never used to validate.
     implied: Any = None
     required: bool = False
+    # False refuses an explicit `null` even without a `default` (the field may
+    # still be absent).
+    nullable: bool = True
     choices: tuple[Any, ...] | None = None
     minimum: float | None = None
     maximum: float | None = None
@@ -94,17 +101,27 @@ def describe_bounds(
     return "a finite number" + (" " + bounds if bounds else "")
 
 
+def _kinds(field: Field) -> tuple[FieldKind, ...]:
+    return (field.kind,) if isinstance(field.kind, str) else field.kind
+
+
+def _expected_kind(field: Field, kind: FieldKind) -> str:
+    if kind == "string":
+        return "a string" if field.allow_empty else "a non-empty string"
+    if kind == "number":
+        return describe_bounds(field.minimum, field.maximum, field.exclusive_minimum)
+    if kind == "integer":
+        bounds = _bounds(field.minimum, field.maximum, field.exclusive_minimum)
+        return "an integer" + (" " + bounds if bounds else "")
+    if kind == "objects":
+        return "a list"
+    return "a boolean"
+
+
 def _expected(field: Field) -> str:
     if field.choices is not None:
         return "one of " + ", ".join(repr(choice) for choice in field.choices)
-    if field.kind == "string":
-        return "a string" if field.allow_empty else "a non-empty string"
-    if field.kind == "number":
-        return describe_bounds(field.minimum, field.maximum, field.exclusive_minimum)
-    if field.kind == "integer":
-        bounds = _bounds(field.minimum, field.maximum, field.exclusive_minimum)
-        return "an integer" + (" " + bounds if bounds else "")
-    return "a boolean"
+    return " or ".join(_expected_kind(field, kind) for kind in _kinds(field))
 
 
 def _in_bounds(value: float, field: Field) -> bool:
@@ -115,31 +132,38 @@ def _in_bounds(value: float, field: Field) -> bool:
     )
 
 
-def _valid(value: Any, field: Field) -> bool:
-    if field.kind == "string":
-        ok = isinstance(value, str) and (field.allow_empty or bool(value))
-    elif field.kind == "number":
-        ok = (
+def _valid_kind(value: Any, field: Field, kind: FieldKind) -> bool:
+    if kind == "string":
+        return isinstance(value, str) and (field.allow_empty or bool(value))
+    if kind == "number":
+        return (
             not isinstance(value, bool)
             and isinstance(value, int | float)
             and is_finite(value)
             and _in_bounds(value, field)
         )
-    elif field.kind == "integer":
-        ok = (
+    if kind == "integer":
+        return (
             not isinstance(value, bool)
             and isinstance(value, int)
             and _in_bounds(value, field)
         )
-    else:
-        ok = isinstance(value, bool)
-    return ok and (field.choices is None or value in field.choices)
+    if kind == "objects":
+        return isinstance(value, list)
+    return isinstance(value, bool)
+
+
+def _valid(value: Any, field: Field) -> bool:
+    return any(_valid_kind(value, field, kind) for kind in _kinds(field)) and (
+        field.choices is None or value in field.choices
+    )
 
 
 def _read(config: dict, field: Field, label: str) -> tuple[Any, str | None]:
     """The field's value and, when it is invalid, the message saying so."""
     value = config.get(field.name, field.default)
-    if value is None and field.default is None and not field.required:
+    absent = field.nullable or field.name not in config
+    if value is None and field.default is None and not field.required and absent:
         return None, None
     if not _valid(value, field):
         message = field.message or (
@@ -187,9 +211,14 @@ def fields_schema(fields: Sequence[Field]) -> dict[str, Any]:
     """The fields as the `properties` and `required` of a JSON Schema object."""
     properties: dict[str, Any] = {}
     for field in fields:
-        nullable = field.default is None and not field.required
+        kinds: list[str] = [
+            "array" if kind == "objects" else kind for kind in _kinds(field)
+        ]
+        if field.default is None and not field.required and field.nullable:
+            kinds.append("null")
         schema: dict[str, Any] = {
-            "type": [field.kind, "null"] if nullable else field.kind,
+            "type": kinds[0] if len(kinds) == 1 else kinds,
+            **({"items": {"type": "object"}} if "array" in kinds else {}),
             "description": field.description,
         }
         shown = field.default if field.default is not None else field.implied

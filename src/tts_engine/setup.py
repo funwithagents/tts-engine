@@ -55,17 +55,9 @@ def _module_class(config: Any) -> type[TTSModule] | None:
     return REGISTRY.get(RENAMED.get(module_type, module_type))
 
 
-def _declared(cls: type[TTSModule]) -> bool:
-    """Whether the module declares its fields yet (specs/setup.md); the ones
-    that do not are left out of the schema and of field validation."""
-    return hasattr(cls, "fields")
-
-
 def describe() -> dict[str, Any]:
     branches = []
     for name, cls in REGISTRY.items():
-        if not _declared(cls):
-            continue
         schema = fields_schema(cls.fields)
         branches.append(
             {
@@ -125,7 +117,7 @@ def describe() -> dict[str, Any]:
 
 def requirements(config: dict[str, Any]) -> list[str]:
     cls = _module_class(config)
-    extra = getattr(cls, "extra", None) if cls is not None else None
+    extra = cls.extra if cls is not None else None
     return [f"{_DISTRIBUTION}[{extra}]"] if extra else []
 
 
@@ -185,7 +177,7 @@ def validate(config: dict[str, Any]) -> list[dict[str, Any]]:
                     "message": f"Unknown TTS module type: {module['type']!r}",
                 }
             )
-        elif _declared(cls):
+        else:
             problems += [
                 {"path": f"/module/{name}" if name else "/module", "message": message}
                 for name, message in cls.problems(module)
@@ -203,7 +195,7 @@ def _selected(config: dict[str, Any]) -> tuple[type[TTSModule], dict[str, Any]]:
 
 def check(config: dict[str, Any]) -> list[dict[str, Any]]:
     cls, module = _selected(config)
-    return cls.items(module) if _declared(cls) else []
+    return cls.items(module)
 
 
 def prepare(
@@ -211,8 +203,7 @@ def prepare(
     on_progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> None:
     cls, module = _selected(config)
-    if _declared(cls):
-        cls.prepare(module, on_progress)
+    cls.prepare(module, on_progress)
 
 
 def _voice_label(voice: Any) -> str:

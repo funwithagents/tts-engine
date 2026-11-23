@@ -38,6 +38,7 @@ from tts_engine.modules.base import (
     segment_sentences,
     slice_bytes_for,
 )
+from tts_engine.modules.fields import Field
 
 log = logging.getLogger(__name__)
 
@@ -56,8 +57,65 @@ def _to_int16_pcm(data: bytes) -> bytes:
 
 class MistralModule(TTSModule):
     kind = "hosted"
+    title = "Mistral"
+    extra = "mistral"
+    fields = (
+        Field(
+            "voice_id",
+            "string",
+            "The voice to speak with: a preset voice's id or slug, or the id of "
+            "a custom voice of the account.",
+            required=True,
+            message="Mistral module requires a non-empty 'voice_id'",
+        ),
+        Field(
+            "model",
+            "string",
+            "The Mistral text-to-speech model.",
+            default=_DEFAULT_MODEL,
+        ),
+        Field(
+            "api_key_env",
+            "string",
+            "The environment variable holding the Mistral API key.",
+            allow_empty=True,
+            secret="env",
+            message="Mistral module 'api_key_env' must be a string",
+        ),
+        Field(
+            "api_key",
+            "string",
+            "The Mistral API key itself. Prefer 'api_key_env', which keeps the "
+            "key out of the config file.",
+            allow_empty=True,
+            secret="literal",
+            message="Mistral module 'api_key' must be a string",
+        ),
+        Field(
+            "expressiveness",
+            "number",
+            "How strongly the speech follows the voice's character, 1 or more. "
+            "Left unset, the service's own default applies.",
+            minimum=1.0,
+        ),
+        Field(
+            "server_url",
+            "string",
+            "The API base URL, for a regional or self-hosted endpoint.",
+            advanced=True,
+        ),
+        Field(
+            "timeout",
+            "number",
+            "Seconds to wait for the service before a stalled request fails.",
+            default=_DEFAULT_TIMEOUT,
+            exclusive_minimum=0,
+            advanced=True,
+        ),
+    )
 
     def __init__(self, config: dict) -> None:
+        values = self.validated(config)
         try:
             from mistralai.client import Mistral
         except ImportError as exc:
@@ -68,24 +126,11 @@ class MistralModule(TTSModule):
 
         api_key = resolve_api_key(config, label=_LABEL)
 
-        voice_id = config.get("voice_id")
-        if not isinstance(voice_id, str) or not voice_id:
-            raise ConfigError("Mistral module requires a non-empty 'voice_id'")
-
-        model = optional_str(config, "model", label=_LABEL, default=_DEFAULT_MODEL)
-
-        expressiveness = finite_number(
-            config, "expressiveness", label=_LABEL, minimum=1.0
-        )
-        server_url = optional_str(config, "server_url", label=_LABEL)
-
-        timeout = finite_number(
-            config,
-            "timeout",
-            label=_LABEL,
-            default=_DEFAULT_TIMEOUT,
-            exclusive_minimum=0,
-        )
+        voice_id: str = values["voice_id"]
+        model: str = values["model"]
+        expressiveness: float | None = values["expressiveness"]
+        server_url: str | None = values["server_url"]
+        timeout: float = values["timeout"]
 
         # Only the fields that were set: the API's own defaults apply to the
         # rest. `timeout_ms` bounds the wait for the response and for each

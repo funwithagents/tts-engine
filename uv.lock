@@ -1251,7 +1251,7 @@ wheels = [
 [[package]]
 name = "module-setup"
 version = "0.1.0"
-source = { git = "https://github.com/funwithagents/module-setup?rev=module-contract#733b279cf30fd0dcfa40df511e48820d66237bea" }
+source = { git = "https://github.com/funwithagents/module-setup?rev=module-contract#c80ef1db75a5a9c3e2c312c28a45d848fb1de15e" }
 dependencies = [
     { name = "packaging" },
 ]

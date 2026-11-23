@@ -9,6 +9,7 @@ import threading
 import wave
 from collections.abc import AsyncIterator, Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
@@ -21,6 +22,7 @@ from tts_engine.modules.base import (
     run_text_stream_worker,
     segment_sentences,
 )
+from tts_engine.modules.fields import Field
 
 _CHUNK_FRAMES = 4096
 
@@ -36,11 +38,28 @@ def _non_empty_str(value: object) -> bool:
 
 class AudioFileModule(TTSModule):
     kind = "fixture"
+    title = "AudioFile"
+    extra = None
+    fields = (
+        Field(
+            "files",
+            "objects",
+            "The texts the module can say, each an object with the 'text' and "
+            "the WAV 'file' played for it.",
+            nullable=False,
+        ),
+        Field(
+            "default_file",
+            "string",
+            "The WAV file played for a text that no 'files' entry matches. "
+            "Without it, such a text is an error.",
+            nullable=False,
+        ),
+    )
 
-    def __init__(self, config: dict) -> None:
-        files = config.get("files", [])
-        if not isinstance(files, list):
-            raise ConfigError("AudioFile module 'files' must be a list")
+    @classmethod
+    def check_config(cls, values: dict[str, Any], config: dict) -> None:
+        files = values["files"] or []
         for i, entry in enumerate(files):
             if (
                 not isinstance(entry, dict)
@@ -52,23 +71,28 @@ class AudioFileModule(TTSModule):
                     "non-empty 'text' and 'file'"
                 )
 
-        default_file = config.get("default_file")
-        if "default_file" in config and not _non_empty_str(default_file):
-            raise ConfigError(
-                "AudioFile module 'default_file' must be a non-empty string"
-            )
-
-        if not files and default_file is None:
+        if not files and values["default_file"] is None:
             raise ConfigError(
                 "AudioFile module needs at least one 'files' entry or a 'default_file'"
             )
 
-        self._entries: dict[str, Path] = {}
+        seen: set[str] = set()
         for entry in files:
             key = _normalize(entry["text"])
-            if key in self._entries:
+            if key in seen:
                 raise ConfigError(f"AudioFile module has a duplicate text: {key!r}")
-            self._entries[key] = resolve_path(config, entry["file"])
+            seen.add(key)
+
+    def __init__(self, config: dict) -> None:
+        values = self.validated(config)
+        files: list[dict] = config.get("files", [])
+        default_file: str | None = values["default_file"]
+
+        self._entries: dict[str, Path] = {}
+        for entry in files:
+            self._entries[_normalize(entry["text"])] = resolve_path(
+                config, entry["file"]
+            )
         self._default: Path | None = (
             resolve_path(config, default_file) if default_file is not None else None
         )
