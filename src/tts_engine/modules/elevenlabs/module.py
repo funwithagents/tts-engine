@@ -35,12 +35,12 @@ from tts_engine.modules.base import (
     cleanup,
     finite_number,
     normalize_gender,
-    optional_str,
     resolve_api_key,
     run_cancellable_worker,
     run_text_stream_worker,
     split_at_last_space,
 )
+from tts_engine.modules.fields import Field
 
 _OUTPUT_FORMAT = "mp3_44100_128"
 _DEFAULT_TIMEOUT = 30.0
@@ -118,8 +118,69 @@ def _api_error(exc: Exception) -> str:
 
 class ElevenLabsModule(TTSModule):
     kind = "hosted"
+    title = "ElevenLabs"
+    extra = "elevenlabs"
+    fields = (
+        Field(
+            "voice_id",
+            "string",
+            "The id of the voice to speak with.",
+            required=True,
+            message="ElevenLabs module requires a non-empty 'voice_id'",
+        ),
+        Field(
+            "model",
+            "string",
+            "The ElevenLabs model. A v3 or v4 model is spoken through the "
+            "text-to-dialogue API.",
+            default="eleven_flash_v2_5",
+        ),
+        Field(
+            "api_key_env",
+            "string",
+            "The environment variable holding the ElevenLabs API key.",
+            allow_empty=True,
+            secret="env",
+            message="ElevenLabs module 'api_key_env' must be a string",
+        ),
+        Field(
+            "api_key",
+            "string",
+            "The ElevenLabs API key itself. Prefer 'api_key_env', which keeps the "
+            "key out of the config file.",
+            allow_empty=True,
+            secret="literal",
+            message="ElevenLabs module 'api_key' must be a string",
+        ),
+        Field(
+            "stability",
+            "number",
+            "How steady the voice stays from one sentence to the next, from 0 "
+            "(more expressive) to 1 (more consistent).",
+            default=0.5,
+            minimum=0.0,
+            maximum=1.0,
+        ),
+        Field(
+            "similarity_boost",
+            "number",
+            "How closely the output follows the original voice, from 0 to 1.",
+            default=0.75,
+            minimum=0.0,
+            maximum=1.0,
+        ),
+        Field(
+            "timeout",
+            "number",
+            "Seconds a request may take before it is given up.",
+            default=_DEFAULT_TIMEOUT,
+            exclusive_minimum=0,
+            advanced=True,
+        ),
+    )
 
     def __init__(self, config: dict) -> None:
+        values = self.validated(config)
         try:
             import miniaudio
             from elevenlabs import ElevenLabs
@@ -134,35 +195,15 @@ class ElevenLabsModule(TTSModule):
 
         api_key = resolve_api_key(config, label=_LABEL)
 
-        voice_id = config.get("voice_id")
-        if not isinstance(voice_id, str) or not voice_id:
-            raise ConfigError("ElevenLabs module requires a non-empty 'voice_id'")
-
-        model = optional_str(config, "model", label=_LABEL, default="eleven_flash_v2_5")
-
-        timeout = finite_number(
-            config,
-            "timeout",
-            label=_LABEL,
-            default=_DEFAULT_TIMEOUT,
-            exclusive_minimum=0,
-        )
+        voice_id: str = values["voice_id"]
+        model: str = values["model"]
 
         self._api_key: str = api_key
         self._voice_id: str = voice_id
         self._model: str = model
-        self._timeout: float = float(timeout)
-        self._stability: float = finite_number(
-            config, "stability", label=_LABEL, default=0.5, minimum=0.0, maximum=1.0
-        )
-        self._similarity_boost: float = finite_number(
-            config,
-            "similarity_boost",
-            label=_LABEL,
-            default=0.75,
-            minimum=0.0,
-            maximum=1.0,
-        )
+        self._timeout: float = values["timeout"]
+        self._stability: float = values["stability"]
+        self._similarity_boost: float = values["similarity_boost"]
         self._miniaudio = miniaudio
         self._voice_settings_cls = VoiceSettings
         self._chunk_source_cls = _make_chunk_source_class(miniaudio)

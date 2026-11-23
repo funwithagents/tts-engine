@@ -9,46 +9,61 @@ from collections.abc import AsyncIterator, Callable, Iterator
 
 import numpy as np
 
-from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
     TTSModule,
     TTSOptions,
     VoiceInfo,
-    finite_number,
     run_cancellable_worker,
     run_text_stream_worker,
 )
+from tts_engine.modules.fields import Field
 
 _CHUNK_FRAMES = 4096
-_LABEL = "Tone module"
 
 
 class ToneModule(TTSModule):
     kind = "fixture"
-
-    def __init__(self, config: dict) -> None:
-        sample_rate = config.get("sample_rate", 24000)
-        if (
-            isinstance(sample_rate, bool)
-            or not isinstance(sample_rate, int)
-            or sample_rate <= 0
-        ):
-            raise ConfigError("Tone module 'sample_rate' must be an integer > 0")
-        self._sample_rate = sample_rate
-        self._frequency = finite_number(
-            config, "frequency", label=_LABEL, default=440.0, exclusive_minimum=0
-        )
-        self._seconds_per_char = finite_number(
-            config, "seconds_per_char", label=_LABEL, default=0.05, exclusive_minimum=0
-        )
-        self._amplitude = finite_number(
-            config,
+    title = "Tone"
+    extra = None
+    fields = (
+        Field(
+            "sample_rate",
+            "integer",
+            "The sample rate of the tone, in Hz.",
+            default=24000,
+            exclusive_minimum=0,
+            advanced=True,
+        ),
+        Field(
+            "frequency",
+            "number",
+            "The pitch of the tone, in Hz.",
+            default=440.0,
+            exclusive_minimum=0,
+        ),
+        Field(
+            "seconds_per_char",
+            "number",
+            "How long the tone lasts for each character of the text, in seconds.",
+            default=0.05,
+            exclusive_minimum=0,
+        ),
+        Field(
             "amplitude",
-            label=_LABEL,
+            "number",
+            "The loudness of the tone, from 0 (silent, excluded) to 1 (full scale).",
             default=0.2,
             exclusive_minimum=0,
             maximum=1.0,
-        )
+        ),
+    )
+
+    def __init__(self, config: dict) -> None:
+        values = self.validated(config)
+        self._sample_rate: int = values["sample_rate"]
+        self._frequency: float = values["frequency"]
+        self._seconds_per_char: float = values["seconds_per_char"]
+        self._amplitude: float = values["amplitude"]
 
     @classmethod
     def list_voices(cls, config: dict) -> list[VoiceInfo]:

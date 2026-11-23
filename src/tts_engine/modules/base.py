@@ -4,7 +4,6 @@ import asyncio
 import contextlib
 import contextvars
 import logging
-import math
 import os
 import queue
 import re
@@ -19,6 +18,7 @@ from typing import Any, ClassVar, Literal, TypeVar, cast, overload
 import numpy as np
 
 from tts_engine.config import ConfigError
+from tts_engine.modules.fields import Field, field_problems, read_fields
 from tts_engine.utterance import note_segment
 
 log = logging.getLogger(__name__)
@@ -92,6 +92,61 @@ class TTSModule(ABC):
     # embedder needs to know before trying it — does it need a key and a
     # network, or weights on disk — and how the benchmark groups its results.
     kind: ClassVar[ModuleKind]
+
+    # What an application needs to set the module up before constructing it
+    # (specs/setup.md): its name for a person, the extra carrying its
+    # dependencies (None when it needs none), and its config fields.
+    title: ClassVar[str]
+    extra: ClassVar[str | None]
+    fields: ClassVar[tuple[Field, ...]]
+
+    @classmethod
+    def validated(cls, config: dict) -> dict[str, Any]:
+        """The module's fields read from its config block (a default where one
+        is absent), after `check_config`. Raises `ConfigError` on the first
+        invalid field. The first thing a constructor does, before any import:
+        what `problems` accepts is what the constructor accepts."""
+        values = read_fields(
+            config, cls.fields, label=f"{cls.title} module", error=ConfigError
+        )
+        cls.check_config(values, config)
+        return values
+
+    @classmethod
+    def check_config(cls, values: dict[str, Any], config: dict) -> None:
+        """The module's rules across fields, or on a field's content, that a
+        `Field` cannot state. Raises `ConfigError`. Looks at the config only:
+        no import of the provider's library, no file, no network."""
+
+    @classmethod
+    def problems(cls, config: dict) -> list[tuple[str, str]]:
+        """Everything that makes the module refuse this config block, as
+        `(field name, message)`; the name is "" for a rule across fields.
+        Empty when the constructor would accept its shape."""
+        found = field_problems(config, cls.fields, label=f"{cls.title} module")
+        if not found:
+            try:
+                cls.validated(config)
+            except ConfigError as exc:
+                found.append(("", str(exc)))
+        return found
+
+    @classmethod
+    def items(cls, config: dict) -> list[dict[str, Any]]:
+        """What this config needs on the machine beyond packages (model
+        weights, files), each `{"id", "title", "status", "detail",
+        "preparable"}`. Local and fast: no network. May import the module's
+        extra."""
+        return []
+
+    @classmethod
+    def prepare(
+        cls,
+        config: dict,
+        on_progress: Callable[[dict[str, Any]], None] | None = None,
+    ) -> None:
+        """Make every preparable item of this config ready (download the
+        weights). Blocking and idempotent; raises `TTSError` on failure."""
 
     def __init__(self, config: dict) -> None:
         """Construct the module from its `engine.module` block (the full dict,
@@ -713,12 +768,12 @@ def optional_str(
     non-string: a value the config names is validated, only a missing one is
     defaulted.
     """
-    value = config.get(field, default)
-    if value is None and default is None:
-        return None
-    if not isinstance(value, str) or not value:
-        raise ConfigError(f"{label} '{field}' must be a non-empty string")
-    return value
+    return read_fields(
+        config,
+        [Field(field, "string", "", default=default)],
+        label=label,
+        error=ConfigError,
+    )[field]
 
 
 @overload
@@ -766,31 +821,22 @@ def finite_number(
     The message names the field and the bounds (``"... must be a finite
     number > 0"``).
     """
-    value = config.get(field, default)
-    if value is None and default is None:
-        return None
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, int | float)
-        or not _is_finite(value)
-        or (minimum is not None and value < minimum)
-        or (maximum is not None and value > maximum)
-        or (exclusive_minimum is not None and value <= exclusive_minimum)
-    ):
-        raise ConfigError(
-            f"{label} '{field}' must be "
-            + _describe_bounds(minimum, maximum, exclusive_minimum)
-        )
-    return float(value)
-
-
-def _is_finite(value: float) -> bool:
-    """`math.isfinite`, with an integer too large for a float (valid JSON,
-    `1e400` written out) counted as not finite instead of raising."""
-    try:
-        return math.isfinite(value)
-    except OverflowError:
-        return False
+    return read_fields(
+        config,
+        [
+            Field(
+                field,
+                "number",
+                "",
+                default=default,
+                minimum=minimum,
+                maximum=maximum,
+                exclusive_minimum=exclusive_minimum,
+            )
+        ],
+        label=label,
+        error=ConfigError,
+    )[field]
 
 
 def positive_int(config: dict, field: str, *, label: str) -> int | None:
@@ -798,27 +844,9 @@ def positive_int(config: dict, field: str, *, label: str) -> int | None:
     absent/``null`` policy and no default: a present value must be an ``int``
     >= 1 (a bool, a float or a string is rejected). The thread count of the
     local modules is one (``threads`` on phonon, kokoro and piper)."""
-    value = config.get(field)
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        raise ConfigError(f"{label} '{field}' must be an integer >= 1")
-    return value
-
-
-def _describe_bounds(
-    minimum: float | None, maximum: float | None, exclusive_minimum: float | None
-) -> str:
-    if minimum is not None and maximum is not None:
-        return f"a finite number between {minimum:g} and {maximum:g}"
-    bounds = []
-    if exclusive_minimum is not None:
-        bounds.append(f"> {exclusive_minimum:g}")
-    if minimum is not None:
-        bounds.append(f">= {minimum:g}")
-    if maximum is not None:
-        bounds.append(f"<= {maximum:g}")
-    return "a finite number" + (" " + " and ".join(bounds) if bounds else "")
+    return read_fields(
+        config, [Field(field, "integer", "", minimum=1)], label=label, error=ConfigError
+    )[field]
 
 
 # --- Shared PCM helpers --------------------------------------------------------
