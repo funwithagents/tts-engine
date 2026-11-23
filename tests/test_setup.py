@@ -21,6 +21,16 @@ from tts_engine.modules.base import VoiceInfo, VoiceListingUnsupported
 from tts_engine.modules.kokoro import KokoroModule
 from tts_engine.modules.tone import ToneModule
 
+
+def _files(config: dict) -> list[dict]:
+    """`check_setup`'s file items: what is left once the extra and the keys are."""
+    return [
+        item
+        for item in setup.check_setup(config)
+        if not item["id"].startswith(("extra:", "key:"))
+    ]
+
+
 _ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -49,10 +59,10 @@ def test_a_module_declares_its_title_its_extra_and_documented_fields(name: str) 
     assert len({field.name for field in cls.fields}) == len(cls.fields)
 
 
-def test_describe_is_stable_and_offers_one_branch_per_registered_module() -> None:
-    description = setup.describe()
+def test_config_schema_is_stable_and_offers_one_branch_per_registered_module() -> None:
+    description = setup.config_schema()
 
-    assert description == setup.describe()
+    assert description == setup.config_schema()
     assert (description["contract"], description["distribution"]) == (1, "tts-engine")
     branches = description["schema"]["properties"]["module"]["oneOf"]
     assert [b["properties"]["type"]["const"] for b in branches] == list(REGISTRY)
@@ -71,12 +81,14 @@ def test_the_contract_s_conformance_check_passes_over_the_examples() -> None:
     check_contract(setup, examples)
 
 
-# --- requirements -------------------------------------------------------------
+# --- required_extras -------------------------------------------------------------
 
 
-def test_requirements_names_the_extra_of_the_selected_module() -> None:
-    assert setup.requirements({"module": {"type": "kokoro"}}) == ["tts-engine[kokoro]"]
-    assert setup.requirements({"module": {"type": "elevenlabs"}}) == [
+def test_required_extras_names_the_extra_of_the_selected_module() -> None:
+    assert setup.required_extras({"module": {"type": "kokoro"}}) == [
+        "tts-engine[kokoro]"
+    ]
+    assert setup.required_extras({"module": {"type": "elevenlabs"}}) == [
         "tts-engine[elevenlabs]"
     ]
 
@@ -92,18 +104,20 @@ def test_requirements_names_the_extra_of_the_selected_module() -> None:
         [],
     ],
 )
-def test_requirements_is_empty_when_nothing_is_needed_or_selected(config: Any) -> None:
-    assert setup.requirements(config) == []
+def test_required_extras_is_empty_when_nothing_is_needed_or_selected(
+    config: Any,
+) -> None:
+    assert setup.required_extras(config) == []
 
 
-# --- validate -----------------------------------------------------------------
+# --- check_config -----------------------------------------------------------------
 
 
 def test_every_example_config_is_accepted() -> None:
     refused = {
         name: problems
         for name, block in _examples().items()
-        if (problems := setup.validate(block))
+        if (problems := setup.check_config(block))
     }
 
     assert refused == {}
@@ -130,14 +144,14 @@ ENGINE_PROBLEMS = [
 def test_an_engine_level_problem_is_reported_at_its_path(
     config: Any, path: str
 ) -> None:
-    problems = setup.validate(config)
+    problems = setup.check_config(config)
 
     assert [problem["path"] for problem in problems] == [path]
     assert problems[0]["message"]
 
 
 def test_engine_and_module_problems_are_reported_together() -> None:
-    problems = setup.validate(
+    problems = setup.check_config(
         {"module": {"type": "tone", "frequency": -1, "amplitude": 2}, "gain_db": 100}
     )
 
@@ -211,10 +225,10 @@ MODULE_PROBLEMS = [
 
 
 @pytest.mark.parametrize(("module", "path"), MODULE_PROBLEMS)
-def test_validate_and_the_constructor_refuse_the_same_config_with_the_same_message(
+def test_check_config_and_the_constructor_refuse_the_same_config_with_the_same_message(
     module: dict[str, Any], path: str
 ) -> None:
-    problems = setup.validate({"module": module})
+    problems = setup.check_config({"module": module})
 
     assert [problem["path"] for problem in problems] == [path]
     with pytest.raises(ConfigError) as error:
@@ -222,18 +236,20 @@ def test_validate_and_the_constructor_refuse_the_same_config_with_the_same_messa
     assert str(error.value) == problems[0]["message"]
 
 
-def test_a_config_validate_accepts_is_one_the_constructor_builds() -> None:
+def test_a_config_check_config_accepts_is_one_the_constructor_builds() -> None:
     module = {"type": "tone", "frequency": 220, "amplitude": 1}
 
-    assert setup.validate({"module": module}) == []
+    assert setup.check_config({"module": module}) == []
     assert ToneModule(module).sample_rate == 24000
 
 
 def test_a_renamed_type_is_accepted_though_the_schema_does_not_offer_it() -> None:
     module = {"type": "openai-compatible", "voice": "marin"}
 
-    assert setup.validate({"module": module}) == []
-    assert setup.requirements({"module": module}) == ["tts-engine[openai-compatible]"]
+    assert setup.check_config({"module": module}) == []
+    assert setup.required_extras({"module": module}) == [
+        "tts-engine[openai-compatible]"
+    ]
 
 
 _NO_PROVIDER_SCRIPT = textwrap.dedent(
@@ -250,18 +266,38 @@ _NO_PROVIDER_SCRIPT = textwrap.dedent(
 
     from tts_engine import setup
 
-    setup.describe()
+    setup.config_schema()
     for module in ({"type": "tone"}, {"type": "elevenlabs", "voice_id": "v"},
                    {"type": "kokoro", "voice": "af_heart"}):
-        assert setup.validate({"module": module}) == [], module
-    assert setup.validate({"module": {"type": "kokoro", "speed": 9}})
-    assert setup.requirements({"module": {"type": "kokoro"}}) == ["tts-engine[kokoro]"]
+        assert setup.check_config({"module": module}) == [], module
+    assert setup.check_config({"module": {"type": "kokoro", "speed": 9}})
+    assert setup.required_extras({"module": {"type": "kokoro"}}) == ["tts-engine[kokoro]"]
+
+    # Without its provider, every module with an extra reports that extra as
+    # missing, with the hint its constructor raises, and nothing else.
+    from tts_engine.config import ConfigError
+    from tts_engine.modules import REGISTRY
+
+    for name, cls in REGISTRY.items():
+        if cls.extra is None:
+            continue
+        items = cls.check_setup({"type": name})
+        assert [(i["id"], i["status"]) for i in items] == [
+            (f"extra:tts-engine[{cls.extra}]", "missing")
+        ], (name, items)
+        try:
+            cls.imports()
+        except ConfigError as exc:
+            assert items[0]["detail"] == str(exc), name
+        assert f"tts-engine[{cls.extra}]" in items[0]["detail"], name
     print("OK")
     """
 )
 
 
-def test_describe_validate_and_requirements_need_no_provider_library() -> None:
+def test_schema_config_and_extras_need_no_provider_library_and_check_setup_says_what_is_missing() -> (
+    None
+):
     result = subprocess.run(
         [sys.executable, "-c", _NO_PROVIDER_SCRIPT],
         capture_output=True,
@@ -273,13 +309,65 @@ def test_describe_validate_and_requirements_need_no_provider_library() -> None:
     assert "OK" in result.stdout
 
 
-# --- check and prepare ----------------------------------------------------------
+# --- check_setup and prepare ----------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", sorted(n for n, c in REGISTRY.items() if c.extra))
+def test_an_installed_extra_is_reported_ready(name: str) -> None:
+    extra = REGISTRY[name].extra
+    items = REGISTRY[name].check_setup({"type": name})
+
+    assert items[0] == {
+        "id": f"extra:tts-engine[{extra}]",
+        "title": f"{REGISTRY[name].title} extra",
+        "status": "ready",
+        "detail": "Installed.",
+        "preparable": False,
+    }
+
+
+def test_a_key_variable_is_missing_until_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DEMO_TTS_KEY", raising=False)
+    config = {
+        "module": {"type": "elevenlabs", "voice_id": "v", "api_key_env": "DEMO_TTS_KEY"}
+    }
+
+    missing = setup.check_setup(config)[1]
+    assert missing == {
+        "id": "key:DEMO_TTS_KEY",
+        "title": "DEMO_TTS_KEY",
+        "status": "missing",
+        "detail": "Set the environment variable DEMO_TTS_KEY (named by 'api_key_env').",
+        "preparable": False,
+    }
+
+    monkeypatch.setenv("DEMO_TTS_KEY", "")
+    assert setup.check_setup(config)[1]["status"] == "missing"
+
+    monkeypatch.setenv("DEMO_TTS_KEY", "secret")
+    assert setup.check_setup(config)[1]["status"] == "ready"
+
+
+def test_a_key_in_the_config_itself_needs_no_variable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("DEMO_TTS_KEY", raising=False)
+    module = {
+        "type": "elevenlabs",
+        "voice_id": "v",
+        "api_key": "secret",
+        "api_key_env": "DEMO_TTS_KEY",
+    }
+
+    assert [i["id"] for i in setup.check_setup({"module": module})] == [
+        "extra:tts-engine[elevenlabs]"
+    ]
 
 
 def test_a_module_without_files_has_no_item_and_nothing_to_prepare() -> None:
     config = {"module": {"type": "tone"}}
 
-    assert setup.check(config) == []
+    assert _files(config) == []
     setup.prepare(config)
 
 
@@ -303,7 +391,7 @@ def test_kokoro_s_files_are_missing_until_prepared(
     monkeypatch.setattr(huggingface_hub, "hf_hub_download", download)
     config = {"module": {"type": "kokoro"}}
 
-    before = setup.check(config)
+    before = _files(config)
     assert [(item["id"], item["status"]) for item in before] == [
         ("kokoro:model", "missing"),
         ("kokoro:voices", "missing"),
@@ -322,7 +410,7 @@ def test_kokoro_s_files_are_missing_until_prepared(
         "kokoro:model",
         "kokoro:voices",
     ]
-    assert [item["status"] for item in setup.check(config)] == ["ready", "ready"]
+    assert [item["status"] for item in _files(config)] == ["ready", "ready"]
 
     setup.prepare(config)  # everything is ready: nothing more is fetched
     assert len(downloads) == 2
@@ -344,13 +432,13 @@ def test_a_local_file_is_ready_or_missing_and_never_preparable(
     model = tmp_path / "model.onnx"
     config = {"module": {"type": "kokoro", "model": str(model)}}
 
-    missing = setup.check(config)[0]
+    missing = _files(config)[0]
     assert (missing["status"], missing["preparable"]) == ("missing", False)
     assert str(model) in missing["detail"]
     setup.prepare(config)
 
     model.write_bytes(b"onnx")
-    assert setup.check(config)[0]["status"] == "ready"
+    assert _files(config)[0]["status"] == "ready"
 
 
 # --- options --------------------------------------------------------------------

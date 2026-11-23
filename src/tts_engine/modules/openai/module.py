@@ -234,16 +234,22 @@ class OpenAIModule(TTSModule):
         ),
     )
 
-    def __init__(self, config: dict) -> None:
-        values = self.validated(config)
+    @classmethod
+    def imports(cls) -> None:
         try:
             import websockets.sync.client  # noqa: F401  (the SDK's Realtime transport)
-            from openai import OpenAI
+            from openai import OpenAI  # noqa: F401
         except ImportError as exc:
             raise ConfigError(
                 "The 'openai' module requires the openai extra: "
                 "pip install tts-engine[openai]"
             ) from exc
+
+    def __init__(self, config: dict) -> None:
+        values = self.validated(config)
+        self.imports()
+        import websockets.sync.client  # noqa: F401  (the SDK's Realtime transport)
+        from openai import OpenAI
 
         api_key = resolve_api_key(config, label=_LABEL)
         self._model: str = values["model"]

@@ -1,13 +1,17 @@
 """Setting the engine up from an application, as data (specs/setup.md).
 
 Seven functions over the engine block (the document `TTSEngineConfig.from_dict`
-takes): what its config looks like, which extra a config needs, whether the
-engine would accept it, what it needs on the machine, which voices and devices
-it can choose from, and one real run to hear it work. They implement the module
-contract of the `module-setup` project and exchange JSON-compatible data only.
+takes): what its config looks like (`config_schema`), which extra a config needs
+(`required_extras`), what is wrong in the config itself (`check_config`), what
+this machine is missing to run it (`check_setup`: the extra, the keys, the
+files), downloading the files (`prepare`), the choices of a field (`options`),
+and one real run to hear it work (`probe`). They implement the module contract
+of the `module-setup` project and exchange JSON-compatible data only.
 
-`describe`, `requirements` and `validate` run on the base install: no extra, no
-key, no network. Nothing here is imported by the engine itself.
+Each is the engine's own part (the `player` and `gain_db` blocks, the module
+choice) plus the method of the same name on the selected module. All but
+`prepare`, `options` and `probe` run on the base install, with no network.
+Nothing here is imported by the engine itself.
 """
 
 import asyncio
@@ -32,13 +36,13 @@ from tts_engine.modules.fields import fields_schema
 
 __all__ = [
     "PROBE_SENTENCE",
-    "check",
-    "describe",
+    "check_config",
+    "check_setup",
+    "config_schema",
     "options",
     "prepare",
     "probe",
-    "requirements",
-    "validate",
+    "required_extras",
 ]
 
 _DISTRIBUTION = "tts-engine"
@@ -55,7 +59,7 @@ def _module_class(config: Any) -> type[TTSModule] | None:
     return REGISTRY.get(RENAMED.get(module_type, module_type))
 
 
-def describe() -> dict[str, Any]:
+def config_schema() -> dict[str, Any]:
     branches = []
     for name, cls in REGISTRY.items():
         schema = fields_schema(cls.fields)
@@ -115,17 +119,19 @@ def describe() -> dict[str, Any]:
     }
 
 
-def requirements(config: dict[str, Any]) -> list[str]:
+def required_extras(config: dict[str, Any]) -> list[str]:
     cls = _module_class(config)
-    extra = cls.extra if cls is not None else None
-    return [f"{_DISTRIBUTION}[{extra}]"] if extra else []
+    if cls is None:
+        return []
+    module = config["module"]
+    return cls.required_extras(module)
 
 
 def _problem(path: str, error: Exception) -> dict[str, Any]:
     return {"path": path, "message": str(error)}
 
 
-def validate(config: dict[str, Any]) -> list[dict[str, Any]]:
+def check_config(config: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(config, dict):
         return [{"path": "", "message": "'engine' must be an object"}]
     problems: list[dict[str, Any]] = []
@@ -180,22 +186,22 @@ def validate(config: dict[str, Any]) -> list[dict[str, Any]]:
         else:
             problems += [
                 {"path": f"/module/{name}" if name else "/module", "message": message}
-                for name, message in cls.problems(module)
+                for name, message in cls.check_config(module)
             ]
     return problems
 
 
 def _selected(config: dict[str, Any]) -> tuple[type[TTSModule], dict[str, Any]]:
-    """The module class and block of a config `validate` accepts."""
+    """The module class and block of a config `check_config` accepts."""
     cls = _module_class(config)
     if cls is None:
         raise ConfigError("the config selects no registered TTS module")
     return cls, config["module"]
 
 
-def check(config: dict[str, Any]) -> list[dict[str, Any]]:
+def check_setup(config: dict[str, Any]) -> list[dict[str, Any]]:
     cls, module = _selected(config)
-    return cls.items(module)
+    return cls.check_setup(module)
 
 
 def prepare(
@@ -206,20 +212,7 @@ def prepare(
     cls.prepare(module, on_progress)
 
 
-def _voice_label(voice: Any) -> str:
-    details = [", ".join(voice.languages)] if voice.languages else []
-    if voice.gender:
-        details.append(voice.gender)
-    return voice.name + (f" ({', '.join(details)})" if details else "")
-
-
 def options(name: str, config: dict[str, Any]) -> list[dict[str, Any]]:
-    if name == "voices":
-        cls, module = _selected(config)
-        return [
-            {"label": _voice_label(voice), "fields": dict(voice.config)}
-            for voice in cls.list_voices(module)
-        ]
     if name == "output-devices":
         import sounddevice as sd
 
@@ -232,7 +225,8 @@ def options(name: str, config: dict[str, Any]) -> list[dict[str, Any]]:
                     {"label": device["name"], "fields": {"device": device["name"]}}
                 )
         return found
-    return []
+    cls, module = _selected(config)
+    return cls.options(name, module)
 
 
 def _speak(config: dict[str, Any], sink: AudioSink | None) -> str:

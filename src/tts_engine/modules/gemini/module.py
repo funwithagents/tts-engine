@@ -110,17 +110,24 @@ class GeminiModule(TTSModule):
         ),
     )
 
-    def __init__(self, config: dict) -> None:
-        values = self.validated(config)
+    @classmethod
+    def imports(cls) -> None:
         try:
             # Not `from google import genai`: that binds None instead of raising
             # when sys.modules["google.genai"] is None (see the spec).
-            import google.genai as genai  # noqa: PLR0402
+            import google.genai as genai  # noqa: F401, PLR0402
         except ImportError as exc:
             raise ConfigError(
                 "The 'gemini' module requires the gemini extra: "
                 "pip install tts-engine[gemini]"
             ) from exc
+
+    def __init__(self, config: dict) -> None:
+        values = self.validated(config)
+        self.imports()
+        # Not `from google import genai`: that binds None instead of raising
+        # when sys.modules["google.genai"] is None (see the spec).
+        import google.genai as genai  # noqa: PLR0402
 
         api_key = resolve_api_key(config, label=_LABEL)
 

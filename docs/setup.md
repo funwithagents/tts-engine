@@ -9,30 +9,32 @@ from tts_engine import setup
 
 config = {"module": {"type": "kokoro", "voice": "af_heart"}}
 
-setup.validate(config)       # [] when the engine accepts this config
-setup.requirements(config)   # ["tts-engine[kokoro]"]
-setup.check(config)          # the model files, each "ready", "missing" or "unknown"
-setup.prepare(config)        # downloads what is missing
-setup.probe(config)          # speaks one sentence: {"ok": True, "message": ..., "duration_s": ...}
+setup.check_config(config)      # [] when the engine accepts this config
+setup.required_extras(config)   # ["tts-engine[kokoro]"]
+setup.check_setup(config)       # the extra, then the model files: each "ready", "missing" or "unknown"
+setup.prepare(config)           # downloads the missing files
+setup.probe(config)             # speaks one sentence: {"ok": True, "message": ..., "duration_s": ...}
 ```
 
 ## The functions
 
 | Function | What it gives | Needs |
 |---|---|---|
-| `describe()` | The engine block as a JSON Schema: one branch per module, each field with its type, default, bounds and a description | Nothing |
-| `requirements(config)` | The extra the selected module needs, as `tts-engine[<extra>]`, or `[]` | Nothing |
-| `validate(config)` | Every reason the engine would refuse the config, each with a JSON Pointer to the field and the message the engine raises | Nothing |
-| `check(config)` | The files the config needs on the machine (model weights, voices) and whether each is there | The module's extra |
+| `config_schema()` | The engine block as a JSON Schema: one branch per module, each field with its type, default, bounds and a description | Nothing |
+| `required_extras(config)` | The extra the selected module needs, as `tts-engine[<extra>]`, or `[]` | Nothing |
+| `check_config(config)` | What is wrong in the config itself: every reason the engine would refuse it, each with a JSON Pointer to the field and the message the engine raises | Nothing |
+| `check_setup(config)` | What this machine is missing to run the config: the module's extra, the environment variables holding its keys, its files (model weights, voices) | Nothing |
 | `prepare(config, on_progress)` | Downloads the missing files; `on_progress` receives `{"id", "fraction", "message"}` | The extra, the network |
 | `options(name, config)` | The choices of `"voices"` (the selected module's catalog) or `"output-devices"`, each with the config fields it sets | The extra; a key for a hosted catalog |
 | `probe(config)` | Builds the engine, speaks one sentence on the configured device, closes it. Never raises | Everything the config needs |
 
-"Nothing" means the base install: `describe`, `requirements` and `validate` import no provider library, read no key and use no network, so an application can show and check a config for a module that is not installed yet.
+"Nothing" means the base install, with no network: `config_schema`, `required_extras` and `check_config` look at the config only, so an application can show and check a config for a module that is not installed yet. `check_setup` also tries the module's imports (a missing extra is one of its answers) and reads the environment.
 
-## What `validate` does and does not catch
+The usual order is `check_config`, then `check_setup`; install what it says is missing and set the keys; `prepare`; `check_setup` again; `probe` when you want to hear it.
 
-It applies the rules the engine and the module apply to the config's shape: types, ranges, required fields, fields that exclude each other. A config it accepts can still fail when the engine is built, for what only the provider knows: a voice name that does not exist, a key that is rejected, a file that is not there. `probe` is the way to find those out before a real use.
+## `check_config` and `check_setup`
+
+`check_config` looks at the config: types, ranges, required fields, fields that exclude each other. Its answer is the same on every machine. `check_setup` looks at this machine: is the extra installed, is each key's environment variable set, are the files there. A config both accept can still fail when the engine is built, for what only the provider knows: a voice name that does not exist, a key that is rejected. `probe` is the way to find those out before a real use.
 
 ## The schema's annotations
 

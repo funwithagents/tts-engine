@@ -108,7 +108,7 @@ class Qwen3Module(TTSModule):
     )
 
     @classmethod
-    def check_config(cls, values: dict[str, Any], config: dict) -> None:
+    def config_rules(cls, values: dict[str, Any], config: dict) -> None:
         # The model kind decides which voice fields apply; read it from the id
         # so a bad combination fails before a multi-gigabyte download.
         model: str = values["model"] or _DEFAULT_MODEL
@@ -129,7 +129,7 @@ class Qwen3Module(TTSModule):
                 )
 
     @classmethod
-    def items(cls, config: dict) -> list[dict[str, Any]]:
+    def check_files(cls, config: dict) -> list[dict[str, Any]]:
         """The two GGUF files the model loads from (its talker, and the codec
         of its weight format), looked up in the Hugging Face cache."""
         values = cls.validated(config)
@@ -216,7 +216,9 @@ class Qwen3Module(TTSModule):
         config: dict,
         on_progress: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
-        pending = [item for item in cls.items(config) if item["status"] != "ready"]
+        pending = [
+            item for item in cls.check_files(config) if item["status"] != "ready"
+        ]
         if not pending:
             return
         values = cls.validated(config)
@@ -252,6 +254,13 @@ class Qwen3Module(TTSModule):
                     }
                 )
 
+    @classmethod
+    def imports(cls) -> None:
+        try:
+            import qwentts_cpp  # pyright: ignore[reportMissingImports]  # noqa: F401
+        except ImportError as exc:
+            raise ConfigError(_MISSING_EXTRA) from exc
+
     def __init__(self, config: dict) -> None:
         values = self.validated(config)
         model: str = values["model"] or _DEFAULT_MODEL
@@ -263,10 +272,8 @@ class Qwen3Module(TTSModule):
         if voice is None and not model.endswith("-VoiceDesign"):
             voice = _DEFAULT_VOICE
 
-        try:
-            import qwentts_cpp  # pyright: ignore[reportMissingImports]
-        except ImportError as exc:
-            raise ConfigError(_MISSING_EXTRA) from exc
+        self.imports()
+        import qwentts_cpp  # pyright: ignore[reportMissingImports]
 
         try:
             # warning: without it the native engine prints per-frame progress

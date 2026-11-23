@@ -367,17 +367,24 @@ class CartesiaModule(TTSModule):
         ),
     )
 
-    def __init__(self, config: dict) -> None:
-        values = self.validated(config)
+    @classmethod
+    def imports(cls) -> None:
         try:
             import websockets.sync.client  # noqa: F401  (the SDK's [websockets] extra)
-            from cartesia import Cartesia
-            from websockets.exceptions import InvalidStatus
+            from cartesia import Cartesia  # noqa: F401
+            from websockets.exceptions import InvalidStatus  # noqa: F401
         except ImportError as exc:
             raise ConfigError(
                 "The 'cartesia' module requires the cartesia extra: "
                 "pip install tts-engine[cartesia]"
             ) from exc
+
+    def __init__(self, config: dict) -> None:
+        values = self.validated(config)
+        self.imports()
+        import websockets.sync.client  # noqa: F401  (the SDK's [websockets] extra)
+        from cartesia import Cartesia
+        from websockets.exceptions import InvalidStatus
 
         api_key = resolve_api_key(config, label=_LABEL)
 

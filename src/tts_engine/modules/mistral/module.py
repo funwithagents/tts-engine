@@ -114,15 +114,20 @@ class MistralModule(TTSModule):
         ),
     )
 
-    def __init__(self, config: dict) -> None:
-        values = self.validated(config)
+    @classmethod
+    def imports(cls) -> None:
         try:
-            from mistralai.client import Mistral
+            from mistralai.client import Mistral  # noqa: F401
         except ImportError as exc:
             raise ConfigError(
                 "The 'mistral' module requires the mistral extra: "
                 "pip install tts-engine[mistral]"
             ) from exc
+
+    def __init__(self, config: dict) -> None:
+        values = self.validated(config)
+        self.imports()
+        from mistralai.client import Mistral
 
         api_key = resolve_api_key(config, label=_LABEL)
 

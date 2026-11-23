@@ -157,15 +157,20 @@ class GradiumModule(TTSModule):
         ),
     )
 
-    def __init__(self, config: dict) -> None:
-        values = self.validated(config)
+    @classmethod
+    def imports(cls) -> None:
         try:
-            from gradium import GradiumClient
+            from gradium import GradiumClient  # noqa: F401
         except ImportError as exc:
             raise ConfigError(
                 "The 'gradium' module requires the gradium extra: "
                 "pip install tts-engine[gradium]"
             ) from exc
+
+    def __init__(self, config: dict) -> None:
+        values = self.validated(config)
+        self.imports()
+        from gradium import GradiumClient
 
         api_key = resolve_api_key(config, label=_LABEL)
 

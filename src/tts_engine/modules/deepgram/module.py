@@ -343,7 +343,7 @@ class DeepgramModule(TTSModule):
         return tuple(replace(field, **aura.get(field.name, {})) for field in cls.fields)
 
     @classmethod
-    def check_config(cls, values: dict[str, Any], config: dict) -> None:
+    def config_rules(cls, values: dict[str, Any], config: dict) -> None:
         flux = values["model"].startswith(_FLUX_PREFIX)
         speed = values["speed"]
         if speed is not None and flux:
@@ -354,22 +354,29 @@ class DeepgramModule(TTSModule):
                     "with a Flux model"
                 )
 
-    def __init__(self, config: dict) -> None:
-        values = self.validated(config)
-        model: str = values["model"]
-        flux = model.startswith(_FLUX_PREFIX)
+    @classmethod
+    def imports(cls) -> None:
         try:
-            from deepgram import DeepgramClient
-
-            if flux:
-                from deepgram.speak.v2.types import SpeakV2Speak as speak_type
-            else:
-                from deepgram.speak.v1.types import SpeakV1Text as speak_type
+            from deepgram import DeepgramClient  # noqa: F401
+            from deepgram.speak.v1.types import SpeakV1Text  # noqa: F401
+            from deepgram.speak.v2.types import SpeakV2Speak  # noqa: F401
         except ImportError as exc:
             raise ConfigError(
                 "The 'deepgram' module requires the deepgram extra: "
                 "pip install tts-engine[deepgram]"
             ) from exc
+
+    def __init__(self, config: dict) -> None:
+        values = self.validated(config)
+        model: str = values["model"]
+        flux = model.startswith(_FLUX_PREFIX)
+        self.imports()
+        from deepgram import DeepgramClient
+
+        if flux:
+            from deepgram.speak.v2.types import SpeakV2Speak as speak_type
+        else:
+            from deepgram.speak.v1.types import SpeakV1Text as speak_type
 
         api_key = resolve_api_key(config, label=_LABEL)
 

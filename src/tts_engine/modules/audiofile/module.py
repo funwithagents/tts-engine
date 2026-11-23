@@ -58,7 +58,7 @@ class AudioFileModule(TTSModule):
     )
 
     @classmethod
-    def check_config(cls, values: dict[str, Any], config: dict) -> None:
+    def config_rules(cls, values: dict[str, Any], config: dict) -> None:
         files = values["files"] or []
         for i, entry in enumerate(files):
             if (

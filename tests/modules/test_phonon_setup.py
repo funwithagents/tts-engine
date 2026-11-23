@@ -13,6 +13,13 @@ from tts_engine.config import ConfigError
 from tts_engine.modules.base import TTSError
 
 
+def _files(config: dict) -> list[dict]:
+    """The module's file items (`check_files`), with its library faked."""
+    from tts_engine.modules import REGISTRY
+
+    return REGISTRY[config["module"]["type"]].check_files(config["module"])
+
+
 class _FakePtts:
     """Stands in for `ptts`: records each model load."""
 
@@ -61,7 +68,7 @@ def test_a_hub_model_and_a_catalog_voice_are_unknown_and_checking_loads_nothing(
 ) -> None:
     config = {"module": {"type": "phonon", "voice": "Juniper"}}
 
-    items = setup.check(config)
+    items = _files(config)
 
     assert _status(items) == [
         ("phonon:model", "unknown", True),
@@ -75,7 +82,7 @@ def test_a_hub_model_and_a_catalog_voice_are_unknown_and_checking_loads_nothing(
 def test_without_a_voice_the_model_is_the_only_item(ptts: _FakePtts) -> None:
     config = {"module": {"type": "phonon", "model": "hf://gradium/phonon-40m-fr"}}
 
-    items = setup.check(config)
+    items = _files(config)
 
     assert _status(items) == [("phonon:model", "unknown", True)]
     assert "hf://gradium/phonon-40m-fr" in items[0]["detail"]
@@ -125,7 +132,7 @@ def test_local_paths_are_ready_or_missing_and_never_prepared(
         }
     }
 
-    before = setup.check(config)
+    before = _files(config)
     assert _status(before) == [
         ("phonon:model", "missing", False),
         ("phonon:voice", "missing", False),
@@ -139,7 +146,7 @@ def test_local_paths_are_ready_or_missing_and_never_prepared(
     (tmp_path / "checkpoint").mkdir()
     (tmp_path / "voices").mkdir()
     (tmp_path / "voices" / "me.safetensors").write_bytes(b"")
-    assert _status(setup.check(config)) == [
+    assert _status(_files(config)) == [
         ("phonon:model", "ready", False),
         ("phonon:voice", "ready", False),
     ]
@@ -153,7 +160,7 @@ def test_a_hub_model_with_a_local_voice_prepares_the_model_only(
     config = {"module": {"type": "phonon", "voice": str(voice)}}
     progress: list[dict[str, Any]] = []
 
-    assert _status(setup.check(config)) == [
+    assert _status(_files(config)) == [
         ("phonon:model", "unknown", True),
         ("phonon:voice", "ready", False),
     ]
@@ -165,19 +172,16 @@ def test_a_hub_model_with_a_local_voice_prepares_the_model_only(
     assert {p["id"] for p in progress} == {"phonon:model"}
 
 
-def test_without_the_extra_the_items_are_unknown_and_prepare_names_it(
+def test_without_the_extra_only_the_extra_is_reported_and_prepare_names_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setitem(sys.modules, "ptts", None)  # as in a base install
     config = {"module": {"type": "phonon", "voice": "Juniper"}}
 
-    items = setup.check(config)
+    items = setup.check_setup(config)
 
-    assert _status(items) == [
-        ("phonon:model", "unknown", True),
-        ("phonon:voice", "unknown", True),
-    ]
-    assert all("phonon extra is not installed" in item["detail"] for item in items)
+    assert _status(items) == [("extra:tts-engine[phonon]", "missing", False)]
+    assert "pip install tts-engine[phonon]" in items[0]["detail"]
     with pytest.raises(ConfigError, match=r"pip install tts-engine\[phonon\]"):
         setup.prepare(config)
 
@@ -202,7 +206,7 @@ def test_an_invalid_config_is_refused_before_anything_is_looked_up(
     config = {"module": {"type": "phonon", "language": "it"}}
 
     with pytest.raises(ConfigError, match="'language' must be one of"):
-        setup.check(config)
+        _files(config)
     with pytest.raises(ConfigError, match="'language' must be one of"):
         setup.prepare(config)
     assert ptts.loads == []

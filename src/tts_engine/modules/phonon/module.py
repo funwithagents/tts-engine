@@ -200,7 +200,7 @@ class PhononModule(TTSModule):
         return tts
 
     @classmethod
-    def items(cls, config: dict) -> list[dict[str, Any]]:
+    def check_files(cls, config: dict) -> list[dict[str, Any]]:
         """The model and, when one is named, the voice. ptts downloads inside
         the model load and picks the files itself (by device, weight format
         and what the repository holds), so what comes from the Hub is
@@ -262,7 +262,7 @@ class PhononModule(TTSModule):
         # as the constructor does, then release it.
         pending = [
             item
-            for item in cls.items(config)
+            for item in cls.check_files(config)
             if item["status"] != "ready" and item["preparable"]
         ]
         if not pending:
@@ -286,6 +286,13 @@ class PhononModule(TTSModule):
                         "message": f"{item['title']} ready",
                     }
                 )
+
+    @classmethod
+    def imports(cls) -> None:
+        try:
+            import ptts  # noqa: F401
+        except ImportError as exc:
+            raise ConfigError(_MISSING_EXTRA) from exc
 
     def __init__(self, config: dict) -> None:
         values = self.validated(config)

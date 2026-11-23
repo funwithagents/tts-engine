@@ -16,6 +16,14 @@ from tts_engine.config import ConfigError
 from tts_engine.modules.base import TTSError
 from tts_engine.modules.pocket import PocketModule
 
+
+def _files(config: dict) -> list[dict]:
+    """The module's file items (`check_files`), with its library faked."""
+    from tts_engine.modules import REGISTRY
+
+    return REGISTRY[config["module"]["type"]].check_files(config["module"])
+
+
 _GATED = "hf://kyutai/pocket-tts/languages/{}/model.safetensors@aaa"
 _PUBLIC = "hf://kyutai/pocket-public/languages/{}/model.safetensors@bbb"
 _TOKENIZER = "hf://kyutai/pocket-public/languages/{}/tokenizer.json@ccc"
@@ -115,7 +123,7 @@ def library(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Library:
 
 
 def _statuses(module: dict[str, Any]) -> list[str]:
-    items = PocketModule.items(module)
+    items = PocketModule.check_files(module)
     assert [item["id"] for item in items] == [f"pocket:{key}" for key in _STATUSES]
     return [item["status"] for item in items]
 
@@ -125,7 +133,7 @@ def test_the_default_model_s_files_are_missing_until_prepared(
 ) -> None:
     config = {"module": {"type": "pocket"}}
 
-    before = setup.check(config)
+    before = _files(config)
     assert [(item["id"], item["status"]) for item in before] == [
         ("pocket:model", "missing"),
         ("pocket:tokenizer", "missing"),
@@ -148,7 +156,7 @@ def test_the_default_model_s_files_are_missing_until_prepared(
         "pocket:tokenizer",
         "pocket:voice",
     ]
-    assert [item["status"] for item in setup.check(config)] == ["ready"] * 3
+    assert [item["status"] for item in _files(config)] == ["ready"] * 3
     assert library.loads == []  # fetched file by file: no model was loaded
 
     setup.prepare(config)  # everything is ready: nothing more is fetched
@@ -211,7 +219,7 @@ def test_a_local_voice_file_is_ready_or_missing_and_never_preparable(
 ) -> None:
     module = {"type": "pocket", "voice": "me.wav", "base_dir": str(tmp_path)}
 
-    voice = PocketModule.items(module)[2]
+    voice = PocketModule.check_files(module)[2]
     assert (voice["status"], voice["preparable"]) == ("missing", False)
     assert str(tmp_path / "me.wav") in voice["detail"]
 
@@ -232,7 +240,7 @@ def test_a_local_voice_file_is_ready_or_missing_and_never_preparable(
 def test_a_model_whose_files_cannot_be_named_is_unknown_and_prepared_by_a_load(
     library: _Library, module: dict[str, Any]
 ) -> None:
-    items = PocketModule.items(module)
+    items = PocketModule.check_files(module)
 
     assert [(i["id"], i["status"], i["preparable"]) for i in items] == [
         ("pocket:model", "unknown", True)
@@ -257,9 +265,9 @@ def test_a_library_laid_out_differently_is_unknown_not_an_error(
         lambda path: SimpleNamespace(weights=None),
     )
 
-    assert [item["status"] for item in PocketModule.items({"type": "pocket"})] == [
-        "unknown"
-    ]
+    assert [
+        item["status"] for item in PocketModule.check_files({"type": "pocket"})
+    ] == ["unknown"]
 
 
 def test_without_the_extra_the_model_is_unknown(
@@ -268,7 +276,7 @@ def test_without_the_extra_the_model_is_unknown(
     for name in ("pocket_tts", "torch"):
         monkeypatch.setitem(sys.modules, name, None)
 
-    items = PocketModule.items({"type": "pocket"})
+    items = PocketModule.check_files({"type": "pocket"})
 
     assert [(i["status"], i["preparable"]) for i in items] == [("unknown", True)]
     assert "pocket extra" in items[0]["detail"]
@@ -300,7 +308,7 @@ def test_a_failed_download_is_a_tts_error(library: _Library) -> None:
 def test_validate_and_the_constructor_refuse_the_same_config_with_the_same_message(
     module: dict[str, Any], path: str
 ) -> None:
-    problems = setup.validate({"module": module})
+    problems = setup.check_config({"module": module})
 
     assert [problem["path"] for problem in problems] == [path]
     with pytest.raises(ConfigError) as error:

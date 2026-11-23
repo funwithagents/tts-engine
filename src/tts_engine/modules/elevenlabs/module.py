@@ -179,19 +179,28 @@ class ElevenLabsModule(TTSModule):
         ),
     )
 
-    def __init__(self, config: dict) -> None:
-        values = self.validated(config)
+    @classmethod
+    def imports(cls) -> None:
         try:
-            import miniaudio
-            from elevenlabs import ElevenLabs
-            from elevenlabs.types import VoiceSettings
-            from websockets.exceptions import ConnectionClosedOK
-            from websockets.sync.client import connect
+            import miniaudio  # noqa: F401
+            from elevenlabs import ElevenLabs  # noqa: F401
+            from elevenlabs.types import VoiceSettings  # noqa: F401
+            from websockets.exceptions import ConnectionClosedOK  # noqa: F401
+            from websockets.sync.client import connect  # noqa: F401
         except ImportError as exc:
             raise ConfigError(
                 "The 'elevenlabs' module requires the elevenlabs extra: "
                 "pip install tts-engine[elevenlabs]"
             ) from exc
+
+    def __init__(self, config: dict) -> None:
+        values = self.validated(config)
+        self.imports()
+        import miniaudio
+        from elevenlabs import ElevenLabs
+        from elevenlabs.types import VoiceSettings
+        from websockets.exceptions import ConnectionClosedOK
+        from websockets.sync.client import connect
 
         api_key = resolve_api_key(config, label=_LABEL)
 

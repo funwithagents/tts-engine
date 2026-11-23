@@ -140,7 +140,7 @@ class PocketModule(TTSModule):
     )
 
     @classmethod
-    def check_config(cls, values: dict[str, Any], config: dict) -> None:
+    def config_rules(cls, values: dict[str, Any], config: dict) -> None:
         if values["language"] is not None and values["config"] is not None:
             raise ConfigError("Pocket module accepts 'language' or 'config', not both")
         if values["quantize"] and values["device"] in ("cuda", "mps"):
@@ -219,7 +219,7 @@ class PocketModule(TTSModule):
             return None
 
     @classmethod
-    def items(cls, config: dict) -> list[dict[str, Any]]:
+    def check_files(cls, config: dict) -> list[dict[str, Any]]:
         unknown = {
             "id": "pocket:model",
             "title": "Pocket model",
@@ -286,7 +286,7 @@ class PocketModule(TTSModule):
             cls(config).close()
             report("pocket:model", 1.0, "Model ready")
             return
-        for item in cls.items(config):
+        for item in cls.check_files(config):
             if item["status"] == "ready" or not item["preparable"]:
                 continue
             candidates = sources[item["id"].split(":", 1)[1]]
@@ -301,6 +301,20 @@ class PocketModule(TTSModule):
                         raise TTSError(f"pocket-tts download failed: {exc}") from exc
             report(item["id"], 1.0, f"{item['title']} ready")
 
+    @classmethod
+    def imports(cls) -> None:
+        try:
+            import torch  # noqa: F401
+            from pocket_tts import TTSModel  # noqa: F401
+            from pocket_tts.default_parameters import (
+                get_default_voice_for_language,  # noqa: F401
+            )
+        except ImportError as exc:
+            raise ConfigError(
+                "The 'pocket' module requires the pocket extra: "
+                "pip install tts-engine[pocket]"
+            ) from exc
+
     def __init__(self, config: dict) -> None:
         values = self.validated(config)
         voice = self._voice(values, config)
@@ -313,15 +327,10 @@ class PocketModule(TTSModule):
         temperature: float | None = values["temperature"]
         max_tokens: int | None = values["max_tokens"]
 
-        try:
-            import torch
-            from pocket_tts import TTSModel
-            from pocket_tts.default_parameters import get_default_voice_for_language
-        except ImportError as exc:
-            raise ConfigError(
-                "The 'pocket' module requires the pocket extra: "
-                "pip install tts-engine[pocket]"
-            ) from exc
+        self.imports()
+        import torch
+        from pocket_tts import TTSModel
+        from pocket_tts.default_parameters import get_default_voice_for_language
 
         if device == "auto":
             if quantize:

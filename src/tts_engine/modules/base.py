@@ -77,6 +77,14 @@ class VoiceInfo:
     tags: tuple[str, ...] = ()
 
 
+def _voice_label(voice: VoiceInfo) -> str:
+    """ "River (en, fr, neutral)": a voice's name and what tells it apart."""
+    details = [", ".join(voice.languages)] if voice.languages else []
+    if voice.gender:
+        details.append(voice.gender)
+    return voice.name + (f" ({', '.join(details)})" if details else "")
+
+
 class VoiceListingUnsupported(Exception):
     """The backend has no catalog the module can read; the message says where
     its voices are documented."""
@@ -100,40 +108,21 @@ class TTSModule(ABC):
     extra: ClassVar[str | None]
     fields: ClassVar[tuple[Field, ...]]
 
-    @classmethod
-    def validated(cls, config: dict) -> dict[str, Any]:
-        """The module's fields read from its config block (a default where one
-        is absent), after `check_config`. Raises `ConfigError` on the first
-        invalid field. The first thing a constructor does, before any import:
-        what `problems` accepts is what the constructor accepts."""
-        values = read_fields(
-            config,
-            cls.fields_for(config),
-            label=f"{cls.title} module",
-            error=ConfigError,
-        )
-        cls.check_config(values, config)
-        return values
+    # --- The setup contract, one method per function of `tts_engine.setup`,
+    # each over the module block only, each with a default a module overrides
+    # only when it needs to (specs/setup.md, "On a module").
 
     @classmethod
-    def fields_for(cls, config: dict) -> tuple[Field, ...]:
-        """The fields as this config reads them: `fields`, unless a field's
-        rule depends on another's value (a range that follows the model), in
-        which case the module returns them narrowed. A form is drawn from
-        `fields`; a config is validated against these."""
-        return cls.fields
+    def required_extras(cls, config: dict) -> list[str]:
+        """The extras this module needs, as requirement strings: its own
+        `extra`, whatever the rest of the config says."""
+        return [f"tts-engine[{cls.extra}]"] if cls.extra is not None else []
 
     @classmethod
-    def check_config(cls, values: dict[str, Any], config: dict) -> None:
-        """The module's rules across fields, or on a field's content, that a
-        `Field` cannot state. Raises `ConfigError`. Looks at the config only:
-        no import of the provider's library, no file, no network."""
-
-    @classmethod
-    def problems(cls, config: dict) -> list[tuple[str, str]]:
+    def check_config(cls, config: dict) -> list[tuple[str, str]]:
         """Everything that makes the module refuse this config block, as
-        `(field name, message)`; the name is "" for a rule across fields.
-        Empty when the constructor would accept its shape."""
+        `(field name, message)`; the name is "" for a `config_rules` rule.
+        Empty when the constructor would accept its shape. Imports nothing."""
         found = field_problems(
             config, cls.fields_for(config), label=f"{cls.title} module"
         )
@@ -145,12 +134,36 @@ class TTSModule(ABC):
         return found
 
     @classmethod
-    def items(cls, config: dict) -> list[dict[str, Any]]:
-        """What this config needs on the machine beyond packages (model
-        weights, files), each `{"id", "title", "status", "detail",
-        "preparable"}`. Local and fast: no network. May import the module's
-        extra."""
-        return []
+    def check_setup(cls, config: dict) -> list[dict[str, Any]]:
+        """What this machine is missing to run this config block, each item
+        `{"id", "title", "status", "detail", "preparable"}`: the module's extra
+        (its imports tried), the keys its config names in environment
+        variables, then its files once the extra imports (`check_files`).
+        Local: no network. Never raises."""
+        found: list[dict[str, Any]] = []
+        imported = True
+        if cls.extra is not None:
+            requirement = f"tts-engine[{cls.extra}]"
+            try:
+                cls.imports()
+            except Exception as exc:  # noqa: BLE001 - reported, never raised
+                imported = False
+                status, detail = "missing", str(exc) or type(exc).__name__
+            else:
+                status, detail = "ready", "Installed."
+            found.append(
+                {
+                    "id": f"extra:{requirement}",
+                    "title": f"{cls.title} extra",
+                    "status": status,
+                    "detail": detail,
+                    "preparable": False,
+                }
+            )
+        found += cls._key_items(config)
+        if imported:
+            found += cls.check_files(config)
+        return found
 
     @classmethod
     def prepare(
@@ -159,7 +172,96 @@ class TTSModule(ABC):
         on_progress: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         """Make every preparable item of this config ready (download the
-        weights). Blocking and idempotent; raises `TTSError` on failure."""
+        weights). Needs the extra installed. Blocking and idempotent; raises
+        `TTSError` on failure."""
+
+    @classmethod
+    def options(cls, name: str, config: dict) -> list[dict[str, Any]]:
+        """The choices of a named list, each `{"label", "fields"}`: the fields
+        to merge into the module block. `"voices"` is the module's catalog
+        (`list_voices`); any other name is empty."""
+        if name != "voices":
+            return []
+        return [
+            {"label": _voice_label(voice), "fields": dict(voice.config)}
+            for voice in cls.list_voices(config)
+        ]
+
+    # --- What the contract methods are built on.
+
+    @classmethod
+    def imports(cls) -> None:
+        """Import what the module's extra provides, raising `ConfigError` with
+        the install hint when it is missing. The constructor calls it before
+        its own imports, and `check_setup` tries it. Nothing to import by
+        default (a fixture)."""
+
+    @classmethod
+    def check_files(cls, config: dict) -> list[dict[str, Any]]:
+        """The files this config needs on the machine (model weights, voice
+        files), as `check_setup` items. Called only once `imports` succeeded,
+        so it may use the provider's library to look up its cache. Local: no
+        network, no model load. None by default."""
+        return []
+
+    @classmethod
+    def validated(cls, config: dict) -> dict[str, Any]:
+        """The module's fields read from its config block (a default where one
+        is absent), after `config_rules`. Raises `ConfigError` on the first
+        invalid field. The first thing a constructor does, before any import:
+        what `check_config` accepts is what the constructor accepts."""
+        values = read_fields(
+            config,
+            cls.fields_for(config),
+            label=f"{cls.title} module",
+            error=ConfigError,
+        )
+        cls.config_rules(values, config)
+        return values
+
+    @classmethod
+    def fields_for(cls, config: dict) -> tuple[Field, ...]:
+        """The fields as this config reads them: `fields`, unless a field's
+        rule depends on another's value (a range that follows the model), in
+        which case the module returns them narrowed. A form is drawn from
+        `fields`; a config is validated against these."""
+        return cls.fields
+
+    @classmethod
+    def config_rules(cls, values: dict[str, Any], config: dict) -> None:
+        """The module's rules across fields, or on a field's content, that a
+        `Field` cannot state. Raises `ConfigError`. Looks at the config only:
+        no import of the provider's library, no file, no network."""
+
+    @classmethod
+    def _key_items(cls, config: dict) -> list[dict[str, Any]]:
+        """One item per environment variable the config names for a key, unless
+        the config holds the key itself."""
+        if any(
+            field.secret == "literal" and config.get(field.name) for field in cls.fields
+        ):
+            return []
+        found = []
+        for field in cls.fields:
+            name = config.get(field.name) if field.secret == "env" else None
+            if not isinstance(name, str) or not name:
+                continue
+            present = bool(os.environ.get(name))
+            found.append(
+                {
+                    "id": f"key:{name}",
+                    "title": name,
+                    "status": "ready" if present else "missing",
+                    "detail": (
+                        "Set."
+                        if present
+                        else f"Set the environment variable {name} "
+                        f"(named by '{field.name}')."
+                    ),
+                    "preparable": False,
+                }
+            )
+        return found
 
     def __init__(self, config: dict) -> None:
         """Construct the module from its `engine.module` block (the full dict,

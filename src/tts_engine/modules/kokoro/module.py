@@ -136,7 +136,7 @@ class KokoroModule(TTSModule):
         }
 
     @classmethod
-    def check_config(cls, values: dict[str, Any], config: dict) -> None:
+    def config_rules(cls, values: dict[str, Any], config: dict) -> None:
         voice = values["voice"] or _DEFAULT_VOICE
         if values["language"] is None and voice[0] not in _LANGUAGE_BY_PREFIX:
             raise ConfigError(
@@ -146,7 +146,7 @@ class KokoroModule(TTSModule):
         cls._refs(values, config)
 
     @classmethod
-    def items(cls, config: dict) -> list[dict[str, Any]]:
+    def check_files(cls, config: dict) -> list[dict[str, Any]]:
         refs = cls._refs(cls.validated(config), config)
         try:
             from huggingface_hub import try_to_load_from_cache
@@ -193,7 +193,7 @@ class KokoroModule(TTSModule):
         config: dict,
         on_progress: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
-        for item in cls.items(config):
+        for item in cls.check_files(config):
             if item["status"] == "ready" or not item["preparable"]:
                 continue
             key = item["id"].split(":", 1)[1]
@@ -224,6 +224,22 @@ class KokoroModule(TTSModule):
                     {"id": item["id"], "fraction": 1.0, "message": f"{filename} ready"}
                 )
 
+    @classmethod
+    def imports(cls) -> None:
+        try:
+            from huggingface_hub import hf_hub_download  # noqa: F401
+            from huggingface_hub.errors import (  # noqa: F401
+                RemoteEntryNotFoundError,
+                RepositoryNotFoundError,
+                RevisionNotFoundError,
+            )
+            from kokoro_onnx import Kokoro  # noqa: F401
+        except ImportError as exc:
+            raise ConfigError(
+                "The 'kokoro' module requires the kokoro extra: "
+                "pip install tts-engine[kokoro]"
+            ) from exc
+
     def __init__(self, config: dict) -> None:
         values = self.validated(config)
         voice: str = values["voice"] or _DEFAULT_VOICE
@@ -233,19 +249,14 @@ class KokoroModule(TTSModule):
         refs = self._refs(values, config)
         model_ref, voices_ref = refs["model"], refs["voices"]
 
-        try:
-            from huggingface_hub import hf_hub_download
-            from huggingface_hub.errors import (
-                RemoteEntryNotFoundError,
-                RepositoryNotFoundError,
-                RevisionNotFoundError,
-            )
-            from kokoro_onnx import Kokoro
-        except ImportError as exc:
-            raise ConfigError(
-                "The 'kokoro' module requires the kokoro extra: "
-                "pip install tts-engine[kokoro]"
-            ) from exc
+        self.imports()
+        from huggingface_hub import hf_hub_download
+        from huggingface_hub.errors import (
+            RemoteEntryNotFoundError,
+            RepositoryNotFoundError,
+            RevisionNotFoundError,
+        )
+        from kokoro_onnx import Kokoro
 
         # Checked here: kokoro-onnx opens the model before its own file check,
         # so a missing model would surface as an opaque onnxruntime error.

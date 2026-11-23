@@ -127,7 +127,7 @@ class OpenAISpeechCompatibleModule(TTSModule):
     )
 
     @classmethod
-    def check_config(cls, values: dict[str, Any], config: dict) -> None:
+    def config_rules(cls, values: dict[str, Any], config: dict) -> None:
         if values["sample_rate"] != _DEFAULT_SAMPLE_RATE and values["base_url"] is None:
             # OpenAI's own `pcm` is fixed at 24 kHz; the field only declares the
             # rate of a compatible server's output.
@@ -136,15 +136,20 @@ class OpenAISpeechCompatibleModule(TTSModule):
                 "(OpenAI's pcm output is fixed at 24 kHz)"
             )
 
-    def __init__(self, config: dict) -> None:
-        values = self.validated(config)
+    @classmethod
+    def imports(cls) -> None:
         try:
-            from openai import OpenAI
+            from openai import OpenAI  # noqa: F401
         except ImportError as exc:
             raise ConfigError(
                 "The 'openai-speech-compatible' module requires the openai-compatible extra: "
                 "pip install tts-engine[openai-compatible]"
             ) from exc
+
+    def __init__(self, config: dict) -> None:
+        values = self.validated(config)
+        self.imports()
+        from openai import OpenAI
 
         api_key = resolve_api_key(config, label=_LABEL)
 

@@ -12,6 +12,14 @@ from tts_engine import setup
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import TTSError
 
+
+def _files(config: dict) -> list[dict]:
+    """The module's file items (`check_files`), with its library faked."""
+    from tts_engine.modules import REGISTRY
+
+    return REGISTRY[config["module"]["type"]].check_files(config["module"])
+
+
 _REPO = "Serveurperso/Qwen3-TTS-GGUF"
 _DEFAULT = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
 _VOICE_DESIGN = "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign"
@@ -109,7 +117,7 @@ def _status(items: list[dict[str, Any]]) -> list[tuple[str, str]]:
 def test_the_two_files_are_missing_until_prepared(library: _FakeLibrary) -> None:
     config = {"module": {"type": "qwen3"}}
 
-    before = setup.check(config)
+    before = _files(config)
     assert _status(before) == [("qwen3:talker", "missing"), ("qwen3:codec", "missing")]
     assert all(item["preparable"] for item in before)
     assert "qwen-talker-0.6b-customvoice-Q8_0.gguf" in before[0]["detail"]
@@ -123,7 +131,7 @@ def test_the_two_files_are_missing_until_prepared(library: _FakeLibrary) -> None
         "qwen3:talker",
         "qwen3:codec",
     ]
-    after = setup.check(config)
+    after = _files(config)
     assert _status(after) == [("qwen3:talker", "ready"), ("qwen3:codec", "ready")]
     assert after[0]["detail"] == "/cache/qwen-talker-0.6b-customvoice-Q8_0.gguf"
 
@@ -147,7 +155,7 @@ def test_the_files_follow_the_model_and_the_weight_format(
         "quant": "F32",
     }
 
-    items = setup.check({"module": module})
+    items = _files({"module": module})
 
     # Another model's talker does not count; the codec is shared by a format.
     assert _status(items) == [("qwen3:talker", "missing"), ("qwen3:codec", "ready")]
@@ -165,7 +173,7 @@ def test_a_library_that_hides_its_file_names_still_says_missing_then_ready(
     library = _install(monkeypatch, _FakeLibrary(private_names=False))
     config = {"module": {"type": "qwen3"}}
 
-    before = setup.check(config)
+    before = _files(config)
     assert [(i["id"], i["status"], i["preparable"]) for i in before] == [
         ("qwen3:model", "missing", True)
     ]
@@ -173,7 +181,7 @@ def test_a_library_that_hides_its_file_names_still_says_missing_then_ready(
     setup.prepare(config)
 
     assert library.downloads == [(_DEFAULT, "Q8_0")]
-    assert _status(setup.check(config)) == [
+    assert _status(_files(config)) == [
         ("qwen3:talker", "ready"),
         ("qwen3:codec", "ready"),
     ]
@@ -183,12 +191,12 @@ def test_a_model_or_format_the_library_does_not_know_is_a_config_error(
     library: _FakeLibrary,
 ) -> None:
     with pytest.raises(ConfigError, match="Qwen3 module: Unsupported qwentts quant"):
-        setup.check({"module": {"type": "qwen3", "quant": "Q9"}})
+        _files({"module": {"type": "qwen3", "quant": "Q9"}})
     with pytest.raises(ConfigError, match="Qwen3 module: Unsupported Qwen3-TTS model"):
-        setup.check({"module": {"type": "qwen3", "model": "Qwen/Other"}})
+        _files({"module": {"type": "qwen3", "model": "Qwen/Other"}})
     # A combination the module refuses on its own never reaches the library.
     with pytest.raises(ConfigError, match="'instruct' is required"):
-        setup.check({"module": {"type": "qwen3", "model": _VOICE_DESIGN}})
+        _files({"module": {"type": "qwen3", "model": _VOICE_DESIGN}})
     assert library.downloads == []
 
 
@@ -199,17 +207,17 @@ def test_a_failed_download_is_a_tts_error(library: _FakeLibrary) -> None:
         setup.prepare({"module": {"type": "qwen3"}})
 
 
-def test_without_the_extra_the_model_is_unknown_and_prepare_names_it(
+def test_without_the_extra_only_the_extra_is_reported_and_prepare_names_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setitem(sys.modules, "qwentts_cpp", None)  # as off Apple silicon
     config = {"module": {"type": "qwen3"}}
 
-    items = setup.check(config)
+    items = setup.check_setup(config)
 
     assert [(i["id"], i["status"], i["preparable"]) for i in items] == [
-        ("qwen3:model", "unknown", True)
+        ("extra:tts-engine[qwen3]", "missing", False)
     ]
-    assert "qwen3 extra is not installed" in items[0]["detail"]
+    assert "pip install tts-engine[qwen3]" in items[0]["detail"]
     with pytest.raises(ConfigError, match=r"pip install tts-engine\[qwen3\]"):
         setup.prepare(config)
