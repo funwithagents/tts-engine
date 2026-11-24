@@ -81,8 +81,9 @@ def config_schema() -> dict[str, Any]:
             "properties": {
                 "module": {
                     "type": "object",
-                    "title": "Voice",
-                    "description": "The backend that turns text into speech.",
+                    "title": "Module",
+                    "description": "What turns text into speech: a provider's API "
+                    "(hosted) or a model run on this machine (local).",
                     "required": ["type"],
                     "oneOf": branches,
                 },
