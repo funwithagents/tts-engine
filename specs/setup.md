@@ -10,7 +10,7 @@ tests:
 
 # Setup
 
-**Status:** Stable
+**Status:** Implemented
 
 ## Purpose
 
