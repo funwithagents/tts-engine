@@ -16,6 +16,8 @@ Implements the key rule in `specs/modules/elevenlabs.md` ("API key resolution"),
 - `tests/modules/*.py`, `tests/test_setup.py`, `tests/test_config.py` — configs without `api_key`; the shared rule's tests rewritten; every provider module's default variable, an unset one reported missing, a key in the config refused; a compatible server naming no key.
 - `specs/modules/*.md`, `specs/tts-module-interface.md`, `specs/setup.md`, `specs/configuration.md`, `specs/voice-audition.md`, `specs/_index.md`, `docs/configuration.md`, `docs/modules/*.md`, `docs/voice-audition.md` — the rule, the field tables, the refusal message.
 
+- `src/tts_engine/setup.py` — `probe` becomes a light real check (the family's rule for Test): a hosted module's voice list with the key, the configured voice looked up there; a module with no list built and closed; a local model loaded and released; never a synthesis or a device. `specs/setup.md`, `docs/setup.md`.
+
 ## Steps
 
 1. Declare the key field once, with its default, and refuse `api_key`.

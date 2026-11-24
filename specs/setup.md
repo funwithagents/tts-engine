@@ -50,7 +50,7 @@ Each is the engine's own part (the module choice, `player`, `gain_db`) plus the 
 | `check_setup(config)` | What this machine is missing to run it: the module's extra, the keys its config names, its files; each `{"id", "title", "status": "ready"/"missing"/"unknown", "detail", "preparable"}`; `[]` when it needs none |
 | `prepare(config, on_progress)` | Makes every preparable item ready (downloads the weights). Blocking, idempotent, raises `TTSError` on failure. `on_progress` receives `{"id", "fraction", "message"}` |
 | `options(name, config)` | The choices of a named list, each `{"label": …, "fields": {…}}` — the fields to merge into the object the list belongs to. `"voices"` and `"output-devices"` |
-| `probe(config)` | Speaks one test sentence with this config and reports `{"ok", "message", "duration_s"}`. Never raises |
+| `probe(config)` | Checks the config for real as lightly as possible (a hosted module's voice list, a local model loaded and released) and reports `{"ok", "message", "duration_s"}`. Never synthesizes, never raises |
 
 ## Fields are declared once
 
@@ -213,13 +213,15 @@ An unknown name returns `[]`.
 
 ## `probe`
 
-`probe(config, *, sink=None)` builds a `TTSEngine` from the config, speaks one short sentence through it, closes it, and returns `{"ok", "message", "duration_s"}`. It never raises.
+`probe(config)` checks the config for real, as lightly as possible, and returns `{"ok", "message", "duration_s"}`. It never raises, never synthesizes, and opens no device.
 
-- It speaks on the device the config names, so the user hears the voice they chose. With `player.discard`, or with a `sink` given by a caller that has its own audio path, the audio is synthesized without a device and the message says nothing was played.
+- First the module's own `check_config`: a config it refuses fails the probe with its first problem.
+- **A hosted module** makes one authenticated, free call: its voice list (`list_voices`), with the key the config names (`api_key_env` or its default) and its endpoint. When the config selects a voice (the list's `VoiceInfo.config` fields, such as `voice_id`), it must be in that list: a voice outside the account fails the probe. A hosted module with no voice list (Gemini, OpenAI Realtime, an OpenAI-compatible server) is built and closed instead, and the message says the key is checked at the first utterance.
+- **A local module** is built, which loads its model, and closed, which releases it: the extra, the files and the compute device are proven.
+- **The fixture** is built and closed.
+- Not checked: the output part (`player`, `gain_db`): nothing is played, so a wrong device shows at the first utterance.
 - It runs on a thread of its own, so it can be called from a thread that already runs an event loop.
-- The sentence is a fixed English one. A module whose config selects a language the sentence does not fit still proves the key, the model and the device.
-- `ok: false` carries the message of the error the engine raised, which already names what to do for a missing extra or an unset key variable.
-- `duration_s` covers the build and the speech together.
+- `ok: false` carries the message of what failed, which already names what to do for a missing extra or an unset key variable.
 
 ## Testing
 

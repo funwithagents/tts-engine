@@ -20,6 +20,7 @@ from tts_engine import setup
 from tts_engine.config import ConfigError
 from tts_engine.modules import REGISTRY
 from tts_engine.modules.base import VoiceInfo, VoiceListingUnsupported
+from tts_engine.modules.elevenlabs import ElevenLabsModule
 from tts_engine.modules.kokoro import KokoroModule
 from tts_engine.modules.tone import ToneModule
 
@@ -581,50 +582,109 @@ def test_an_unknown_list_is_empty() -> None:
 # --- probe ----------------------------------------------------------------------
 
 
-class _RecordingSink:
-    def __init__(self) -> None:
-        self.audio = b""
-        self.drains = 0
+class _Built:
+    """What `load_module` builds in these tests: it records being closed."""
 
-    def feed(self, chunk: bytes) -> None:
-        self.audio += chunk
+    def __init__(self, closed: list[dict[str, Any]], block: dict[str, Any]) -> None:
+        self.closed, self.block = closed, block
 
-    def drain(self) -> None:
-        self.drains += 1
+    def close(self) -> None:
+        self.closed.append(self.block)
 
 
-def test_probe_speaks_a_sentence_and_releases_the_engine(
+def _built(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    closed: list[dict[str, Any]] = []
+    monkeypatch.setattr(setup, "load_module", lambda block: _Built(closed, block))
+    return closed
+
+
+def test_probe_builds_a_fixture_and_closes_it_without_a_sound(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    closed: list[str] = []
-    monkeypatch.setattr(
-        ToneModule, "close", lambda self: closed.append("module"), raising=False
-    )
-    sink = _RecordingSink()
+    closed = _built(monkeypatch)
 
-    result = setup.probe({"module": {"type": "tone"}}, sink=sink)
+    result = setup.probe({"module": {"type": "tone"}})
+
+    assert (result["ok"], result["message"]) == (True, "Built the module.")
+    assert result["duration_s"] >= 0
+    assert closed == [{"type": "tone"}]
+
+
+def test_probe_loads_a_local_model_and_releases_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    closed = _built(monkeypatch)
+
+    result = setup.probe({"module": {"type": "kokoro", "voice": "af_heart"}})
+
+    assert (result["ok"], result["message"]) == (
+        True,
+        "Loaded the model and released it.",
+    )
+    assert closed == [{"type": "kokoro", "voice": "af_heart"}]
+
+
+def _listing(monkeypatch: pytest.MonkeyPatch, *ids: str) -> None:
+    voices = [VoiceInfo(id=i, name=f"Voice {i}", config={"voice_id": i}) for i in ids]
+    monkeypatch.setattr(
+        ElevenLabsModule, "list_voices", classmethod(lambda cls, config, **_: voices)
+    )
+
+
+def test_probe_lists_a_hosted_module_s_voices_and_finds_the_configured_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _listing(monkeypatch, "a", "b")
+    closed = _built(monkeypatch)
+
+    found = setup.probe({"module": {"type": "elevenlabs", "voice_id": "b"}})
+    missing = setup.probe({"module": {"type": "elevenlabs", "voice_id": "z"}})
+
+    assert found == {
+        "ok": True,
+        "message": "Authenticated: 2 voices listed; the configured voice is one of "
+        "them (Voice b).",
+        "duration_s": found["duration_s"],
+    }
+    assert missing["ok"] is False
+    assert "the configured voice is not among the 2 voices" in missing["message"]
+    assert closed == []  # nothing built: the listing was the call
+
+
+def test_probe_builds_a_hosted_module_with_no_voice_list_and_says_what_it_checked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    closed = _built(monkeypatch)
+
+    result = setup.probe({"module": {"type": "gemini"}})
 
     assert result["ok"] is True
-    assert "nothing was played" in result["message"]
-    assert result["duration_s"] >= 0
-    # The whole sentence, at 0.05 s a character of 24 kHz 16-bit mono.
-    assert len(sink.audio) == round(len(setup.PROBE_SENTENCE) * 0.05 * 24000) * 2
-    assert sink.drains == 1
-    assert closed == ["module"]
+    assert result["message"].startswith(
+        "Gemini has no voice list to check the key with"
+    )
+    assert closed == [{"type": "gemini"}]
 
 
-def test_probe_reports_a_config_that_cannot_run_and_raises_nothing() -> None:
-    result = setup.probe({"module": {"type": "elevenlabs"}}, sink=_RecordingSink())
+def test_probe_reports_a_config_that_cannot_run_and_raises_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _listing(monkeypatch, "a")
+
+    result = setup.probe({"module": {"type": "elevenlabs"}})
 
     assert result["ok"] is False
     assert result["message"] == "ElevenLabs module requires a non-empty 'voice_id'"
 
 
-def test_probe_runs_from_a_thread_that_already_has_an_event_loop() -> None:
+def test_probe_runs_from_a_thread_that_already_has_an_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import asyncio
 
+    _built(monkeypatch)
+
     async def on_a_loop() -> dict[str, Any]:
-        return setup.probe({"module": {"type": "tone"}}, sink=_RecordingSink())
+        return setup.probe({"module": {"type": "tone"}})
 
     assert asyncio.run(on_a_loop())["ok"] is True
 

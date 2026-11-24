@@ -14,13 +14,11 @@ choice) plus the method of the same name on the selected module. All but
 Nothing here is imported by the engine itself.
 """
 
-import asyncio
 import threading
 import time
 from collections.abc import Callable
 from typing import Any
 
-from tts_engine.audio import AudioSink
 from tts_engine.config import (
     GAIN_DB_MAX,
     GAIN_DB_MIN,
@@ -30,12 +28,11 @@ from tts_engine.config import (
     _check_module,
     _check_player,
 )
-from tts_engine.modules import REGISTRY, RENAMED
-from tts_engine.modules.base import TTSModule
+from tts_engine.modules import REGISTRY, RENAMED, load_module, resolve_type
+from tts_engine.modules.base import TTSModule, VoiceListingUnsupported
 from tts_engine.modules.fields import fields_schema
 
 __all__ = [
-    "PROBE_SENTENCE",
     "check_config",
     "check_setup",
     "config_schema",
@@ -46,7 +43,6 @@ __all__ = [
 ]
 
 _DISTRIBUTION = "tts-engine"
-PROBE_SENTENCE = "Hello, this is a test of the voice you selected."
 
 
 def _module_class(config: Any) -> type[TTSModule] | None:
@@ -230,44 +226,71 @@ def options(name: str, config: dict[str, Any]) -> list[dict[str, Any]]:
     return cls.options(name, module)
 
 
-def _speak(config: dict[str, Any], sink: AudioSink | None) -> str:
-    """Build the engine, say the probe sentence, close; what was done, in words."""
-    from tts_engine.engine import TTSEngine
-
-    engine_config = TTSEngineConfig.from_dict(config)
-
-    async def run() -> None:
-        engine = TTSEngine(engine_config, sink=sink)
+def _check(config: dict[str, Any]) -> str:
+    """The lightest real check of this config, what it showed in words; raises what
+    goes wrong. A hosted module makes one authenticated, free call (its voice list)
+    and looks for the configured voice there; one with no voice list is built and
+    closed; a local module loads its model and releases it. Nothing is synthesized
+    and no device is opened."""
+    block = TTSEngineConfig.from_dict(config).module
+    cls = REGISTRY[resolve_type(block.get("type"))]
+    problems = cls.check_config(block)
+    if problems:
+        raise ConfigError(problems[0][1])
+    if cls.kind == "hosted":
         try:
-            await engine.say(PROBE_SENTENCE)
-        finally:
-            await engine.close()
+            voices = cls.list_voices(block)
+        except VoiceListingUnsupported:
+            _build_and_close(block)
+            return (
+                f"{cls.title} has no voice list to check the key with: the module "
+                "was built, the key is checked at the first utterance."
+            )
+        chosen = [
+            voice
+            for voice in voices
+            if voice.config
+            and all(block.get(name) == value for name, value in voice.config.items())
+        ]
+        named = any(name in block for voice in voices for name in voice.config)
+        if named and not chosen:
+            raise ConfigError(
+                f"Authenticated, but the configured voice is not among the "
+                f"{len(voices)} voices {cls.title} lists for this account."
+            )
+        found = (
+            f"; the configured voice is one of them ({chosen[0].name})"
+            if chosen
+            else ""
+        )
+        return f"Authenticated: {len(voices)} voices listed{found}."
+    _build_and_close(block)
+    if cls.kind == "local":
+        return "Loaded the model and released it."
+    return "Built the module."
 
-    asyncio.run(run())
-    if sink is not None or engine_config.player.discard:
-        return "Synthesized a test sentence; nothing was played on a device."
-    device = engine_config.player.device
-    where = "the default device" if device is None else f"device {device!r}"
-    return f"Spoke a test sentence on {where}."
+
+def _build_and_close(block: dict[str, Any]) -> None:
+    module = load_module(block)
+    module.close()
 
 
-def probe(config: dict[str, Any], *, sink: AudioSink | None = None) -> dict[str, Any]:
-    """Speak one test sentence with this config and report how it went. Never
-    raises. `sink` replaces the device (for a caller with its own audio path,
-    and for tests)."""
+def probe(config: dict[str, Any]) -> dict[str, Any]:
+    """Check this config for real, as lightly as possible (`_check`): never a
+    synthesis, never a device. Never raises."""
     outcome: dict[str, Any] = {}
 
     def work() -> None:
         try:
-            outcome["message"] = _speak(config, sink)
+            outcome["message"] = _check(config)
             outcome["ok"] = True
         except Exception as exc:  # noqa: BLE001 - a probe reports, it never raises
             outcome["message"] = str(exc) or type(exc).__name__
             outcome["ok"] = False
 
     started = time.monotonic()
-    # Its own thread: `asyncio.run` needs one without a running loop, and the
-    # caller may be on a loop's thread.
+    # Its own thread: some modules run an event loop of their own while they list
+    # or build, and the caller may be on a loop's thread.
     worker = threading.Thread(target=work, name="tts-engine-probe")
     worker.start()
     worker.join()

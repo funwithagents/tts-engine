@@ -13,7 +13,7 @@ setup.check_config(config)      # [] when the engine accepts this config
 setup.required_extras(config)   # ["tts-engine[kokoro]"]
 setup.check_setup(config)       # the extra, then the model files: each "ready", "missing" or "unknown"
 setup.prepare(config)           # downloads the missing files
-setup.probe(config)             # speaks one sentence: {"ok": True, "message": ..., "duration_s": ...}
+setup.probe(config)             # a light real check: {"ok": True, "message": ..., "duration_s": ...}
 ```
 
 ## The functions
@@ -26,7 +26,7 @@ setup.probe(config)             # speaks one sentence: {"ok": True, "message": .
 | `check_setup(config)` | What this machine is missing to run the config: the module's extra, the environment variables holding its keys, its files (model weights, voices) | Nothing |
 | `prepare(config, on_progress)` | Downloads the missing files; `on_progress` receives `{"id", "fraction", "message"}` | The extra, the network |
 | `options(name, config)` | The choices of `"voices"` (the selected module's catalog) or `"output-devices"`, each with the config fields it sets | The extra; a key for a hosted catalog |
-| `probe(config)` | Builds the engine, speaks one sentence on the configured device, closes it. Never raises | Everything the config needs |
+| `probe(config)` | A light real check: a hosted module lists its voices with the key (and finds the configured voice there); a local module loads its model and releases it. Nothing is played. Never raises | Everything the config needs |
 
 "Nothing" means the base install, with no network: `config_schema`, `required_extras` and `check_config` look at the config only, so an application can show and check a config for a module that is not installed yet. `check_setup` also tries the module's imports (a missing extra is one of its answers) and reads the environment.
 
