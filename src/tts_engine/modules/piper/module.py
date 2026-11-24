@@ -17,11 +17,13 @@ from typing import Any
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
+    Report,
     TTSError,
     TTSModule,
     TTSOptions,
     VoiceInfo,
     feed_with_lookahead,
+    hub_download,
     resolve_path,
     run_cancellable_worker,
     run_text_stream_worker,
@@ -165,12 +167,14 @@ class PiperModule(TTSModule):
                     "status": "ready" if present else "missing",
                     "detail": str(ref) if present else f"File not found: {ref}",
                     "preparable": False,
+                    "required": True,
                 }
             elif try_to_load_from_cache is None:
                 item |= {
                     "status": "unknown",
                     "detail": "The piper extra is not installed.",
                     "preparable": True,
+                    "required": False,
                 }
             else:
                 repo_id, filename, revision = ref
@@ -184,46 +188,20 @@ class PiperModule(TTSModule):
                         else f"{filename} of {repo_id} is not downloaded yet."
                     ),
                     "preparable": True,
+                    # The constructor downloads it when it is missing.
+                    "required": False,
                 }
             found.append(item)
         return found
 
     @classmethod
-    def prepare(
-        cls,
-        config: dict,
-        on_progress: Callable[[dict[str, Any]], None] | None = None,
-    ) -> None:
-        files = cls._files(config)
-        for item in cls.check_files(config):
-            if item["status"] == "ready" or not item["preparable"]:
-                continue
-            ref = files[item["id"].split(":", 1)[1]]
-            assert not isinstance(ref, Path)
-            repo_id, filename, revision = ref
-            if on_progress is not None:
-                on_progress(
-                    {
-                        "id": item["id"],
-                        "fraction": None,
-                        "message": f"Downloading {filename}",
-                    }
-                )
-            try:
-                from huggingface_hub import hf_hub_download
-
-                hf_hub_download(repo_id, filename, revision=revision)
-            except ImportError as exc:
-                raise ConfigError(
-                    "The 'piper' module requires the piper extra: "
-                    "pip install tts-engine[piper]"
-                ) from exc
-            except Exception as exc:
-                raise TTSError(f"piper download failed: {exc}") from exc
-            if on_progress is not None:
-                on_progress(
-                    {"id": item["id"], "fraction": 1.0, "message": f"{filename} ready"}
-                )
+    def fetch(cls, config: dict, item: dict[str, Any], report: Report) -> None:
+        ref = cls._files(config)[item["id"].split(":", 1)[1]]
+        assert not isinstance(ref, Path)
+        try:
+            hub_download(*ref, report)
+        except Exception as exc:
+            raise TTSError(f"piper download failed: {exc}") from exc
 
     @classmethod
     def imports(cls) -> None:

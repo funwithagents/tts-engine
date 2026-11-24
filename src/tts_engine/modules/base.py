@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar, Literal, TypeVar, cast, overload
+from typing import Any, ClassVar, Literal, Self, TypeVar, cast, overload
 
 import numpy as np
 
@@ -94,6 +94,97 @@ class VoiceListingUnsupported(Exception):
 # process (`local`), or nowhere — deterministic audio for tests (`fixture`).
 ModuleKind = Literal["hosted", "local", "fixture"]
 
+# How far the preparation of one item is: `(fraction, message)`, the fraction
+# the share done from 0.0 to 1.0, or None when it cannot be measured.
+Report = Callable[[float | None, str], None]
+
+
+def _size(count: float) -> str:
+    """A byte count for a person: "120 MB", "1.2 GB", "5 kB"."""
+    if count >= 1e9:
+        return f"{count / 1e9:.1f} GB"
+    if count >= 1e6:
+        return f"{count / 1e6:.0f} MB"
+    return f"{count / 1e3:.0f} kB"
+
+
+def _progress_bar(report: Report, name: str) -> type:
+    """A stand-in for `tqdm`, for `hf_hub_download(tqdm_class=...)`: it turns the
+    bytes the download receives into reports, about one per percent. It is not a
+    `tqdm` subclass, so the Hub never disables it for want of a terminal. Its
+    `update_transfer` makes a Xet download count on this one bar both the bytes
+    received over the network (which arrive as they go) and the ones written (which
+    may come in one flush at the end): the larger of the two is shown."""
+
+    class Bar:
+        def __init__(
+            self, *args: Any, total: float | None = None, initial: float = 0, **_: Any
+        ) -> None:
+            self.total = total
+            self.n = initial
+            self.received = initial
+            self._shown: int | None = None
+            self._show()
+
+        def update(self, n: float | None = 1) -> None:
+            self.n += n or 0
+            self._show()
+
+        def update_transfer(self, n: float | None = 1) -> None:
+            self.received += n or 0
+            self._show()
+
+        def set_postfix_str(self, *args: Any, **kwargs: Any) -> None: ...
+
+        def set_transfer_postfix_str(self, *args: Any, **kwargs: Any) -> None: ...
+
+        def refresh(self, *args: Any, **kwargs: Any) -> None: ...
+
+        def close(self) -> None: ...
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            self.close()
+
+        def _show(self) -> None:
+            done = max(self.n, self.received)
+            if not self.total:
+                step = int(done // 1e6)  # unmeasured: one report per megabyte
+                if step != self._shown:
+                    self._shown = step
+                    report(None, f"Downloading {name}: {_size(done)}")
+                return
+            fraction = min(max(done / self.total, 0.0), 1.0)
+            step = int(fraction * 100)
+            if step != self._shown:
+                self._shown = step
+                report(
+                    fraction,
+                    f"Downloading {name}: {_size(done)} of {_size(self.total)}",
+                )
+
+    return Bar
+
+
+def hub_download(
+    repo_id: str, filename: str, revision: str | None, report: Report
+) -> str:
+    """`huggingface_hub.hf_hub_download` of one file, the call a constructor
+    makes, its bytes reported against the file's size as they arrive. Its path
+    in the Hugging Face cache. Two calls for two files may run at the same time:
+    the Hub locks each file it writes."""
+    import huggingface_hub
+
+    report(0.0, f"Downloading {filename}")
+    return huggingface_hub.hf_hub_download(
+        repo_id,
+        filename,
+        revision=revision,
+        tqdm_class=_progress_bar(report, filename),
+    )
+
 
 class TTSModule(ABC):
     # Declared by every module (a class attribute, no default): what an
@@ -140,10 +231,10 @@ class TTSModule(ABC):
     @classmethod
     def check_setup(cls, config: dict) -> list[dict[str, Any]]:
         """What this machine is missing to run this config block, each item
-        `{"id", "title", "status", "detail", "preparable"}`: the module's extra
-        (its imports tried), the keys its config names in environment
-        variables, then its files once the extra imports (`check_files`).
-        Local: no network. Never raises."""
+        `{"id", "title", "status", "detail", "preparable", "required"}`: the
+        module's extra (its imports tried), the keys its config names in
+        environment variables, then its files once the extra imports
+        (`check_files`). Local: no network. Never raises."""
         found: list[dict[str, Any]] = []
         imported = True
         if cls.extra is not None:
@@ -162,6 +253,7 @@ class TTSModule(ABC):
                     "status": status,
                     "detail": detail,
                     "preparable": False,
+                    "required": True,
                 }
             )
         found += cls._key_items(config)
@@ -173,11 +265,49 @@ class TTSModule(ABC):
     def prepare(
         cls,
         config: dict,
+        item: str,
         on_progress: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
-        """Make every preparable item of this config ready (download the
-        weights). Needs the extra installed. Blocking and idempotent; raises
-        `TTSError` on failure."""
+        """Make one preparable item of this config ready (an id `check_files`
+        returns): download it. Needs the extra installed (its install hint
+        otherwise). Blocking and idempotent: an item already ready returns at
+        once. Another item of the same config may be prepared at the same
+        time, on another thread. An id that is not a preparable item of this
+        config raises `ValueError` naming it; a failure raises `TTSError` (or
+        `ConfigError` for a value the provider refuses).
+
+        `on_progress` receives `{"fraction", "message"}` about this item:
+        `fetch`'s own reports, then `1.0` once it is ready."""
+        cls.imports()
+        found = next(
+            (
+                candidate
+                for candidate in cls.check_files(config)
+                if candidate["id"] == item and candidate["preparable"]
+            ),
+            None,
+        )
+        if found is None:
+            raise ValueError(
+                f"{cls.title} module: {item!r} is not an item this config can prepare"
+            )
+
+        def report(fraction: float | None, message: str) -> None:
+            if on_progress is not None:
+                on_progress({"fraction": fraction, "message": message})
+
+        if found["status"] != "ready":
+            cls.fetch(config, found, report)
+        report(1.0, f"{found['title']} ready")
+
+    @classmethod
+    def fetch(cls, config: dict, item: dict[str, Any], report: Report) -> None:
+        """Fetch one preparable item of `check_files` that is not ready, through
+        the call the constructor makes, so the constructor then finds it in
+        place. `report(fraction, message)` says how far it is: once as it
+        starts, then as it advances (`prepare` reports the end). Only a module
+        with preparable items overrides it."""
+        raise ValueError(f"{cls.title} module has nothing to prepare")
 
     @classmethod
     def options(cls, name: str, config: dict) -> list[dict[str, Any]]:
@@ -301,6 +431,7 @@ class TTSModule(ABC):
                         f"(named by '{field.name}')."
                     ),
                     "preparable": False,
+                    "required": True,
                 }
             )
         return found

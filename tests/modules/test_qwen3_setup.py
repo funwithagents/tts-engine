@@ -35,7 +35,10 @@ class _FakeLibrary:
 
     def __init__(self, *, private_names: bool = True) -> None:
         self.cache: set[str] = set()
+        # What the library downloaded itself (model, quant), and the files the
+        # module downloaded one by one through the Hub (filename).
         self.downloads: list[tuple[str, str]] = []
+        self.files: list[str] = []
         self.loads = 0
         self.raise_on_download: Exception | None = None
         self._private_names = private_names
@@ -92,16 +95,31 @@ class _FakeLibrary:
         assert repo_id == _REPO
         return f"/cache/{filename}" if filename in self.cache else None
 
+    def hub_download(
+        self,
+        repo_id: str,
+        filename: str,
+        revision: str | None = None,
+        tqdm_class: Any = None,
+    ) -> str:
+        """The Hub's download of one file, the one `resolve_gguf_paths` makes."""
+        assert repo_id == _REPO
+        if self.raise_on_download is not None:
+            raise self.raise_on_download
+        if tqdm_class is not None:
+            with tqdm_class(total=600_000_000, initial=0) as bar:
+                bar.update(150_000_000)
+                bar.update(450_000_000)
+        self.files.append(filename)
+        self.cache.add(filename)
+        return f"/cache/{filename}"
+
 
 def _install(monkeypatch: pytest.MonkeyPatch, library: _FakeLibrary) -> _FakeLibrary:
     huggingface_hub = pytest.importorskip("huggingface_hub")
     monkeypatch.setitem(sys.modules, "qwentts_cpp", library.module())
     monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache", library.cached)
-    monkeypatch.setattr(
-        huggingface_hub,
-        "hf_hub_download",
-        lambda *a, **k: pytest.fail("the library's own download is the one used"),
-    )
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", library.hub_download)
     return library
 
 
@@ -114,29 +132,44 @@ def _status(items: list[dict[str, Any]]) -> list[tuple[str, str]]:
     return [(item["id"], item["status"]) for item in items]
 
 
+def _prepare_all(config: dict[str, Any]) -> None:
+    for item in _files(config):
+        if item["status"] != "ready":
+            setup.prepare(config, item["id"])
+
+
 def test_the_two_files_are_missing_until_prepared(library: _FakeLibrary) -> None:
     config = {"module": {"type": "qwen3"}}
 
     before = _files(config)
     assert _status(before) == [("qwen3:talker", "missing"), ("qwen3:codec", "missing")]
-    assert all(item["preparable"] for item in before)
+    # The model load downloads them: preparable, not required.
+    assert all(item["preparable"] and not item["required"] for item in before)
     assert "qwen-talker-0.6b-customvoice-Q8_0.gguf" in before[0]["detail"]
     assert "qwen-tokenizer-12hz-Q8_0.gguf" in before[1]["detail"]
 
     progress: list[dict[str, Any]] = []
-    setup.prepare(config, progress.append)
+    setup.prepare(config, "qwen3:talker", on_progress=progress.append)
 
-    assert library.downloads == [(_DEFAULT, "Q8_0")]
-    assert [p["id"] for p in progress if p["fraction"] == 1.0] == [
-        "qwen3:talker",
-        "qwen3:codec",
+    assert library.files == ["qwen-talker-0.6b-customvoice-Q8_0.gguf"]
+    assert [p["fraction"] for p in progress] == [0.0, 0.0, 0.25, 1.0, 1.0]
+    assert progress[2]["message"] == (
+        "Downloading qwen-talker-0.6b-customvoice-Q8_0.gguf: 150 MB of 600 MB"
+    )
+    assert _status(_files(config)) == [
+        ("qwen3:talker", "ready"),
+        ("qwen3:codec", "missing"),
     ]
+
+    setup.prepare(config, "qwen3:codec")
     after = _files(config)
     assert _status(after) == [("qwen3:talker", "ready"), ("qwen3:codec", "ready")]
     assert after[0]["detail"] == "/cache/qwen-talker-0.6b-customvoice-Q8_0.gguf"
 
-    setup.prepare(config)  # everything is ready: nothing more is fetched
-    assert len(library.downloads) == 1
+    _prepare_all(config)  # everything is ready: nothing more is fetched
+    setup.prepare(config, "qwen3:talker")
+    assert len(library.files) == 2
+    assert library.downloads == []  # file by file, not the library's own
     assert library.loads == 0  # checking and preparing never load the model
 
 
@@ -161,10 +194,8 @@ def test_the_files_follow_the_model_and_the_weight_format(
     assert _status(items) == [("qwen3:talker", "missing"), ("qwen3:codec", "ready")]
     assert "qwen-talker-1.7b-voicedesign-F32.gguf" in items[0]["detail"]
 
-    progress: list[dict[str, Any]] = []
-    setup.prepare({"module": module}, progress.append)
-    assert library.downloads == [(_VOICE_DESIGN, "F32")]
-    assert {p["id"] for p in progress} == {"qwen3:talker"}
+    _prepare_all({"module": module})
+    assert library.files == ["qwen-talker-1.7b-voicedesign-F32.gguf"]
 
 
 def test_a_library_that_hides_its_file_names_still_says_missing_then_ready(
@@ -174,13 +205,16 @@ def test_a_library_that_hides_its_file_names_still_says_missing_then_ready(
     config = {"module": {"type": "qwen3"}}
 
     before = _files(config)
-    assert [(i["id"], i["status"], i["preparable"]) for i in before] == [
-        ("qwen3:model", "missing", True)
+    assert [(i["id"], i["status"], i["preparable"], i["required"]) for i in before] == [
+        ("qwen3:model", "missing", True, False)
     ]
 
-    setup.prepare(config)
+    progress: list[dict[str, Any]] = []
+    setup.prepare(config, "qwen3:model", on_progress=progress.append)
 
     assert library.downloads == [(_DEFAULT, "Q8_0")]
+    # The library's own download reports nothing: unmeasured, then ready.
+    assert [p["fraction"] for p in progress] == [None, 1.0]
     assert _status(_files(config)) == [
         ("qwen3:talker", "ready"),
         ("qwen3:codec", "ready"),
@@ -204,7 +238,7 @@ def test_a_failed_download_is_a_tts_error(library: _FakeLibrary) -> None:
     library.raise_on_download = OSError("hub unreachable")
 
     with pytest.raises(TTSError, match="qwen3 download failed: hub unreachable"):
-        setup.prepare({"module": {"type": "qwen3"}})
+        setup.prepare({"module": {"type": "qwen3"}}, "qwen3:codec")
 
 
 def test_without_the_extra_only_the_extra_is_reported_and_prepare_names_it(
@@ -215,9 +249,9 @@ def test_without_the_extra_only_the_extra_is_reported_and_prepare_names_it(
 
     items = setup.check_setup(config)
 
-    assert [(i["id"], i["status"], i["preparable"]) for i in items] == [
-        ("extra:tts-engine[qwen3]", "missing", False)
+    assert [(i["id"], i["status"], i["preparable"], i["required"]) for i in items] == [
+        ("extra:tts-engine[qwen3]", "missing", False, True)
     ]
     assert "pip install tts-engine[qwen3]" in items[0]["detail"]
     with pytest.raises(ConfigError, match=r"pip install tts-engine\[qwen3\]"):
-        setup.prepare(config)
+        setup.prepare(config, "qwen3:talker")

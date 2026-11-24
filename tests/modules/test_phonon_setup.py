@@ -2,6 +2,8 @@
 with the ptts runtime faked: no model is loaded, nothing is downloaded."""
 
 import sys
+import threading
+import time
 import types
 from pathlib import Path
 from typing import Any
@@ -59,8 +61,11 @@ def ptts(monkeypatch: pytest.MonkeyPatch) -> _FakePtts:
     return fake
 
 
-def _status(items: list[dict[str, Any]]) -> list[tuple[str, str, bool]]:
-    return [(item["id"], item["status"], item["preparable"]) for item in items]
+def _status(items: list[dict[str, Any]]) -> list[tuple[str, str, bool, bool]]:
+    return [
+        (item["id"], item["status"], item["preparable"], item["required"])
+        for item in items
+    ]
 
 
 def test_a_hub_model_and_a_catalog_voice_are_unknown_and_checking_loads_nothing(
@@ -71,8 +76,8 @@ def test_a_hub_model_and_a_catalog_voice_are_unknown_and_checking_loads_nothing(
     items = _files(config)
 
     assert _status(items) == [
-        ("phonon:model", "unknown", True),
-        ("phonon:voice", "unknown", True),
+        ("phonon:model", "unknown", True, False),
+        ("phonon:voice", "unknown", True, False),
     ]
     assert "hf://gradium/phonon-31m-en" in items[0]["detail"]
     assert "'Juniper'" in items[1]["detail"]
@@ -84,11 +89,13 @@ def test_without_a_voice_the_model_is_the_only_item(ptts: _FakePtts) -> None:
 
     items = _files(config)
 
-    assert _status(items) == [("phonon:model", "unknown", True)]
+    assert _status(items) == [("phonon:model", "unknown", True, False)]
     assert "hf://gradium/phonon-40m-fr" in items[0]["detail"]
 
 
-def test_prepare_loads_the_model_as_the_constructor_does(ptts: _FakePtts) -> None:
+def test_preparing_the_voice_loads_the_model_with_it_as_the_constructor_does(
+    ptts: _FakePtts,
+) -> None:
     module = {
         "type": "phonon",
         "voice": "Juniper",
@@ -100,7 +107,7 @@ def test_prepare_loads_the_model_as_the_constructor_does(ptts: _FakePtts) -> Non
     }
     progress: list[dict[str, Any]] = []
 
-    setup.prepare({"module": module}, progress.append)
+    setup.prepare({"module": module}, "phonon:voice", on_progress=progress.append)
 
     assert ptts.loads == [
         {
@@ -112,12 +119,56 @@ def test_prepare_loads_the_model_as_the_constructor_does(ptts: _FakePtts) -> Non
         }
     ]
     assert ptts.threads_set == [2]
-    assert [(p["id"], p["fraction"]) for p in progress] == [
-        ("phonon:model", None),
-        ("phonon:voice", None),
-        ("phonon:model", 1.0),
-        ("phonon:voice", 1.0),
+    # ptts reports nothing while it loads: unmeasured, then ready.
+    assert [p["fraction"] for p in progress] == [None, 1.0]
+    assert "id" not in progress[0]
+
+
+def test_preparing_the_model_loads_it_without_the_voice(ptts: _FakePtts) -> None:
+    config = {"module": {"type": "phonon", "voice": "Juniper"}}
+
+    setup.prepare(config, "phonon:model")
+
+    assert ptts.loads == [{"lang": "en"}]
+
+
+def test_the_model_and_the_voice_prepared_together_load_one_at_a_time(
+    ptts: _FakePtts,
+) -> None:
+    config = {"module": {"type": "phonon", "voice": "Juniper"}}
+    loading = threading.Event()
+    overlapped: list[bool] = []
+    library: Any = sys.modules["ptts"]
+    original = library.TTS
+
+    def slow(**kwargs: Any) -> Any:
+        overlapped.append(loading.is_set())
+        loading.set()
+        time.sleep(0.05)
+        loading.clear()
+        return original(**kwargs)
+
+    library.TTS = slow
+    errors: list[BaseException] = []
+
+    def prepare(item: str) -> None:
+        try:
+            setup.prepare(config, item)
+        except BaseException as exc:  # noqa: BLE001 - asserted below
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=prepare, args=(item,))
+        for item in ("phonon:model", "phonon:voice")
     ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    assert overlapped == [False, False]
+    assert sorted(load.get("voice", "") for load in ptts.loads) == ["", "Juniper"]
 
 
 def test_local_paths_are_ready_or_missing_and_never_prepared(
@@ -134,21 +185,23 @@ def test_local_paths_are_ready_or_missing_and_never_prepared(
 
     before = _files(config)
     assert _status(before) == [
-        ("phonon:model", "missing", False),
-        ("phonon:voice", "missing", False),
+        ("phonon:model", "missing", False, True),
+        ("phonon:voice", "missing", False, True),
     ]
     assert str(tmp_path / "checkpoint") in before[0]["detail"]
     assert str(tmp_path / "voices" / "me.safetensors") in before[1]["detail"]
 
-    setup.prepare(config)  # nothing it can fetch
+    for item in ("phonon:model", "phonon:voice"):  # nothing it can fetch
+        with pytest.raises(ValueError, match=f"'{item}' is not an item"):
+            setup.prepare(config, item)
     assert ptts.loads == []
 
     (tmp_path / "checkpoint").mkdir()
     (tmp_path / "voices").mkdir()
     (tmp_path / "voices" / "me.safetensors").write_bytes(b"")
     assert _status(_files(config)) == [
-        ("phonon:model", "ready", False),
-        ("phonon:voice", "ready", False),
+        ("phonon:model", "ready", False, True),
+        ("phonon:voice", "ready", False, True),
     ]
 
 
@@ -161,15 +214,15 @@ def test_a_hub_model_with_a_local_voice_prepares_the_model_only(
     progress: list[dict[str, Any]] = []
 
     assert _status(_files(config)) == [
-        ("phonon:model", "unknown", True),
-        ("phonon:voice", "ready", False),
+        ("phonon:model", "unknown", True, False),
+        ("phonon:voice", "ready", False, True),
     ]
-    setup.prepare(config, progress.append)
+    setup.prepare(config, "phonon:model", on_progress=progress.append)
 
-    # The file is registered after the load, under its stem, not passed as a name.
     assert ptts.loads == [{"lang": "en"}]
-    assert ptts.added_voices == [("me", str(voice))]
-    assert {p["id"] for p in progress} == {"phonon:model"}
+    assert progress[-1]["fraction"] == 1.0
+    with pytest.raises(ValueError, match="'phonon:voice' is not an item"):
+        setup.prepare(config, "phonon:voice")
 
 
 def test_without_the_extra_only_the_extra_is_reported_and_prepare_names_it(
@@ -180,10 +233,10 @@ def test_without_the_extra_only_the_extra_is_reported_and_prepare_names_it(
 
     items = setup.check_setup(config)
 
-    assert _status(items) == [("extra:tts-engine[phonon]", "missing", False)]
+    assert _status(items) == [("extra:tts-engine[phonon]", "missing", False, True)]
     assert "pip install tts-engine[phonon]" in items[0]["detail"]
     with pytest.raises(ConfigError, match=r"pip install tts-engine\[phonon\]"):
-        setup.prepare(config)
+        setup.prepare(config, "phonon:voice")
 
 
 def test_a_failed_download_is_a_tts_error_and_a_rejected_value_a_config_error(
@@ -193,11 +246,11 @@ def test_a_failed_download_is_a_tts_error_and_a_rejected_value_a_config_error(
 
     ptts.raise_on_load = RuntimeError("hub unreachable")
     with pytest.raises(TTSError, match="phonon model load failed: hub unreachable"):
-        setup.prepare(config)
+        setup.prepare(config, "phonon:voice")
 
     ptts.raise_on_load = LookupError("unknown voice 'Nobody'")
     with pytest.raises(ConfigError, match="Phonon module: unknown voice 'Nobody'"):
-        setup.prepare(config)
+        setup.prepare(config, "phonon:voice")
 
 
 def test_an_invalid_config_is_refused_before_anything_is_looked_up(
@@ -208,5 +261,5 @@ def test_an_invalid_config_is_refused_before_anything_is_looked_up(
     with pytest.raises(ConfigError, match="'language' must be one of"):
         _files(config)
     with pytest.raises(ConfigError, match="'language' must be one of"):
-        setup.prepare(config)
+        setup.prepare(config, "phonon:voice")
     assert ptts.loads == []

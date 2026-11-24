@@ -14,6 +14,7 @@ from typing import Any
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
+    Report,
     TTSError,
     TTSModule,
     TTSOptions,
@@ -34,6 +35,8 @@ log = logging.getLogger(__name__)
 # `_pool_sized` says whether a model was loaded yet, since None is also a count.
 _pool_sized = False
 _pool_threads: int | None = None
+# Serializes the loads `fetch` makes (see there).
+_prepare_lock = threading.Lock()
 
 _LANGUAGES = ("en", "fr", "de", "es", "pt", "none")
 _DEFAULT_LANGUAGE = "en"
@@ -221,6 +224,7 @@ class PhononModule(TTSModule):
                 "status": "ready" if present else "missing",
                 "detail": str(path) if present else f"Not found: {path}",
                 "preparable": False,
+                "required": True,
             }
 
         def fetched(detail: str) -> dict[str, Any]:
@@ -228,6 +232,8 @@ class PhononModule(TTSModule):
                 "status": "unknown",
                 "detail": detail if installed else "The phonon extra is not installed.",
                 "preparable": True,
+                # The model load downloads it when it is missing.
+                "required": False,
             }
 
         found: list[dict[str, Any]] = []
@@ -253,39 +259,18 @@ class PhononModule(TTSModule):
         return found
 
     @classmethod
-    def prepare(
-        cls,
-        config: dict,
-        on_progress: Callable[[dict[str, Any]], None] | None = None,
-    ) -> None:
-        # ptts has no download of its own apart from the load: load the model
-        # as the constructor does, then release it.
-        pending = [
-            item
-            for item in cls.check_files(config)
-            if item["status"] != "ready" and item["preparable"]
-        ]
-        if not pending:
-            return
-        if on_progress is not None:
-            for item in pending:
-                on_progress(
-                    {
-                        "id": item["id"],
-                        "fraction": None,
-                        "message": "Loading the model to fetch its files",
-                    }
-                )
-        cls._load(cls.validated(config), config)
-        if on_progress is not None:
-            for item in pending:
-                on_progress(
-                    {
-                        "id": item["id"],
-                        "fraction": 1.0,
-                        "message": f"{item['title']} ready",
-                    }
-                )
+    def fetch(cls, config: dict, item: dict[str, Any], report: Report) -> None:
+        # ptts has no download of its own apart from the load, and reports no
+        # progress: load the model as the constructor does (with its voice, for
+        # the voice item), then release it. One load at a time: the model and
+        # the voice prepared together share the model's files, and each load
+        # holds a model in memory.
+        report(None, "Loading the model to fetch its files")
+        with _prepare_lock:
+            values = cls.validated(config)
+            if item["id"] != "phonon:voice":
+                values = values | {"voice": None}
+            cls._load(values, config)
 
     @classmethod
     def imports(cls) -> None:

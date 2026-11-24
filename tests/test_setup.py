@@ -5,21 +5,24 @@ See specs/setup.md.
 
 import inspect
 import json
+import re
 import subprocess
 import sys
 import textwrap
+import threading
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
-from module_setup.contract import check_contract
+from app_setup.contract import check_contract
 from packaging.requirements import Requirement
 
 from tts_engine import setup
 from tts_engine.config import ConfigError
 from tts_engine.modules import REGISTRY
-from tts_engine.modules.base import VoiceInfo, VoiceListingUnsupported
+from tts_engine.modules.base import TTSError, VoiceInfo, VoiceListingUnsupported
 from tts_engine.modules.elevenlabs import ElevenLabsModule
 from tts_engine.modules.kokoro import KokoroModule
 from tts_engine.modules.tone import ToneModule
@@ -354,7 +357,25 @@ def test_an_extra_is_ready_where_it_installs_and_missing_with_its_hint_elsewhere
         "status": status,
         "detail": detail,
         "preparable": False,
+        "required": True,
     }
+
+
+@pytest.mark.parametrize("name", sorted(REGISTRY))
+def test_every_item_says_whether_a_session_needs_it(name: str) -> None:
+    """Every key of the contract in every item, and only what a session gets by itself
+    (a preparable item) may be not required."""
+    for item in setup.check_setup({"module": {"type": name}}):
+        assert set(item) == {
+            "id",
+            "title",
+            "status",
+            "detail",
+            "preparable",
+            "required",
+        }
+        assert isinstance(item["required"], bool)
+        assert item["required"] or item["preparable"], item
 
 
 def test_a_key_variable_is_missing_until_set(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -370,6 +391,7 @@ def test_a_key_variable_is_missing_until_set(monkeypatch: pytest.MonkeyPatch) ->
         "status": "missing",
         "detail": "Set the environment variable DEMO_TTS_KEY (named by 'api_key_env').",
         "preparable": False,
+        "required": True,
     }
 
     monkeypatch.setenv("DEMO_TTS_KEY", "")
@@ -439,27 +461,53 @@ def test_a_module_without_files_has_no_item_and_nothing_to_prepare() -> None:
     config = {"module": {"type": "tone"}}
 
     assert _files(config) == []
-    setup.prepare(config)
+    with pytest.raises(ValueError, match="'tone:file'"):
+        setup.prepare(config, "tone:file")
 
 
-def test_kokoro_s_files_are_missing_until_prepared(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import huggingface_hub
+class _Hub:
+    """The Hugging Face cache and download faked: a cache `hf_hub_download` fills, each
+    file 4 MB received in four parts."""
 
-    cache: set[str] = set()
-    downloads: list[tuple[str, str, str | None]] = []
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import huggingface_hub
 
-    def cached(repo_id: str, filename: str, revision: str | None = None) -> str | None:
-        return f"/cache/{filename}" if filename in cache else None
+        self.cache: set[str] = set()
+        self.downloads: list[tuple[str, str, str | None]] = []
+        self.fail: Exception | None = None
+        self.started: Callable[[str], object] = lambda filename: None
+        monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache", self.cached)
+        monkeypatch.setattr(huggingface_hub, "hf_hub_download", self.download)
 
-    def download(repo_id: str, filename: str, revision: str | None = None) -> str:
-        downloads.append((repo_id, filename, revision))
-        cache.add(filename)
+    def cached(
+        self, repo_id: str, filename: str, revision: str | None = None
+    ) -> str | None:
+        return f"/cache/{filename}" if filename in self.cache else None
+
+    def download(
+        self,
+        repo_id: str,
+        filename: str,
+        revision: str | None = None,
+        tqdm_class: Any = None,
+    ) -> str:
+        self.started(filename)
+        if self.fail is not None:
+            raise self.fail
+        with tqdm_class(total=4_000_000, initial=0, desc=filename) as bar:
+            for _ in range(4):
+                bar.update(1_000_000)
+        self.downloads.append((repo_id, filename, revision))
+        self.cache.add(filename)
         return f"/cache/{filename}"
 
-    monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache", cached)
-    monkeypatch.setattr(huggingface_hub, "hf_hub_download", download)
+
+@pytest.fixture
+def hub(monkeypatch: pytest.MonkeyPatch) -> _Hub:
+    return _Hub(monkeypatch)
+
+
+def test_kokoro_s_files_are_missing_until_each_is_prepared(hub: _Hub) -> None:
     config = {"module": {"type": "kokoro"}}
 
     before = _files(config)
@@ -467,46 +515,119 @@ def test_kokoro_s_files_are_missing_until_prepared(
         ("kokoro:model", "missing"),
         ("kokoro:voices", "missing"),
     ]
-    assert all(item["preparable"] for item in before)
+    # The constructor downloads a missing file itself: the session can start without
+    # them, slower, so they are preparable and not required.
+    assert all(item["preparable"] and not item["required"] for item in before)
 
     progress: list[dict[str, Any]] = []
-    setup.prepare(config, progress.append)
+    setup.prepare(config, "kokoro:model", on_progress=progress.append)
 
-    assert [d[:2] for d in downloads] == [
-        ("fastrtc/kokoro-onnx", "kokoro-v1.0.onnx"),
-        ("fastrtc/kokoro-onnx", "voices-v1.0.bin"),
+    # One item, the other left alone.
+    assert [d[:2] for d in hub.downloads] == [
+        ("fastrtc/kokoro-onnx", "kokoro-v1.0.onnx")
     ]
-    assert all(revision for _, _, revision in downloads)
-    assert [p["id"] for p in progress if p["fraction"] == 1.0] == [
-        "kokoro:model",
-        "kokoro:voices",
-    ]
+    assert all(revision for _, _, revision in hub.downloads)
+    assert [item["status"] for item in _files(config)] == ["ready", "missing"]
+    # Its bytes against its size, about this item only: no id, app-setup adds it.
+    assert [p["fraction"] for p in progress] == [0.0, 0.0, 0.25, 0.5, 0.75, 1.0, 1.0]
+    assert progress[3]["message"] == "Downloading kokoro-v1.0.onnx: 2 MB of 4 MB"
+    assert progress[-1]["message"] == "Kokoro model file ready"
+    assert all(set(event) == {"fraction", "message"} for event in progress)
+
+    setup.prepare(config, "kokoro:voices")
+    setup.prepare(config, "kokoro:model")  # ready: nothing more is fetched
+    assert [d[1] for d in hub.downloads] == ["kokoro-v1.0.onnx", "voices-v1.0.bin"]
     assert [item["status"] for item in _files(config)] == ["ready", "ready"]
 
-    setup.prepare(config)  # everything is ready: nothing more is fetched
-    assert len(downloads) == 2
 
-
-def test_a_local_file_is_ready_or_missing_and_never_preparable(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_a_xet_download_is_measured_by_its_bytes_received_before_they_are_written(
+    hub: _Hub, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    def xet(
+        repo_id: str, filename: str, revision: str | None = None, tqdm_class: Any = None
+    ) -> str:
+        # The Hub's Xet reporter, on a bar class with `update_transfer`: the bytes
+        # received as they arrive, the bytes written in one flush at the end.
+        with tqdm_class(total=4_000_000, initial=0) as bar:
+            for _ in range(2):
+                bar.update_transfer(2_000_000)
+            bar.update(4_000_000)
+        return f"/cache/{filename}"
+
     import huggingface_hub
 
-    monkeypatch.setattr(
-        huggingface_hub, "try_to_load_from_cache", lambda *a, **k: "/cache/voices"
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", xet)
+    progress: list[dict[str, Any]] = []
+    setup.prepare(
+        {"module": {"type": "kokoro"}}, "kokoro:voices", on_progress=progress.append
     )
-    monkeypatch.setattr(
-        huggingface_hub,
-        "hf_hub_download",
-        lambda *a, **k: pytest.fail("a local file is not downloaded"),
-    )
+
+    assert [p["fraction"] for p in progress] == [0.0, 0.0, 0.5, 1.0, 1.0]
+
+
+def test_two_items_prepared_at_the_same_time_both_succeed(hub: _Hub) -> None:
+    config = {"module": {"type": "kokoro"}}
+    both_started = threading.Barrier(2, timeout=5)
+    # Each download waits for the other to start: they run at the same time, or the
+    # barrier breaks.
+    hub.started = lambda filename: both_started.wait()
+    errors: list[BaseException] = []
+
+    def prepare(item: str) -> None:
+        try:
+            setup.prepare(config, item)
+        except BaseException as exc:  # noqa: BLE001 - asserted below
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=prepare, args=(item,))
+        for item in ("kokoro:model", "kokoro:voices")
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    assert sorted(d[1] for d in hub.downloads) == [
+        "kokoro-v1.0.onnx",
+        "voices-v1.0.bin",
+    ]
+
+
+def test_an_id_that_is_not_a_preparable_item_is_refused_by_name(hub: _Hub) -> None:
+    config = {"module": {"type": "kokoro"}}
+
+    for item in ("kokoro:weights", "extra:tts-engine[kokoro]", "key:ANY"):
+        with pytest.raises(ValueError, match=re.escape(repr(item))):
+            setup.prepare(config, item)
+    assert hub.downloads == []
+
+
+def test_a_failed_download_raises_a_message_for_the_user(hub: _Hub) -> None:
+    hub.fail = OSError("no route to host")
+
+    with pytest.raises(TTSError, match="kokoro download failed: no route to host"):
+        setup.prepare({"module": {"type": "kokoro"}}, "kokoro:voices")
+
+
+def test_a_local_file_is_ready_or_missing_never_preparable_and_required(
+    tmp_path: Path, hub: _Hub
+) -> None:
+    hub.cache.add("voices-v1.0.bin")
     model = tmp_path / "model.onnx"
     config = {"module": {"type": "kokoro", "model": str(model)}}
 
     missing = _files(config)[0]
-    assert (missing["status"], missing["preparable"]) == ("missing", False)
+    assert (missing["status"], missing["preparable"], missing["required"]) == (
+        "missing",
+        False,
+        True,
+    )
     assert str(model) in missing["detail"]
-    setup.prepare(config)
+    with pytest.raises(ValueError, match="'kokoro:model' is not an item"):
+        setup.prepare(config, "kokoro:model")
+    assert hub.downloads == []
 
     model.write_bytes(b"onnx")
     assert _files(config)[0]["status"] == "ready"

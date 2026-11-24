@@ -14,6 +14,7 @@ from typing import Any, cast
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
+    Report,
     TTSError,
     TTSModule,
     TTSOptions,
@@ -21,6 +22,7 @@ from tts_engine.modules.base import (
     VoiceListingUnsupported,
     cleanup,
     float_to_int16_pcm,
+    hub_download,
     optional_str,
     run_cancellable_worker,
     run_text_stream_worker,
@@ -128,14 +130,33 @@ class Qwen3Module(TTSModule):
                     "Qwen3 module 'voice' is only valid for a CustomVoice model"
                 )
 
+    @staticmethod
+    def _hub_files(model: str, quant: str) -> tuple[str, dict[str, str]] | None:
+        """The repository and the two file names the library derives for this
+        model and weight format, by item key; None when the library does not
+        say (a version laid out differently)."""
+        try:
+            import qwentts_cpp  # pyright: ignore[reportMissingImports]
+
+            library = qwentts_cpp.models
+            name = library._normalize_quant(quant)
+            return library.GGUF_REPO, {
+                "talker": f"{library._MODEL_TO_TALKER_STEM[model]}-{name}.gguf",
+                "codec": f"qwen-tokenizer-12hz-{name}.gguf",
+            }
+        except (ImportError, AttributeError, KeyError):
+            return None
+
     @classmethod
     def check_files(cls, config: dict) -> list[dict[str, Any]]:
         """The two GGUF files the model loads from (its talker, and the codec
-        of its weight format), looked up in the Hugging Face cache."""
+        of its weight format), looked up in the Hugging Face cache. The model
+        load downloads a missing one: preparable, not required."""
         values = cls.validated(config)
         model: str = values["model"] or _DEFAULT_MODEL
         quant: str = values["quant"] or _DEFAULT_QUANT
         titles = {"talker": "Qwen3 model file", "codec": "Qwen3 codec file"}
+        fetched = {"preparable": True, "required": False}
         try:
             import qwentts_cpp  # pyright: ignore[reportMissingImports]
         except ImportError:
@@ -145,8 +166,8 @@ class Qwen3Module(TTSModule):
                     "title": "Qwen3 model",
                     "status": "unknown",
                     "detail": "The qwen3 extra is not installed.",
-                    "preparable": True,
                 }
+                | fetched
             ]
         try:
             # The library's own lookup, kept off the network: both paths when
@@ -166,31 +187,24 @@ class Qwen3Module(TTSModule):
                     "title": titles[key],
                     "status": "ready",
                     "detail": str(path),
-                    "preparable": True,
                 }
+                | fetched
                 for key, path in zip(titles, paths, strict=True)
             ]
-        try:
-            # The file names the library derives, to tell which one is missing.
-            from huggingface_hub import try_to_load_from_cache
-
-            library = qwentts_cpp.models
-            name = library._normalize_quant(quant)
-            filenames = {
-                "talker": f"{library._MODEL_TO_TALKER_STEM[model]}-{name}.gguf",
-                "codec": f"qwen-tokenizer-12hz-{name}.gguf",
-            }
-            repo_id: str = library.GGUF_REPO
-        except (ImportError, AttributeError, KeyError):
+        hub = cls._hub_files(model, quant)
+        if hub is None:
             return [
                 {
                     "id": "qwen3:model",
                     "title": "Qwen3 model",
                     "status": "missing",
                     "detail": f"The {quant} weights of {model} are not downloaded yet.",
-                    "preparable": True,
                 }
+                | fetched
             ]
+        from huggingface_hub import try_to_load_from_cache
+
+        repo_id, filenames = hub
         found = []
         for key, filename in filenames.items():
             cached = try_to_load_from_cache(repo_id, filename)
@@ -205,54 +219,37 @@ class Qwen3Module(TTSModule):
                         if present
                         else f"{filename} of {repo_id} is not downloaded yet."
                     ),
-                    "preparable": True,
                 }
+                | fetched
             )
         return found
 
     @classmethod
-    def prepare(
-        cls,
-        config: dict,
-        on_progress: Callable[[dict[str, Any]], None] | None = None,
-    ) -> None:
-        pending = [
-            item for item in cls.check_files(config) if item["status"] != "ready"
-        ]
-        if not pending:
-            return
+    def fetch(cls, config: dict, item: dict[str, Any], report: Report) -> None:
         values = cls.validated(config)
         model: str = values["model"] or _DEFAULT_MODEL
         quant: str = values["quant"] or _DEFAULT_QUANT
-        if on_progress is not None:
-            for item in pending:
-                on_progress(
-                    {
-                        "id": item["id"],
-                        "fraction": None,
-                        "message": f"Downloading the {item['title']}",
-                    }
-                )
+        hub = cls._hub_files(model, quant)
+        key = item["id"].split(":", 1)[1]
+        if hub is not None and key in hub[1]:
+            # One file, the download `from_pretrained` makes for it.
+            repo_id, filenames = hub
+            try:
+                hub_download(repo_id, filenames[key], None, report)
+            except Exception as exc:
+                raise TTSError(f"qwen3 download failed: {exc}") from exc
+            return
+        import qwentts_cpp  # pyright: ignore[reportMissingImports]
+
+        # File names the library does not say: its own download of both,
+        # without the load, which reports no progress.
+        report(None, f"Downloading the {quant} weights of {model}")
         try:
-            import qwentts_cpp  # pyright: ignore[reportMissingImports]
-        except ImportError as exc:
-            raise ConfigError(_MISSING_EXTRA) from exc
-        try:
-            # The download `from_pretrained` makes, without the load.
             qwentts_cpp.resolve_gguf_paths(model, quant=quant)
         except ValueError as exc:
             raise ConfigError(f"Qwen3 module: {exc}") from exc
         except Exception as exc:
             raise TTSError(f"qwen3 download failed: {exc}") from exc
-        if on_progress is not None:
-            for item in pending:
-                on_progress(
-                    {
-                        "id": item["id"],
-                        "fraction": 1.0,
-                        "message": f"{item['title']} ready",
-                    }
-                )
 
     @classmethod
     def imports(cls) -> None:

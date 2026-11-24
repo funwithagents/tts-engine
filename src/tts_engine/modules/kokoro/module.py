@@ -17,12 +17,14 @@ import numpy as np
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
+    Report,
     TTSError,
     TTSModule,
     TTSOptions,
     VoiceInfo,
     feed_with_lookahead,
     float_to_int16_pcm,
+    hub_download,
     normalize_gender,
     optional_str,
     resolve_path,
@@ -164,12 +166,14 @@ class KokoroModule(TTSModule):
                     "status": "ready" if present else "missing",
                     "detail": str(ref) if present else f"File not found: {ref}",
                     "preparable": False,
+                    "required": True,
                 }
             elif try_to_load_from_cache is None:
                 item |= {
                     "status": "unknown",
                     "detail": "The kokoro extra is not installed.",
                     "preparable": True,
+                    "required": False,
                 }
             else:
                 repo_id, filename, revision = ref
@@ -183,46 +187,20 @@ class KokoroModule(TTSModule):
                         else f"{filename} of {repo_id} is not downloaded yet."
                     ),
                     "preparable": True,
+                    # The constructor downloads it when it is missing.
+                    "required": False,
                 }
             found.append(item)
         return found
 
     @classmethod
-    def prepare(
-        cls,
-        config: dict,
-        on_progress: Callable[[dict[str, Any]], None] | None = None,
-    ) -> None:
-        for item in cls.check_files(config):
-            if item["status"] == "ready" or not item["preparable"]:
-                continue
-            key = item["id"].split(":", 1)[1]
-            ref = cls._refs(cls.validated(config), config)[key]
-            assert not isinstance(ref, Path)
-            repo_id, filename, revision = ref
-            if on_progress is not None:
-                on_progress(
-                    {
-                        "id": item["id"],
-                        "fraction": None,
-                        "message": f"Downloading {filename}",
-                    }
-                )
-            try:
-                from huggingface_hub import hf_hub_download
-
-                hf_hub_download(repo_id, filename, revision=revision)
-            except ImportError as exc:
-                raise ConfigError(
-                    "The 'kokoro' module requires the kokoro extra: "
-                    "pip install tts-engine[kokoro]"
-                ) from exc
-            except Exception as exc:
-                raise TTSError(f"kokoro download failed: {exc}") from exc
-            if on_progress is not None:
-                on_progress(
-                    {"id": item["id"], "fraction": 1.0, "message": f"{filename} ready"}
-                )
+    def fetch(cls, config: dict, item: dict[str, Any], report: Report) -> None:
+        ref = cls._refs(cls.validated(config), config)[item["id"].split(":", 1)[1]]
+        assert not isinstance(ref, Path)
+        try:
+            hub_download(*ref, report)
+        except Exception as exc:
+            raise TTSError(f"kokoro download failed: {exc}") from exc
 
     @classmethod
     def imports(cls) -> None:

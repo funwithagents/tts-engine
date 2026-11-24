@@ -18,7 +18,7 @@ Everything an application needs to set the engine up for a user, without knowing
 
 Today this knowledge is spread over each module's constructor, the per-module docs, and the error raised when something is missing. A config can only be checked by constructing the module, which imports its provider library, reads its key and loads its model. This spec makes the same knowledge available as data, before anything is installed or loaded.
 
-These functions implement the **module contract** defined by the `module-setup` project (its `specs/module-contract.md`), version 1. That spec is the reference for the shapes exchanged; this one says what tts-engine puts in them. The engine does not depend on `module-setup` at runtime: the contract is plain data, and `module-setup` is only a dev dependency, for the conformance check its tests run.
+These functions implement the **module contract** defined by the `app-setup` project (its `specs/module-contract.md`), version 1. That spec is the reference for the shapes exchanged; this one says what tts-engine puts in them. The engine does not depend on `app-setup` at runtime: the contract is plain data, and `app-setup` is only a dev dependency, for the conformance check its tests run.
 
 It adds no behaviour to the engine: a config that works today works the same, and the constructors raise the same messages.
 
@@ -32,13 +32,17 @@ def required_extras(config: dict) -> list[str]: ...
 def check_config(config: dict) -> list[dict]: ...
 def check_setup(config: dict, *, base_dir: str | None = None) -> list[dict]: ...
 def prepare(
-    config: dict, on_progress: Callable[[dict], None] | None = None, *, base_dir: str | None = None
+    config: dict,
+    item: str,
+    *,
+    on_progress: Callable[[dict], None] | None = None,
+    base_dir: str | None = None,
 ) -> None: ...
 def options(name: str, config: dict, *, base_dir: str | None = None) -> list[dict]: ...
 def probe(config: dict, *, base_dir: str | None = None) -> dict: ...
 ```
 
-**Relative paths.** The four functions that look at the machine take `base_dir`, the folder a relative path of the config is relative to (a voice file, a Piper model, an `audiofile` entry), and read the module block as the loader gives it to the module, `TTSEngineConfig.from_dict(config, base_dir=base_dir)`: an app passes its folder, the one it also builds its engine against, so Check, Download, Test and the engine find the same file. `None` means the working directory.
+**Relative paths.** The four functions that look at the machine take `base_dir`, the folder a relative path of the config is relative to (a voice file, a Piper model, an `audiofile` entry), and read the module block as the loader gives it to the module, `TTSEngineConfig.from_dict(config, base_dir=base_dir)`: an app passes its folder, the one it also builds its engine against, so Check, Prepare, Test and the engine find the same file. `None` means the working directory.
 
 They take and return JSON-compatible data only, are synchronous, and import nothing outside the package at module level. The first four run on the base install, with no network: `config_schema`, `required_extras` and `check_config` read nothing but the config, and `check_setup` also tries the module's imports and reads the environment. `prepare` and `options` need the module's extra; `prepare`, `options` and `probe` may use the network.
 
@@ -49,8 +53,8 @@ Each is the engine's own part (the module choice, `player`, `gain_db`) plus the 
 | `config_schema()` | `{"contract": 1, "distribution": "tts-engine", "title": "Text to speech", "schema": …}` — the engine block as a JSON Schema (below). The same value on every call |
 | `required_extras(config)` | The extras this config needs, as requirement strings on this distribution: `["tts-engine[phonon]"]`, or `[]`. Reads `module.type` only, never raises, and returns `[]` for an unknown or missing type |
 | `check_config(config)` | What is wrong in the config itself: the problems that make the engine refuse it, each `{"path": "/module/voice_id", "message": …}` with a JSON Pointer into the engine block; `[]` when it is accepted |
-| `check_setup(config)` | What this machine is missing to run it: the module's extra, the keys its config names, its files; each `{"id", "title", "status": "ready"/"missing"/"unknown", "detail", "preparable"}`; `[]` when it needs none |
-| `prepare(config, on_progress)` | Makes every preparable item ready (downloads the weights). Blocking, idempotent, raises `TTSError` on failure. `on_progress` receives `{"id", "fraction", "message"}` |
+| `check_setup(config)` | What this machine is missing to run it: the module's extra, the keys its config names, its files; each `{"id", "title", "status": "ready"/"missing"/"unknown", "detail", "preparable", "required"}`; `[]` when it needs none |
+| `prepare(config, item)` | Makes **one** preparable item ready (downloads one file), an id `check_setup` returned. Blocking, idempotent; another item may be prepared at the same time on another thread. An id that is not a preparable item of the config raises `ValueError` naming it; a failure raises `TTSError`. `on_progress` receives `{"fraction", "message"}` about that item |
 | `options(name, config)` | The choices of a named list, each `{"label": …, "fields": {…}}` — the fields to merge into the object the list belongs to. `"voices"` and `"output-devices"` |
 | `probe(config)` | Checks the config for real as lightly as possible (a hosted module's voice list, a local model loaded and released) and reports `{"ok", "message", "duration_s"}`. Never synthesizes, never raises |
 
@@ -117,7 +121,7 @@ class TTSModule(ABC):
     @classmethod
     def check_setup(cls, config: dict) -> list[dict]: ...
     @classmethod
-    def prepare(cls, config: dict, on_progress: ProgressCallback | None = None) -> None: ...
+    def prepare(cls, config: dict, item: str, on_progress: ProgressCallback | None = None) -> None: ...
     @classmethod
     def options(cls, name: str, config: dict) -> list[dict]: ...
 
@@ -126,6 +130,8 @@ class TTSModule(ABC):
     def imports(cls) -> None: ...
     @classmethod
     def check_files(cls, config: dict) -> list[dict]: ...
+    @classmethod
+    def fetch(cls, config: dict, item: dict, report: Report) -> None: ...
     @classmethod
     def validated(cls, config: dict) -> dict[str, Any]: ...
     @classmethod
@@ -142,10 +148,11 @@ The module's methods carry the contract's names, so `tts_engine.setup.check_setu
 | `required_extras` | `tts-engine[<extra>]`, `[]` for a fixture | none |
 | `check_config` | the problems of `fields_for(config)`, or, when there are none, the `config_rules` failure under the name `""` | none |
 | `check_setup` | the extra (from `imports`), then the keys, then `check_files` once the extra imports | none |
-| `prepare` | nothing | the five local modules |
+| `prepare` | the extra's imports (its install hint), the item looked up in `check_files` (`ValueError` when it is not a preparable one), `fetch` unless it is ready, then `1.0` | none |
 | `options` | `"voices"` from `list_voices`, each `{"label": "River (en, neutral)", "fields": VoiceInfo.config}`; `[]` for any other name | none |
 | `imports` | nothing | every module with an extra |
 | `check_files` | `[]` | the five local modules |
+| `fetch` | `ValueError`: nothing to prepare | the five local modules |
 | `config_rules` | nothing | the modules with a rule across fields or on a field's content |
 | `fields_for` | `fields` | deepgram |
 
@@ -187,8 +194,8 @@ Unknown keys in a module block are accepted, as the constructors accept them tod
 
 `check_setup` returns, in this order:
 
-1. **The extra** — one item, `extra:tts-engine[<extra>]`, never preparable: `ready` ("Installed.") when the module's `imports` succeed, else `missing` with the install hint the constructor raises. A fixture has none.
-2. **The keys** — one item per environment variable a `secret="env"` field names, or names by default when it is absent (`key:<VARIABLE>`), never preparable: `ready` when it is set and non-empty, else `missing` with a sentence naming the variable and the field. Whether the provider accepts the key is `probe`'s business.
+1. **The extra** — one item, `extra:tts-engine[<extra>]`, never preparable, always required: `ready` ("Installed.") when the module's `imports` succeed, else `missing` with the install hint the constructor raises. A fixture has none.
+2. **The keys** — one item per environment variable a `secret="env"` field names, or names by default when it is absent (`key:<VARIABLE>`), never preparable, always required: `ready` when it is set and non-empty, else `missing` with a sentence naming the variable and the field. Whether the provider accepts the key is `probe`'s business.
 3. **The files** — only once the extra imports, since looking them up uses the provider's library: the module's `check_files`.
 
 The environment read is the process's own: an application keeping keys in a file loads them first.
@@ -202,9 +209,22 @@ Only the local modules have files, one item per file or model a config selects:
 | `pocket` | The weights, the tokenizer and the voice of a packaged model | The library's own config naming each file, looked up in its caches; a custom `config` is one `unknown` item |
 | `phonon` | The model, and the voice when one is set | `unknown` for anything fetched from the Hub: its runtime picks the files inside the load, by device and quantization, so the set cannot be told from the config. A local path is `ready` or `missing` |
 
-A config pointing at local files has an item per file, `ready` or `missing`, never `preparable`: the detail says which path is absent.
+A config pointing at local files has an item per file, `ready` or `missing`, never `preparable` and always `required`: the detail says which path is absent.
 
-`prepare` fetches what `check_files` reports missing and preparable, through the same calls the constructor makes, so the constructor then finds everything in place. `phonon`'s runtime has no download-only call: its `prepare` loads the model and releases it, each time it is asked, since its items never become `ready`. Hosted and fixture modules have no items and nothing to prepare.
+**`required`.** Every item carries it. The extra, the keys and a local file the config names are `required: true`: without them the engine cannot be built. Every file fetched from the Hub (or, for `pocket`, from a URL) is `required: false`: the constructor fetches a missing one itself, through the same call `prepare` makes (kokoro's and piper's `hf_hub_download`, qwen3's and pocket's model load, phonon's runtime inside the load), so a session can start without it, only slower and with the network. Every preparable item of the engine is such a file, and every file it cannot fetch is one the config names: here `required` is exactly `not preparable`.
+
+`prepare(config, item)` makes **one** item ready: the extra's imports first (a missing extra raises its install hint), then the item looked up among `check_files`' — an id that is not a preparable item of this config (an extra, a key, a local file, a typo) raises `ValueError` naming it. An item already `ready` returns at once. Otherwise the module's `fetch` gets it through the call the constructor makes, so the constructor then finds it in place:
+
+| Module | `fetch` of one item | Progress |
+|---|---|---|
+| `kokoro`, `piper` | `hf_hub_download` of that file | Measured |
+| `qwen3` | `hf_hub_download` of that file (the one `resolve_gguf_paths` makes for it); when the library does not say its file names, its own `resolve_gguf_paths`, both files at once | Measured; unmeasured for the library's own download |
+| `pocket` | An `hf://` file through `hf_hub_download` (what the library's `download_if_necessary` calls), an `https://` one through `download_if_necessary`; the weights' candidates in order, the public weights standing in for the gated ones; a model whose files cannot be named is loaded once and released | Measured for the Hub; unmeasured for a URL or a load |
+| `phonon` | The model loaded as the constructor does, with the voice for the voice item and without it for the model item, then released: its runtime has no download-only call, and its items stay `unknown`, so each call loads | Unmeasured |
+
+**Concurrency.** app-setup prepares the items of a config at the same time, one thread each: two calls for two different items must both succeed, neither relying on the other. Two Hub downloads of two files run side by side (the Hub locks each file it writes). `phonon`'s two items both load the model: its `fetch` holds a lock of the module, so the loads run one after the other — the second finds the model's files fetched by the first — and two models are never held in memory at once.
+
+**Progress.** `on_progress` receives `{"fraction", "message"}` about that item only (no `id`: the caller knows which item it asked for): once as it starts, as it advances, and `1.0` once ready (`"<title> ready"`). A Hub download is measured: `hf_hub_download` takes a `tqdm_class`, and `prepare` hands it a small stand-in for `tqdm` (not a subclass, which the Hub would disable without a terminal) that turns the bytes written against the file's size into a fraction, about once per percent — `"Downloading kokoro-v1.0.onnx: 120 MB of 310 MB"`; a Xet download, whose written bytes may come in one flush at the end, is measured by the larger of the bytes received and the bytes written. What has no hook — `phonon`'s runtime, written in Rust, pocket's URL download, a model load — reports `fraction: None` with what it is doing, then `1.0`. Hosted and fixture modules have no items and nothing to prepare.
 
 ## `options`
 
@@ -242,7 +262,10 @@ An unknown name returns `[]`.
 - `config_schema`, `check_config` and `required_extras` import no provider library: run in a subprocess with every provider import blocked. In the same subprocess, every module with an extra reports that extra `missing` in `check_setup`, with the hint its `imports` raises, and nothing else.
 - `required_extras` returns `tts-engine[<extra>]` for each module, `[]` for the fixtures, for `{}` and for an unknown type, and every extra it names is declared in `pyproject.toml`.
 - `check_setup` reports each installed extra `ready`; a key variable `missing` until it is set (empty counts as unset), and no key item when the config holds the key itself.
-- `check_files` on `kokoro` reports `missing` then `ready` around a fake cache; `prepare` calls the download the constructor uses, and does nothing when everything is ready.
+- Every item of every module carries the contract's six keys, and only a preparable item is not required.
+- `check_files` on `kokoro` reports `missing`, preparable and not required, then `ready` around a fake cache; `prepare` of one item downloads that file only, through the call the constructor uses, with progress measured against its size, and does nothing when it is ready.
+- Two items prepared at the same time on two threads both succeed (each download waits for the other to start).
+- An id that is not a preparable item (a file the module does not have, the extra, a key, a local file) raises `ValueError` naming it; a failed download raises `TTSError` with the cause.
 - `options("voices", …)` over a fixture module's catalog, and the propagation of `VoiceListingUnsupported`.
 - `probe` over the `tone` fixture and a recording sink: it reports `ok`, audio reached the sink, and the engine was closed. With a module that fails to build, it reports `ok: false` with the engine's message and raises nothing.
 
@@ -254,3 +277,4 @@ The contract's conformance check runs over the same examples.
 2. **`check_setup` imports the providers**: `pocket`'s pulls torch, which takes about a second the first time. It loads no model.
 3. **Deprecated fields and renamed types** are accepted and not offered. Whether `check_config` should report them as warnings (a third kind of result) is deferred.
 4. **The demo app** — a page with a Setup tab over these functions and a Session tab that builds the engine and speaks — is a separate spec.
+5. **`phonon`'s progress is unmeasured.** Its runtime downloads inside the load with no hook, and which files (hence how many bytes) it fetches is its own choice; the Hugging Face cache's growth could be watched once the runtime says what it selects.

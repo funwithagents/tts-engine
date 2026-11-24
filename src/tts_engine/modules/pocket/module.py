@@ -16,12 +16,14 @@ from urllib.parse import urlparse
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
+    Report,
     TTSError,
     TTSModule,
     TTSOptions,
     VoiceInfo,
     VoiceListingUnsupported,
     float_to_int16_pcm,
+    hub_download,
     resolve_path,
     run_cancellable_worker,
     run_text_stream_worker,
@@ -42,6 +44,16 @@ _ITEM_TITLES = {
 }
 
 
+def _hub_ref(source: str) -> tuple[str, str, str | None]:
+    """An `hf://owner/repo/path[@revision]` reference as the repository, the
+    file and the revision, split as the library's `download_if_necessary` does."""
+    parts = source.removeprefix("hf://").split("/")
+    repo_id, filename, revision = "/".join(parts[:2]), "/".join(parts[2:]), None
+    if "@" in filename:
+        filename, revision = filename.split("@")
+    return repo_id, filename, revision
+
+
 def _cached(source: str) -> tuple[str | None, bool]:
     """Where pocket-tts's `download_if_necessary` would find `source` without
     fetching it (None when it would fetch, or when a local file is absent),
@@ -56,11 +68,7 @@ def _cached(source: str) -> tuple[str | None, bool]:
     if source.startswith("hf://"):
         from huggingface_hub import try_to_load_from_cache
 
-        parts = source.removeprefix("hf://").split("/")
-        repo_id, filename, revision = "/".join(parts[:2]), "/".join(parts[2:]), None
-        if "@" in filename:
-            filename, revision = filename.split("@")
-        cached = try_to_load_from_cache(repo_id, filename, revision=revision)
+        cached = try_to_load_from_cache(*_hub_ref(source))
         return (cached if isinstance(cached, str) else None), True
     return (source if Path(source).is_file() else None), False
 
@@ -225,6 +233,8 @@ class PocketModule(TTSModule):
             "title": "Pocket model",
             "status": "unknown",
             "preparable": True,
+            # The model load fetches it.
+            "required": False,
         }
         try:
             sources = cls._sources(config)
@@ -256,50 +266,40 @@ class PocketModule(TTSModule):
                     "status": "ready" if cached is not None else "missing",
                     "detail": detail,
                     "preparable": preparable,
+                    # The model load fetches a missing file it can fetch; a
+                    # local file the config names, only the user can supply.
+                    "required": not preparable,
                 }
             )
         return found
 
     @classmethod
-    def prepare(
-        cls,
-        config: dict,
-        on_progress: Callable[[dict[str, Any]], None] | None = None,
-    ) -> None:
-        try:
-            sources = cls._sources(config)
-            from pocket_tts.utils.utils import download_if_necessary
-        except ImportError as exc:
-            raise ConfigError(
-                "The 'pocket' module requires the pocket extra: "
-                "pip install tts-engine[pocket]"
-            ) from exc
-
-        def report(item_id: str, fraction: float | None, message: str) -> None:
-            if on_progress is not None:
-                on_progress({"id": item_id, "fraction": fraction, "message": message})
-
+    def fetch(cls, config: dict, item: dict[str, Any], report: Report) -> None:
+        sources = cls._sources(config)
         if sources is None:
             # The files cannot be named ahead: load the model once, which
             # fetches them, and release it.
-            report("pocket:model", None, "Loading the model to fetch its files")
+            report(None, "Loading the model to fetch its files")
             cls(config).close()
-            report("pocket:model", 1.0, "Model ready")
             return
-        for item in cls.check_files(config):
-            if item["status"] == "ready" or not item["preparable"]:
-                continue
-            candidates = sources[item["id"].split(":", 1)[1]]
-            report(item["id"], None, f"Downloading {item['title']}")
-            for index, source in enumerate(candidates):
-                try:
-                    # The call the model load makes for each of its files.
+        from pocket_tts.utils.utils import download_if_necessary
+
+        candidates = sources[item["id"].split(":", 1)[1]]
+        for index, source in enumerate(candidates):
+            try:
+                if source.startswith("hf://"):
+                    # What the library's `download_if_necessary` calls for it,
+                    # its bytes measured.
+                    hub_download(*_hub_ref(source), report)
+                else:
+                    report(None, f"Downloading {source}")
                     download_if_necessary(source)
-                    break
-                except Exception as exc:
-                    if index == len(candidates) - 1:
-                        raise TTSError(f"pocket-tts download failed: {exc}") from exc
-            report(item["id"], 1.0, f"{item['title']} ready")
+                return
+            except Exception as exc:
+                # The next candidate stands in (the public weights for the
+                # gated ones); the last one's failure is the item's.
+                if index == len(candidates) - 1:
+                    raise TTSError(f"pocket-tts download failed: {exc}") from exc
 
     @classmethod
     def imports(cls) -> None:

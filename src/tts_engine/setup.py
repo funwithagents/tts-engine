@@ -4,9 +4,9 @@ Seven functions over the engine block (the document `TTSEngineConfig.from_dict`
 takes): what its config looks like (`config_schema`), which extra a config needs
 (`required_extras`), what is wrong in the config itself (`check_config`), what
 this machine is missing to run it (`check_setup`: the extra, the keys, the
-files), downloading the files (`prepare`), the choices of a field (`options`),
+files), downloading one file (`prepare`), the choices of a field (`options`),
 and one real run to hear it work (`probe`). They implement the module contract
-of the `module-setup` project and exchange JSON-compatible data only.
+of the `app-setup` project and exchange JSON-compatible data only.
 
 Each is the engine's own part (the `player` and `gain_db` blocks, the module
 choice) plus the method of the same name on the selected module. All but
@@ -209,12 +209,16 @@ def check_setup(
 
 def prepare(
     config: dict[str, Any],
-    on_progress: Callable[[dict[str, Any]], None] | None = None,
+    item: str,
     *,
+    on_progress: Callable[[dict[str, Any]], None] | None = None,
     base_dir: str | None = None,
 ) -> None:
+    """Make one preparable item of this config ready (an id `check_setup` returned),
+    on the calling thread; another item may be prepared at the same time on another.
+    `on_progress` receives `{"fraction", "message"}` about this item."""
     cls, module = _selected(config, base_dir)
-    cls.prepare(module, on_progress)
+    cls.prepare(module, item, on_progress)
 
 
 def options(

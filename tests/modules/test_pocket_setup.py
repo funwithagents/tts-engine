@@ -53,7 +53,11 @@ class _Library:
             fake.__dict__.update(members)
             monkeypatch.setitem(sys.modules, name, fake)
 
-        module("huggingface_hub", try_to_load_from_cache=self._hub_cache)
+        module(
+            "huggingface_hub",
+            try_to_load_from_cache=self._hub_cache,
+            hf_hub_download=self._hub_download,
+        )
         module("torch", cuda=SimpleNamespace(is_available=lambda: False))
         module("pocket_tts", TTSModel=SimpleNamespace(load_model=self._load_model))
         module(
@@ -92,6 +96,23 @@ class _Library:
         source = f"hf://{repo_id}/{filename}" + (f"@{revision}" if revision else "")
         return f"/hub/{filename}" if source in self.cached else None
 
+    def _hub_download(
+        self,
+        repo_id: str,
+        filename: str,
+        revision: str | None = None,
+        tqdm_class: Any = None,
+    ) -> str:
+        """The Hub's download, which the library's `download_if_necessary` calls
+        for an `hf://` source: 2 MB, received in two halves."""
+        source = f"hf://{repo_id}/{filename}" + (f"@{revision}" if revision else "")
+        self._download(source)
+        if tqdm_class is not None:
+            with tqdm_class(total=2_000_000, initial=0, desc=filename) as bar:
+                bar.update(1_000_000)
+                bar.update(1_000_000)
+        return f"/hub/{filename}"
+
     def _download(self, source: str) -> Path:
         if self.offline:
             raise OSError("no route to host")
@@ -122,6 +143,13 @@ def library(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Library:
     return _Library(monkeypatch, tmp_path)
 
 
+def _prepare_all(module: dict[str, Any]) -> None:
+    """Every preparable item not ready, one after the other, as an app does."""
+    for item in PocketModule.check_files(module):
+        if item["preparable"] and item["status"] != "ready":
+            PocketModule.prepare(module, item["id"])
+
+
 def _statuses(module: dict[str, Any]) -> list[str]:
     items = PocketModule.check_files(module)
     assert [item["id"] for item in items] == [f"pocket:{key}" for key in _STATUSES]
@@ -139,10 +167,14 @@ def test_the_default_model_s_files_are_missing_until_prepared(
         ("pocket:tokenizer", "missing"),
         ("pocket:voice", "missing"),
     ]
-    assert all(item["preparable"] for item in before)
+    # The model load fetches each of them: preparable, not required.
+    assert all(item["preparable"] and not item["required"] for item in before)
 
-    progress: list[dict[str, Any]] = []
-    setup.prepare(config, progress.append)
+    progress: dict[str, list[dict[str, Any]]] = {}
+    for item in before:
+        setup.prepare(
+            config, item["id"], on_progress=progress.setdefault(item["id"], []).append
+        )
 
     # The voice-cloning weights when they can be had, the tokenizer, and the
     # default voice's state precomputed for this model.
@@ -151,15 +183,22 @@ def test_the_default_model_s_files_are_missing_until_prepared(
         _TOKENIZER.format("english"),
         _PRESET.format("english", "alba"),
     ]
-    assert [p["id"] for p in progress if p["fraction"] == 1.0] == [
-        "pocket:model",
-        "pocket:tokenizer",
-        "pocket:voice",
+    # Each item's bytes, measured against its size, then ready.
+    assert [p["fraction"] for p in progress["pocket:model"]] == [
+        0.0,
+        0.0,
+        0.5,
+        1.0,
+        1.0,
     ]
+    assert progress["pocket:model"][2]["message"] == (
+        "Downloading languages/english/model.safetensors: 1 MB of 2 MB"
+    )
     assert [item["status"] for item in _files(config)] == ["ready"] * 3
     assert library.loads == []  # fetched file by file: no model was loaded
 
-    setup.prepare(config)  # everything is ready: nothing more is fetched
+    for item in before:  # everything is ready: nothing more is fetched
+        setup.prepare(config, item["id"])
     assert len(library.downloads) == 3
 
 
@@ -169,7 +208,7 @@ def test_the_public_weights_stand_in_when_the_gated_ones_are_refused(
     library.gated_refused = True
     module = {"type": "pocket", "language": "french"}
 
-    PocketModule.prepare(module)
+    _prepare_all(module)
 
     assert library.downloads == [
         _PUBLIC.format("french"),
@@ -189,10 +228,10 @@ def test_a_cloned_voice_needs_the_gated_weights(library: _Library) -> None:
 
     library.gated_refused = True
     with pytest.raises(TTSError, match="pocket-tts download failed: gated repository"):
-        PocketModule.prepare(module)
+        PocketModule.prepare(module, "pocket:model")
 
     library.gated_refused = False
-    PocketModule.prepare(module)
+    _prepare_all(module)
     assert library.downloads == [_GATED.format("english"), url]
     assert _statuses(module) == ["ready", "ready", "ready"]
 
@@ -210,7 +249,7 @@ def test_a_voice_state_url_is_looked_up_in_the_hub_cache_as_it_is(
 
     # A voice state works with either weights: nothing is missing.
     assert _statuses(module) == ["ready", "ready", "ready"]
-    PocketModule.prepare(module)
+    _prepare_all(module)
     assert library.downloads == []
 
 
@@ -220,10 +259,17 @@ def test_a_local_voice_file_is_ready_or_missing_and_never_preparable(
     module = {"type": "pocket", "voice": "me.wav", "base_dir": str(tmp_path)}
 
     voice = PocketModule.check_files(module)[2]
-    assert (voice["status"], voice["preparable"]) == ("missing", False)
+    # A file the config names: only the user can supply it, a session needs it.
+    assert (voice["status"], voice["preparable"], voice["required"]) == (
+        "missing",
+        False,
+        True,
+    )
     assert str(tmp_path / "me.wav") in voice["detail"]
+    with pytest.raises(ValueError, match="'pocket:voice' is not an item"):
+        PocketModule.prepare(module, "pocket:voice")
 
-    PocketModule.prepare(module)
+    _prepare_all(module)
     assert library.downloads == [_GATED.format("english"), _TOKENIZER.format("english")]
 
     (tmp_path / "me.wav").write_bytes(b"riff")
@@ -242,14 +288,14 @@ def test_a_model_whose_files_cannot_be_named_is_unknown_and_prepared_by_a_load(
 ) -> None:
     items = PocketModule.check_files(module)
 
-    assert [(i["id"], i["status"], i["preparable"]) for i in items] == [
-        ("pocket:model", "unknown", True)
+    assert [(i["id"], i["status"], i["preparable"], i["required"]) for i in items] == [
+        ("pocket:model", "unknown", True, False)
     ]
     assert "first time" in items[0]["detail"]
     assert library.loads == []  # looking loads nothing
 
     progress: list[dict[str, Any]] = []
-    PocketModule.prepare(module, progress.append)
+    PocketModule.prepare(module, "pocket:model", progress.append)
 
     expected = {key: module[key] for key in ("config", "language") if key in module}
     assert library.loads == [expected]
@@ -281,14 +327,14 @@ def test_without_the_extra_the_model_is_unknown(
     assert [(i["status"], i["preparable"]) for i in items] == [("unknown", True)]
     assert "pocket extra" in items[0]["detail"]
     with pytest.raises(ConfigError, match=r"pip install tts-engine\[pocket\]"):
-        PocketModule.prepare({"type": "pocket"})
+        PocketModule.prepare({"type": "pocket"}, "pocket:model")
 
 
 def test_a_failed_download_is_a_tts_error(library: _Library) -> None:
     library.offline = True
 
     with pytest.raises(TTSError, match="pocket-tts download failed: no route to host"):
-        PocketModule.prepare({"type": "pocket"})
+        PocketModule.prepare({"type": "pocket"}, "pocket:tokenizer")
 
 
 @pytest.mark.parametrize(
