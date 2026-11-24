@@ -7,9 +7,9 @@ from pathlib import Path
 
 import gradio as gr
 import pytest
-from module_setup.app import AppModel
-from module_setup.folder import ConfigFolder
-from module_setup.secrets import SecretStore
+from app_setup.app import AppModel
+from app_setup.folder import ConfigFolder
+from app_setup.secrets import SecretStore
 
 from examples.gradio_demo.app import APP, DEFAULT_CONFIG, build_page
 from examples.gradio_demo.session import (

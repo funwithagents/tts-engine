@@ -18,7 +18,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from module_setup.app import AppModel
+from app_setup.app import AppModel
 
 from tts_engine.audio import AudioSink
 from tts_engine.config import TTSEngineConfig

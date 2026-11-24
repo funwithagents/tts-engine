@@ -1,6 +1,6 @@
 """The engine's demo page (specs/gradio-demo.md).
 
-The demo's own Speak tab next to module-setup's Setup and Secrets panels, over one section,
+The demo's own Speak tab next to app-setup's Setup and Secrets panels, over one section,
 `tts`, the engine block: the Setup panel chooses and configures a voice, installs its extra
 and downloads its model; Speak builds the engine from the saved config when it needs it
 (again after a save) and says what is typed. Nothing runs between utterances, so there is
@@ -19,9 +19,9 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import gradio as gr
-from module_setup.app import App, AppModel, Section
-from module_setup.folder import ConfigFolder, default_folder
-from module_setup.ui import secrets_panel, setup_panel
+from app_setup.app import App, AppModel, Section
+from app_setup.folder import ConfigFolder, default_folder
+from app_setup.ui import secrets_panel, setup_panel
 
 import tts_engine.setup
 from examples.gradio_demo.session import Voice, describe_result
@@ -76,7 +76,7 @@ def _speak_tab(model: AppModel, voice: Voice) -> None:
 
 
 def build_page(model: AppModel, voice: Voice) -> gr.Blocks:
-    """The demo's page: its Speak tab, then module-setup's Setup and Secrets panels. It
+    """The demo's page: its Speak tab, then app-setup's Setup and Secrets panels. It
     opens on Setup."""
     with gr.Blocks(title=model.title) as page:
         gr.Markdown(f"# {model.title}")
