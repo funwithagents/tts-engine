@@ -1477,7 +1477,7 @@ wheels = [
 [[package]]
 name = "module-setup"
 version = "0.1.0"
-source = { git = "https://github.com/funwithagents/module-setup?rev=section-fixes#f39fdee663d5e039e82eab229b438026ddad756e" }
+source = { git = "https://github.com/funwithagents/module-setup?rev=section-fixes#2e9f1e2a3dea4b2bddb942c054bf9919f7b3bba8" }
 dependencies = [
     { name = "packaging" },
 ]
