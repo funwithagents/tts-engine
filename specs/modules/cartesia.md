@@ -67,12 +67,10 @@ The key is checked by the server at the handshake, which construction now runs (
 from cartesia import Cartesia
 
 client = Cartesia(api_key=key)
-manager = (
-    client.tts.websocket_connect(  # TTSResourceConnectionManager over websockets.sync
-        websocket_connection_options={"open_timeout": timeout},  # see "Cancellation"
-    )
+manager = client.tts.websocket_connect(  # TTSResourceConnectionManager over websockets.sync
+    websocket_connection_options={"open_timeout": timeout},  # see "Cancellation"
 )
-ws = manager.__enter__()  # the handshake; manager.__exit__ closes the socket
+ws = manager.__enter__()              # the handshake; manager.__exit__ closes the socket
 ctx = ws.context(
     context_id=str(uuid.uuid4()),
     model_id=self._model,
@@ -80,10 +78,10 @@ ctx = ws.context(
     output_format={"container": "raw", "encoding": "pcm_s16le", "sample_rate": rate},
     # language=..., generation_config=..., max_buffer_delay_ms=... only when set
 )
-ctx.push("Hello ")  # continue=true
-ctx.no_more_inputs()  # empty transcript, continue=false
-raw = ws.recv_bytes(timeout=0.1)  # raises TimeoutError when nothing arrives
-event = ws.parse_event(raw)  # chunk | flush_done | done | timestamps | error
+ctx.push("Hello ")        # continue=true
+ctx.no_more_inputs()      # empty transcript, continue=false
+raw = ws.recv_bytes(timeout=0.1)   # raises TimeoutError when nothing arrives
+event = ws.parse_event(raw)        # chunk | flush_done | done | timestamps | error
 ctx.cancel()
 ```
 

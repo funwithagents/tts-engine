@@ -107,9 +107,7 @@ class TTSEngine:
         async with self._say_lock:
             try:
                 await self._module.synthesize_text_stream(
-                    _as_async_iterator(text_stream),
-                    TTSOptions(),
-                    callback=self._sink.feed,
+                    _as_async_iterator(text_stream), TTSOptions(), callback=self._sink.feed
                 )
             finally:
                 self._sink.drain()

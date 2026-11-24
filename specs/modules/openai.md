@@ -67,34 +67,25 @@ from openai import OpenAI
 
 client = OpenAI(api_key=key)
 with client.realtime.connect(model=model) as connection:  # a websockets sync socket
-    connection.session.update(
-        session={
-            "type": "realtime",
-            "output_modalities": ["audio"],
-            "instructions": VERBATIM,  # + "\n\nVoice direction: ..." when set
-            "audio": {
-                "input": {"turn_detection": None},
-                "output": {
-                    "format": {"type": "audio/pcm", "rate": 24000},
-                    "voice": voice,
-                    # "speed": speed only when set
-                },
+    connection.session.update(session={
+        "type": "realtime",
+        "output_modalities": ["audio"],
+        "instructions": VERBATIM,  # + "\n\nVoice direction: ..." when set
+        "audio": {
+            "input": {"turn_detection": None},
+            "output": {
+                "format": {"type": "audio/pcm", "rate": 24000},
+                "voice": voice,
+                # "speed": speed only when set
             },
-        }
-    )
-    connection.response.create(
-        response={
-            "conversation": "none",
-            "output_modalities": ["audio"],
-            "input": [
-                {
-                    "type": "message",
-                    "role": "user",
-                    "content": [{"type": "input_text", "text": text}],
-                }
-            ],
-        }
-    )
+        },
+    })
+    connection.response.create(response={
+        "conversation": "none",
+        "output_modalities": ["audio"],
+        "input": [{"type": "message", "role": "user",
+                   "content": [{"type": "input_text", "text": text}]}],
+    })
     event = connection.recv()  # blocking, no timeout
 ```
 

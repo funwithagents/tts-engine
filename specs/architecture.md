@@ -215,7 +215,6 @@ async def llm_tokens() -> AsyncIterator[str]:
     async for event in llm_client.stream(prompt):
         yield event.text
 
-
 await engine.say_stream(llm_tokens())
 ```
 

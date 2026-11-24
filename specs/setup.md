@@ -68,9 +68,7 @@ A module declares its config fields as data, and both its constructor and `check
 @dataclass(frozen=True)
 class Field:
     name: str
-    kind: (
-        FieldKind | tuple[FieldKind, ...]
-    )  # "string", "number", "integer", "boolean", "objects"
+    kind: FieldKind | tuple[FieldKind, ...]   # "string", "number", "integer", "boolean", "objects"
     description: str
     default: Any = None
     implied: Any = None
@@ -87,16 +85,8 @@ class Field:
     message: str | None = None
 
 
-def read_fields(
-    config: dict,
-    fields: Sequence[Field],
-    *,
-    label: str,
-    error: type[Exception] = ValueError,
-) -> dict[str, Any]: ...
-def field_problems(
-    config: dict, fields: Sequence[Field], *, label: str
-) -> list[tuple[str, str]]: ...
+def read_fields(config: dict, fields: Sequence[Field], *, label: str, error: type[Exception] = ValueError) -> dict[str, Any]: ...
+def field_problems(config: dict, fields: Sequence[Field], *, label: str) -> list[tuple[str, str]]: ...
 def fields_schema(fields: Sequence[Field]) -> dict: ...
 ```
 
@@ -119,8 +109,8 @@ The file uses the standard library only and knows nothing about speech: the erro
 ```python
 class TTSModule(ABC):
     kind: ClassVar[ModuleKind]
-    title: ClassVar[str]  # "ElevenLabs", "Phonon"
-    extra: ClassVar[str | None]  # "elevenlabs"; None for the fixtures
+    title: ClassVar[str]                      # "ElevenLabs", "Phonon"
+    extra: ClassVar[str | None]               # "elevenlabs"; None for the fixtures
     fields: ClassVar[tuple[Field, ...]]
 
     # The contract, over the module block, each with a default:

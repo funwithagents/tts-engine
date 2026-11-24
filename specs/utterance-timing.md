@@ -98,7 +98,7 @@ Everything but `first_segment` is stamped by the engine, with no change to the m
 ```python
 @dataclass(frozen=True)
 class UtteranceTiming:
-    started_at: datetime  # the call starts
+    started_at: datetime                 # the call starts
     admitted_at: datetime
     first_text_at: datetime | None
     first_segment_at: datetime | None
@@ -106,7 +106,7 @@ class UtteranceTiming:
     last_audio_at: datetime | None
     playback_started_at: datetime | None
     output_latency_seconds: float | None
-    ended_at: datetime  # the sink is drained, the source closed
+    ended_at: datetime                   # the sink is drained, the source closed
 
 
 @dataclass(frozen=True)

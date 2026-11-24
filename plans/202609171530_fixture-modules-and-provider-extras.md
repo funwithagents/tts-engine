@@ -264,20 +264,16 @@ PY
 **B9. `tests-e2e/support.py`.**
 - Add the two rows to `MODULES`:
   ```python
-  (pytest.param("tone", {}, id="tone"),)
-  (
-      pytest.param(
-          "audiofile",
-          {
-              "base_dir": str(Path(__file__).parent / "fixtures"),
-              "default_file": "default.wav",
-              "files": [
-                  {"text": "Hello directly from the TTS engine", "file": "hello.wav"}
-              ],
-          },
-          id="audiofile",
-      ),
-  )
+  pytest.param("tone", {}, id="tone"),
+  pytest.param(
+      "audiofile",
+      {
+          "base_dir": str(Path(__file__).parent / "fixtures"),
+          "default_file": "default.wav",
+          "files": [{"text": "Hello directly from the TTS engine", "file": "hello.wav"}],
+      },
+      id="audiofile",
+  ),
   ```
   (add `from pathlib import Path` to the imports).
 - Change `default_module()` to return `("tone", {})` and update its docstring: the default is the `tone` fixture module so the transport test never skips; it says nothing about which provider users should pick.
