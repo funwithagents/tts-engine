@@ -11,7 +11,7 @@ from app_setup.app import AppModel
 from app_setup.folder import ConfigFolder
 from app_setup.secrets import SecretStore
 
-from examples.gradio_demo.app import APP, DEFAULT_CONFIG, build_page
+from examples.gradio_demo.app import APP, DEFAULT_CONFIG, build_page, unsaved_line
 from examples.gradio_demo.session import (
     SpeechSession,
     Voice,
@@ -204,3 +204,19 @@ def test_the_default_config_is_the_committed_file_written_into_an_empty_folder(
 
     assert APP.default_config == committed
     assert json.loads((folder / "config.json").read_text()) == committed
+
+
+def test_the_speak_tab_says_when_the_setup_tab_has_unsaved_changes(
+    tmp_path: Path,
+) -> None:
+    model = _model(tmp_path)
+    saved = model.saved_config()
+    edited = {**saved, "tts": {"module": {"type": "tone"}}}
+
+    assert unsaved_line(model, saved) == ""
+    assert unsaved_line(model, {}) == ""  # the panel has not loaded its draft yet
+    assert unsaved_line(model, edited) == (
+        "The Setup tab has unsaved changes: Speak uses the saved config."
+    )
+    model.save(edited)
+    assert unsaved_line(model, edited) == ""

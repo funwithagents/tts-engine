@@ -47,8 +47,20 @@ APP = App(
 )
 
 
-def _speak_tab(model: AppModel, voice: Voice) -> None:
-    """A text to speak, Speak, Interrupt, and the result."""
+UNSAVED = "The Setup tab has unsaved changes: Speak uses the saved config."
+
+
+def unsaved_line(model: AppModel, draft: dict) -> str:
+    """The Speak tab's line about the Setup tab's draft: what app-setup's `unsaved_notice`
+    says next to a Start button, worded for Speak; "" when there is nothing unsaved (or
+    the panel has not loaded its draft yet)."""
+    return UNSAVED if draft and model.unsaved(draft) else ""
+
+
+def _speak_tab(model: AppModel, voice: Voice) -> gr.Markdown:
+    """A text to speak, Speak, Interrupt, and the result; the line about unsaved changes,
+    returned for the page to update."""
+    notice = gr.Markdown()
     text = gr.Textbox(label="Text to speak", value=SAMPLE_TEXT, lines=3)
     with gr.Row():
         speak = gr.Button("Speak", variant="primary", scale=0)
@@ -73,6 +85,7 @@ def _speak_tab(model: AppModel, voice: Voice) -> None:
     speak.click(on_speak, inputs=[text], outputs=[result])
     text.submit(on_speak, inputs=[text], outputs=[result])
     interrupt.click(lambda: voice.interrupt() and None)
+    return notice
 
 
 def build_page(model: AppModel, voice: Voice) -> gr.Blocks:
@@ -82,11 +95,17 @@ def build_page(model: AppModel, voice: Voice) -> gr.Blocks:
         gr.Markdown(f"# {model.title}")
         with gr.Tabs(selected="setup"):
             with gr.Tab("Speak", id="speak"):
-                _speak_tab(model, voice)
+                notice = _speak_tab(model, voice)
             with gr.Tab("Setup", id="setup"):
                 setup = setup_panel(model)
             with gr.Tab("Secrets", id="secrets"):
                 secrets_panel(model, setup.draft)
+
+        def follow(draft: dict) -> str:
+            return unsaved_line(model, draft)
+
+        setup.draft.change(follow, inputs=[setup.draft], outputs=[notice])
+        setup.saved.change(follow, inputs=[setup.draft], outputs=[notice])
     return page
 
 

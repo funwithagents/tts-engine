@@ -183,7 +183,9 @@ default-groups = ["dev", "demo"]
 
 [tool.uv.sources]
 torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
-app-setup = { git = "https://github.com/funwithagents/app-setup", rev = "main" }
+# Temporary: app-setup's pull request #10 (the Setup panel's draft and saved config, one
+# table of items). Back to `rev = "main"` once it is merged.
+app-setup = { git = "https://github.com/funwithagents/app-setup", rev = "draft-and-saved" }
 
 [tool.pytest.ini_options]
 # Only the fast, deterministic tier is collected by default; tests-e2e/ is opt-in.
