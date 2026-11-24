@@ -19,7 +19,7 @@ from tts_engine.modules import list_voices, load_module
 from tts_engine.modules.base import TTSError, TTSOptions, VoiceListingUnsupported
 from tts_engine.modules.openai_speech_compatible import OpenAISpeechCompatibleModule
 
-_BASE = {"type": "openai-speech-compatible", "api_key": "k", "voice": "v"}
+_BASE = {"type": "openai-speech-compatible", "voice": "v"}
 
 
 def _pcm(samples) -> bytes:
@@ -156,11 +156,28 @@ def test_invalid_field_raises_config_error(fake, override, field):
 
 
 def test_base_url_reaches_the_client_only_when_set(fake):
-    OpenAISpeechCompatibleModule(_BASE)
+    OpenAISpeechCompatibleModule({**_BASE, "api_key_env": "OPENAI_API_KEY"})
     assert fake.client_kwargs == {"api_key": "k"}
-    OpenAISpeechCompatibleModule({**_BASE, "base_url": "http://localhost:8000/v1"})
+    OpenAISpeechCompatibleModule(
+        {
+            **_BASE,
+            "api_key_env": "OPENAI_API_KEY",
+            "base_url": "http://localhost:8000/v1",
+        }
+    )
     assert fake.client_kwargs == {
         "api_key": "k",
+        "base_url": "http://localhost:8000/v1",
+    }
+
+
+def test_a_server_that_needs_no_key_gets_a_placeholder_one(fake, monkeypatch):
+    # No variable named, and none read by default: OPENAI_API_KEY is not sent to a
+    # compatible server the config did not give it to.
+    monkeypatch.setenv("OPENAI_API_KEY", "real-key")
+    OpenAISpeechCompatibleModule({**_BASE, "base_url": "http://localhost:8000/v1"})
+    assert fake.client_kwargs == {
+        "api_key": "unused",
         "base_url": "http://localhost:8000/v1",
     }
 

@@ -159,7 +159,8 @@ def load_choices(path: Path, audition: dict[str, Any]) -> dict[str, str]:
 
 def parse_module(value: str) -> dict[str, Any]:
     """A `--module` value: a JSON module block, or a type name, which gets the
-    provider's conventional `<TYPE>_API_KEY` when it is hosted."""
+    variable its module reads the key from by default (`CARTESIA_API_KEY`), written
+    out so the audition file says which key it needs."""
     if value.lstrip().startswith("{"):
         try:
             block = json.loads(value)
@@ -173,9 +174,23 @@ def parse_module(value: str) -> dict[str, Any]:
     except ConfigError:
         raise AuditionError(f"--module {value!r}: unknown module type") from None
     block: dict[str, Any] = {"type": value}
-    if REGISTRY[value].kind == "hosted":
-        block["api_key_env"] = value.upper().replace("-", "_") + "_API_KEY"
+    variable = _default_key_variable(value)
+    if variable is not None:
+        block["api_key_env"] = variable
     return block
+
+
+def _default_key_variable(module_type: Any) -> str | None:
+    """The variable a module reads its key from when its config names none; None for
+    a module with no key, or none by default (a compatible server)."""
+    try:
+        cls = REGISTRY[resolve_type(module_type)]
+    except (ConfigError, KeyError, TypeError):
+        return None
+    for field in cls.fields:
+        if field.secret == "env" and isinstance(field.default, str):
+            return field.default
+    return None
 
 
 def _language_matches(code: str, wanted: str) -> bool:
@@ -348,13 +363,8 @@ def cache_key(text: str, config: dict[str, Any]) -> str:
 
 
 def _missing_key(config: dict[str, Any]) -> str | None:
-    env = config.get("api_key_env")
-    if (
-        isinstance(env, str)
-        and env
-        and not config.get("api_key")
-        and not os.environ.get(env)
-    ):
+    env = config.get("api_key_env") or _default_key_variable(config.get("type"))
+    if isinstance(env, str) and env and not os.environ.get(env):
         return f"{env} is not set"
     return None
 

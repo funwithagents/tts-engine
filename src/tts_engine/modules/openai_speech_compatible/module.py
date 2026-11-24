@@ -27,6 +27,7 @@ from tts_engine.modules.base import (
     VoiceInfo,
     VoiceListingUnsupported,
     cleanup,
+    key_env_field,
     optional_str,
     resolve_api_key,
     run_cancellable_worker,
@@ -42,6 +43,8 @@ _DEFAULT_SAMPLE_RATE = 24000
 _DEFAULT_MODEL = "gpt-4o-mini-tts-2025-03-20"
 _DEFAULT_TIMEOUT = 30.0
 _LABEL = "OpenAI speech-compatible module"
+# The SDK refuses to build a client without a key: a keyless server gets this one.
+_NO_KEY = "unused"
 _MIN_SPEED, _MAX_SPEED = 0.25, 4.0
 # A WAV body (some compatible servers ignore `response_format`) starts with this.
 _WAV_MAGIC = b"RIFF"
@@ -66,23 +69,7 @@ class OpenAISpeechCompatibleModule(TTSModule):
             "The speech model, OpenAI's or the compatible server's.",
             default=_DEFAULT_MODEL,
         ),
-        Field(
-            "api_key_env",
-            "string",
-            "The environment variable holding the API key.",
-            allow_empty=True,
-            secret="env",
-            message="OpenAI speech-compatible module 'api_key_env' must be a string",
-        ),
-        Field(
-            "api_key",
-            "string",
-            "The API key itself. Prefer 'api_key_env', which keeps the key out of "
-            "the config file; a server that needs no key takes any placeholder.",
-            allow_empty=True,
-            secret="literal",
-            message="OpenAI speech-compatible module 'api_key' must be a string",
-        ),
+        key_env_field("OpenAI speech-compatible", None),
         Field(
             "instructions",
             "string",
@@ -151,7 +138,12 @@ class OpenAISpeechCompatibleModule(TTSModule):
         self.imports()
         from openai import OpenAI
 
-        api_key = resolve_api_key(config, label=_LABEL)
+        # No variable named: a server that needs no key (the SDK still wants one).
+        api_key = (
+            resolve_api_key(config, label=_LABEL, default=values["api_key_env"])
+            if values["api_key_env"]
+            else _NO_KEY
+        )
 
         voice: str = values["voice"]
         model: str = values["model"]

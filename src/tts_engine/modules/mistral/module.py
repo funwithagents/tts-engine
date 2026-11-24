@@ -30,6 +30,7 @@ from tts_engine.modules.base import (
     cleanup,
     finite_number,
     float_to_int16_pcm,
+    key_env_field,
     normalize_gender,
     optional_str,
     resolve_api_key,
@@ -46,6 +47,7 @@ _SAMPLE_RATE = 24000
 _DEFAULT_MODEL = "voxtral-mini-tts-3-0"
 _DEFAULT_TIMEOUT = 30.0
 _LABEL = "Mistral module"
+_KEY_ENV = "MISTRAL_API_KEY"
 _SLICE_BYTES = slice_bytes_for(_SAMPLE_RATE)
 _FLOAT_BYTES = 4
 
@@ -74,23 +76,7 @@ class MistralModule(TTSModule):
             "The Mistral text-to-speech model.",
             default=_DEFAULT_MODEL,
         ),
-        Field(
-            "api_key_env",
-            "string",
-            "The environment variable holding the Mistral API key.",
-            allow_empty=True,
-            secret="env",
-            message="Mistral module 'api_key_env' must be a string",
-        ),
-        Field(
-            "api_key",
-            "string",
-            "The Mistral API key itself. Prefer 'api_key_env', which keeps the "
-            "key out of the config file.",
-            allow_empty=True,
-            secret="literal",
-            message="Mistral module 'api_key' must be a string",
-        ),
+        key_env_field("Mistral", _KEY_ENV),
         Field(
             "expressiveness",
             "number",
@@ -129,7 +115,7 @@ class MistralModule(TTSModule):
         self.imports()
         from mistralai.client import Mistral
 
-        api_key = resolve_api_key(config, label=_LABEL)
+        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
 
         voice_id: str = values["voice_id"]
         model: str = values["model"]
@@ -173,7 +159,7 @@ class MistralModule(TTSModule):
                 "The 'mistral' module requires the mistral extra: "
                 "pip install tts-engine[mistral]"
             ) from exc
-        api_key = resolve_api_key(config, label=_LABEL)
+        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
         timeout = finite_number(
             config,
             "timeout",

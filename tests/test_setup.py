@@ -73,7 +73,8 @@ def test_config_schema_is_stable_and_offers_one_branch_per_registered_module() -
     assert eleven["title"] == "ElevenLabs (hosted)"
     assert eleven["required"] == ["voice_id"]
     assert eleven["properties"]["api_key_env"]["x-secret-env"] is True
-    assert eleven["properties"]["api_key"]["x-secret"] is True
+    assert eleven["properties"]["api_key_env"]["default"] == "ELEVENLABS_API_KEY"
+    assert "api_key" not in eleven["properties"]
 
 
 def test_the_contract_s_conformance_check_passes_over_the_examples() -> None:
@@ -275,7 +276,8 @@ _NO_PROVIDER_SCRIPT = textwrap.dedent(
     assert setup.required_extras({"module": {"type": "kokoro"}}) == ["tts-engine[kokoro]"]
 
     # Without its provider, every module with an extra reports that extra as
-    # missing, with the hint its constructor raises, and nothing else.
+    # missing, with the hint its constructor raises; a hosted module then its
+    # key, read from its default variable, and nothing else.
     from tts_engine.config import ConfigError
     from tts_engine.modules import REGISTRY
 
@@ -283,9 +285,12 @@ _NO_PROVIDER_SCRIPT = textwrap.dedent(
         if cls.extra is None:
             continue
         items = cls.check_setup({"type": name})
-        assert [(i["id"], i["status"]) for i in items] == [
-            (f"extra:tts-engine[{cls.extra}]", "missing")
+        assert [i["id"] for i in items[1:]] == [
+            f"key:{f.default}" for f in cls.fields if f.secret == "env" and f.default
         ], (name, items)
+        assert (items[0]["id"], items[0]["status"]) == (
+            f"extra:tts-engine[{cls.extra}]", "missing"
+        ), (name, items)
         try:
             cls.imports()
         except ConfigError as exc:
@@ -372,20 +377,60 @@ def test_a_key_variable_is_missing_until_set(monkeypatch: pytest.MonkeyPatch) ->
     assert setup.check_setup(config)[1]["status"] == "ready"
 
 
-def test_a_key_in_the_config_itself_needs_no_variable(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("DEMO_TTS_KEY", raising=False)
-    module = {
-        "type": "elevenlabs",
-        "voice_id": "v",
-        "api_key": "secret",
-        "api_key_env": "DEMO_TTS_KEY",
+_HOSTED = sorted(
+    name
+    for name, cls in REGISTRY.items()
+    if any(f.secret == "env" and f.default for f in cls.fields)
+)
+
+
+def test_every_provider_module_reads_its_key_from_the_provider_s_usual_variable() -> (
+    None
+):
+    defaults = {
+        name: next(f.default for f in REGISTRY[name].fields if f.secret == "env")
+        for name in _HOSTED
+    }
+    assert defaults == {
+        "cartesia": "CARTESIA_API_KEY",
+        "deepgram": "DEEPGRAM_API_KEY",
+        "elevenlabs": "ELEVENLABS_API_KEY",
+        "gemini": "GEMINI_API_KEY",
+        "gradium": "GRADIUM_API_KEY",
+        "mistral": "MISTRAL_API_KEY",
+        "openai": "OPENAI_API_KEY",
     }
 
-    assert [i["id"] for i in setup.check_setup({"module": module})] == [
-        "extra:tts-engine[elevenlabs]"
+
+@pytest.mark.parametrize("name", _HOSTED)
+def test_an_unset_default_variable_is_a_missing_key_and_a_key_in_the_config_is_refused(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    variable = next(f.default for f in REGISTRY[name].fields if f.secret == "env")
+    monkeypatch.delenv(variable)
+
+    keys = [
+        i
+        for i in REGISTRY[name].check_setup({"type": name})
+        if i["id"] != (f"extra:tts-engine[{REGISTRY[name].extra}]")
     ]
+    refused = REGISTRY[name].check_config({"type": name, "api_key": "sk-123"})
+
+    assert [(i["id"], i["status"]) for i in keys][:1] == [
+        (f"key:{variable}", "missing")
+    ]
+    assert refused[0][0] == "api_key"
+    assert "keep the key in an environment variable" in refused[0][1]
+
+
+def test_a_compatible_server_names_no_key_by_default() -> None:
+    assert [
+        i["id"]
+        for i in setup.check_setup(
+            {"module": {"type": "openai-speech-compatible", "voice": "v"}}
+        )
+        if i["id"].startswith("key:")
+    ] == []
 
 
 def test_a_module_without_files_has_no_item_and_nothing_to_prepare() -> None:

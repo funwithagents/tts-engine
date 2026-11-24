@@ -31,7 +31,7 @@ from tts_engine.modules.base import TTSError, TTSOptions, slice_text
 from tts_engine.modules.deepgram import DeepgramModule
 from tts_engine.modules.deepgram import module as deepgram_module
 
-_BASE = {"type": "deepgram", "api_key": "k"}
+_BASE = {"type": "deepgram"}
 _FLUX = {**_BASE, "model": "flux-haley-en"}
 # Both APIs, for the tests whose behaviour must not depend on the model.
 _BOTH = pytest.mark.parametrize("config", [_BASE, _FLUX], ids=["aura", "flux"])
@@ -1160,9 +1160,7 @@ def test_list_voices_selects_each_voice_by_its_model(monkeypatch):
     )
     calls = _fake_models_sdk(monkeypatch, [apollo, bare, nameless])
 
-    voices = DeepgramModule.list_voices(
-        {"type": "deepgram", "api_key": "k", "timeout": 10}
-    )
+    voices = DeepgramModule.list_voices({"type": "deepgram", "timeout": 10})
 
     assert calls["client"] == {"api_key": "k"}
     assert calls["list"] == {"request_options": {"timeout_in_seconds": 10}}
@@ -1186,4 +1184,4 @@ def test_list_voices_selects_each_voice_by_its_model(monkeypatch):
 def test_list_voices_failure_is_a_tts_error(monkeypatch):
     _fake_models_sdk(monkeypatch, [], error=RuntimeError("boom"))
     with pytest.raises(TTSError, match="voice listing failed: boom"):
-        DeepgramModule.list_voices({"type": "deepgram", "api_key": "k"})
+        DeepgramModule.list_voices({"type": "deepgram"})

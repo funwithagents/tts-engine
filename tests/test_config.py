@@ -29,7 +29,7 @@ VALID = {
     "engine": {
         "module": {
             "type": "elevenlabs",
-            "api_key": "sk_test",
+            "api_key_env": "ELEVENLABS_API_KEY",
             "voice_id": "abc123",
             "model": "eleven_flash_v2_5",
             "stability": 0.5,
@@ -49,7 +49,7 @@ def test_valid_config(tmp_path):
     cfg = MCPServerConfig.from_json_file(_write(tmp_path, VALID))
     assert isinstance(cfg, MCPServerConfig)
     assert cfg.engine.module["type"] == "elevenlabs"
-    assert cfg.engine.module["api_key"] == "sk_test"
+    assert cfg.engine.module["api_key_env"] == "ELEVENLABS_API_KEY"
     assert cfg.engine.player.device is None
     assert cfg.server.host == "0.0.0.0"
     assert cfg.server.port == 9123
@@ -224,9 +224,7 @@ def test_from_dict_module_missing_or_not_object(block):
         TTSEngineConfig.from_dict(block)
 
 
-@pytest.mark.parametrize(
-    "module", [{"api_key": "sk_test"}, {"type": ""}, {"type": 123}]
-)
+@pytest.mark.parametrize("module", [{"voice_id": "v"}, {"type": ""}, {"type": 123}])
 def test_from_dict_module_type_invalid_rejected(module):
     with pytest.raises(ConfigError, match="engine.module.type"):
         TTSEngineConfig.from_dict({"module": module})

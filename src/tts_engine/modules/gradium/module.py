@@ -28,6 +28,7 @@ from tts_engine.modules.base import (
     TTSOptions,
     VoiceInfo,
     finite_number,
+    key_env_field,
     normalize_gender,
     optional_str,
     resolve_api_key,
@@ -42,6 +43,7 @@ log = logging.getLogger(__name__)
 _SAMPLE_RATES = (8000, 16000, 24000, 44100, 48000)
 _DEFAULT_TIMEOUT = 30.0
 _LABEL = "Gradium module"
+_KEY_ENV = "GRADIUM_API_KEY"
 # How often the receive loop (and the connection setup) wakes to poll `stop`
 # while the server is silent, so a cancel is honored promptly.
 _RECV_POLL_SECONDS = 0.1
@@ -74,23 +76,7 @@ class GradiumModule(TTSModule):
             "The Gradium model alias, 'default' or 'gradium-tts-beta'.",
             default="default",
         ),
-        Field(
-            "api_key_env",
-            "string",
-            "The environment variable holding the Gradium API key.",
-            allow_empty=True,
-            secret="env",
-            message="Gradium module 'api_key_env' must be a string",
-        ),
-        Field(
-            "api_key",
-            "string",
-            "The Gradium API key itself. Prefer 'api_key_env', which keeps the "
-            "key out of the config file.",
-            allow_empty=True,
-            secret="literal",
-            message="Gradium module 'api_key' must be a string",
-        ),
+        key_env_field("Gradium", _KEY_ENV),
         Field(
             "sample_rate",
             "integer",
@@ -172,7 +158,7 @@ class GradiumModule(TTSModule):
         self.imports()
         from gradium import GradiumClient
 
-        api_key = resolve_api_key(config, label=_LABEL)
+        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
 
         # Sent only when set, so the API's own defaults apply otherwise.
         json_config: dict[str, float | str] = {
@@ -210,7 +196,7 @@ class GradiumModule(TTSModule):
                 "The 'gradium' module requires the gradium extra: "
                 "pip install tts-engine[gradium]"
             ) from exc
-        api_key = resolve_api_key(config, label=_LABEL)
+        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
         timeout = finite_number(
             config,
             "timeout",

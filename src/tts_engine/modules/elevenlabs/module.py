@@ -34,6 +34,7 @@ from tts_engine.modules.base import (
     VoiceInfo,
     cleanup,
     finite_number,
+    key_env_field,
     normalize_gender,
     resolve_api_key,
     run_cancellable_worker,
@@ -45,6 +46,7 @@ from tts_engine.modules.fields import Field
 _OUTPUT_FORMAT = "mp3_44100_128"
 _DEFAULT_TIMEOUT = 30.0
 _LABEL = "ElevenLabs module"
+_KEY_ENV = "ELEVENLABS_API_KEY"
 _STREAM_INPUT_URL = "wss://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream-input"
 _DIALOGUE_STREAM_INPUT_URL = "wss://api.elevenlabs.io/v1/text-to-dialogue/stream-input"
 # Models the text-to-speech socket rejects (HTTP 400 at the handshake) and the
@@ -135,23 +137,7 @@ class ElevenLabsModule(TTSModule):
             "text-to-dialogue API.",
             default="eleven_flash_v2_5",
         ),
-        Field(
-            "api_key_env",
-            "string",
-            "The environment variable holding the ElevenLabs API key.",
-            allow_empty=True,
-            secret="env",
-            message="ElevenLabs module 'api_key_env' must be a string",
-        ),
-        Field(
-            "api_key",
-            "string",
-            "The ElevenLabs API key itself. Prefer 'api_key_env', which keeps the "
-            "key out of the config file.",
-            allow_empty=True,
-            secret="literal",
-            message="ElevenLabs module 'api_key' must be a string",
-        ),
+        key_env_field("ElevenLabs", _KEY_ENV),
         Field(
             "stability",
             "number",
@@ -202,7 +188,7 @@ class ElevenLabsModule(TTSModule):
         from websockets.exceptions import ConnectionClosedOK
         from websockets.sync.client import connect
 
-        api_key = resolve_api_key(config, label=_LABEL)
+        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
 
         voice_id: str = values["voice_id"]
         model: str = values["model"]
@@ -288,7 +274,7 @@ class ElevenLabsModule(TTSModule):
                 "The 'elevenlabs' module requires the elevenlabs extra: "
                 "pip install tts-engine[elevenlabs]"
             ) from exc
-        api_key = resolve_api_key(config, label=_LABEL)
+        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
         timeout = finite_number(
             config,
             "timeout",

@@ -161,7 +161,7 @@ REGISTRY: dict[str, type[TTSModule]] = {
 }
 ```
 
-`load_module(tts_config: dict) -> TTSModule` reads `tts_config["type"]`, resolves it with `resolve_type` (below), looks it up in `REGISTRY`, and constructs the module with the complete config dictionary, including `type` (and `base_dir` when the loader filled it in — see [configuration.md](configuration.md)). Raises `ConfigError` for unknown types. The registry always lists every module, installed extra or not: selecting a provider whose extra is absent fails at *construction* with an actionable `ConfigError` (see "Dependencies" below), never at import.
+`load_module(tts_config: dict, *, keys: Mapping[str, str] | None = None) -> TTSModule` reads `tts_config["type"]`, resolves it with `resolve_type` (below), looks it up in `REGISTRY`, and constructs the module with the complete config dictionary, including `type` (and `base_dir` when the loader filled it in — see [configuration.md](configuration.md)), with *keys* (variable name → key, from `TTSEngine(config, keys=...)`) looked up before the environment for its API key ("Shared config helpers" below). Raises `ConfigError` for unknown types. The registry always lists every module, installed extra or not: selecting a provider whose extra is absent fails at *construction* with an actionable `ConfigError` (see "Dependencies" below), never at import.
 
 There is **no default module**. `type` is required, and no module is privileged in code, docs, or examples.
 
@@ -231,11 +231,11 @@ class VoiceListingUnsupported(Exception):
     where its voices are documented."""
 
 
-def list_voices(module_config: dict) -> list[VoiceInfo]:
-    """REGISTRY[module_config["type"]].list_voices(module_config)."""
+def list_voices(module_config: dict, *, keys: Mapping[str, str] | None = None) -> list[VoiceInfo]:
+    """REGISTRY[module_config["type"]].list_voices(module_config), *keys* as for load_module."""
 ```
 
-**A classmethod over the module config.** Listing must not need what synthesis needs: Cartesia and ElevenLabs cannot be constructed without the `voice_id` you are trying to choose, and constructing a module opens sockets (deepgram, cartesia, openai) or loads weights (the local models). `list_voices(config)` therefore takes the same `engine.module` block as the constructor but reads only what listing needs: the credentials (`api_key` / `api_key_env`, through `resolve_api_key`), the endpoint (`base_url` / `server_url`, `timeout`) and the fields that change which voices exist (qwen3's `model`, kokoro's `voices` file). Voice fields are ignored, so `{"type": "cartesia", "api_key_env": "CARTESIA_API_KEY"}` is enough. `modules/__init__.py` exposes `list_voices(module_config)`, which looks the type up in `REGISTRY` like `load_module` (unknown type → `ConfigError`), and the package re-exports it with `VoiceInfo` and `VoiceListingUnsupported`.
+**A classmethod over the module config.** Listing must not need what synthesis needs: Cartesia and ElevenLabs cannot be constructed without the `voice_id` you are trying to choose, and constructing a module opens sockets (deepgram, cartesia, openai) or loads weights (the local models). `list_voices(config)` therefore takes the same `engine.module` block as the constructor but reads only what listing needs: the credentials (`api_key_env`, through `resolve_api_key`), the endpoint (`base_url` / `server_url`, `timeout`) and the fields that change which voices exist (qwen3's `model`, kokoro's `voices` file). Voice fields are ignored, so `{"type": "cartesia", "api_key_env": "CARTESIA_API_KEY"}` is enough. `modules/__init__.py` exposes `list_voices(module_config)`, which looks the type up in `REGISTRY` like `load_module` (unknown type → `ConfigError`), and the package re-exports it with `VoiceInfo` and `VoiceListingUnsupported`.
 
 **The whole catalog, unfiltered, in the backend's order.** No language or gender filter: the backends' metadata are too uneven for a filter to mean the same thing everywhere, and the caller filters the returned list in one line. The list includes the account's own voices where the provider lists them with the public ones (ElevenLabs, Cartesia, Gradium, Mistral).
 
@@ -441,7 +441,9 @@ Since [setup.md](setup.md), a module declares its config fields as data (`title`
 Every module validates its own `engine.module` block in its constructor ("Error handling" below), but most of the fields are of three kinds every backend shares, and the first review of the modules found the same check copied ten times with small drifts (one copy accepting `NaN`, another a bool). `modules/base.py` therefore holds one validator per kind, and a module never re-implements them. Each takes a `label` (`"ElevenLabs module"`) that prefixes its messages, so an error still names the backend:
 
 ```python
-def resolve_api_key(config: dict, *, label: str) -> str: ...
+def key_env_field(provider: str, variable: str | None) -> Field: ...
+def supplied_keys(keys: Mapping[str, str] | None) -> ContextManager[None]: ...
+def resolve_api_key(config: dict, *, label: str, default: str) -> str: ...
 def optional_str(config: dict, field: str, *, label: str, default: str | None = None) -> str | None: ...
 def finite_number(
     config: dict, field: str, *, label: str, default: float | None = None,
@@ -450,7 +452,8 @@ def finite_number(
 def positive_int(config: dict, field: str, *, label: str) -> int | None: ...
 ```
 
-- **`resolve_api_key`** is the credential rule every API-backed module follows ([elevenlabs-module.md](modules/elevenlabs.md), "API key resolution", is its reference description): a non-empty literal `api_key` wins; otherwise the environment variable named by `api_key_env` is read, and its being unset or empty is a `ConfigError` naming the variable; a non-string value for either field, or neither yielding a key, is a `ConfigError`. The key is always passed to the SDK explicitly, so no SDK's own environment fallback is in force.
+- **`key_env_field`** declares the `api_key_env` field of a hosted module: the environment variable holding *provider*'s key, *variable* (`GRADIUM_API_KEY`) by default; with no default (a keyless compatible server), the field may stay absent. There is no `api_key` field: a key is never written in a config.
+- **`resolve_api_key`** is the credential rule every API-backed module follows ([elevenlabs-module.md](modules/elevenlabs.md), "API key resolution", is its reference description): the variable named by `api_key_env`, *default* when the field is absent or `null`, is looked up in the keys given in code (`supplied_keys`, set by `load_module` and `list_voices` from their `keys` argument while the module is built or lists its voices) and then in the environment, and no key under that name is a `ConfigError` naming the variable; an `api_key_env` that is not a non-empty string is a `ConfigError`; an `api_key` field in the config is refused (`refuse_api_key`: `"<label> does not take 'api_key': keep the key in an environment variable and name it in 'api_key_env'"`), as `TTSModule.check_config` and `validated` also do for every module with a key field. The key is always passed to the SDK explicitly, so no SDK's own environment fallback is in force.
 - **`optional_str`** reads a field that may be absent: absent gives `default` (`None` without one); present must be a non-empty string (`"<label> '<field>' must be a non-empty string"`). The **absent-versus-`null` policy** the modules chose is kept: with no `default`, an explicit `null` counts as absent; with a `default`, an explicit `null` is rejected like any other non-string, since a value the config names is validated and only a missing one is defaulted. A module that wants `null` to mean "the default" with a default of its own writes `optional_str(...) or DEFAULT` (qwen3, kokoro); a module whose field must not be `null` even without a default keeps its own `"field" in config` check (pocket's `voice`, audiofile's `default_file`).
 - **`finite_number`** reads a numeric field with the same absent/`null`/`default` policy, as a `float`: a present value must be an `int` or `float` (a bool is rejected rather than treated as an integer), **finite** (`NaN` and the infinities, which JSON's parser accepts, would otherwise reach a sampler or a timeout) and within the bounds given (`minimum`/`maximum` inclusive, `exclusive_minimum` exclusive); the message names the field and the bounds (`"... must be a finite number > 0"`, `"... between 0 and 1"`). The `timeout` field of every API-backed module is `finite_number(config, "timeout", label=..., default=30.0, exclusive_minimum=0)`.
 

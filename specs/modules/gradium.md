@@ -26,8 +26,7 @@ All fields go under the `engine.module` block in `config.json` alongside `"type"
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `api_key` | non-empty string | one of `api_key`/`api_key_env` | — | Gradium API key, given literally. |
-| `api_key_env` | non-empty string | one of `api_key`/`api_key_env` | — | Name of an environment variable holding the API key (Gradium's own convention is `GRADIUM_API_KEY`). Lets a config file be committed with no secret. |
+| `api_key_env` | non-empty string | no | `"GRADIUM_API_KEY"` | Name of the environment variable holding the API key. The key itself is never in the config. |
 | `voice_id` | non-empty string | yes | — | The Gradium voice id used for synthesis (a 16-character id such as `91EdXxJDbWICDBgz`, "Alex", from the flagship catalog, or a custom voice's uid). |
 | `model` | non-empty string | no | `"default"` | Gradium model alias, sent as `model_name`: `"default"` (the standard model) or `"gradium-tts-beta"` (the newest beta). |
 | `sample_rate` | integer | no | `48000` | Output PCM rate. One of `8000`, `16000`, `24000`, `44100`, `48000` — the rates Gradium offers as `pcm_<rate>` output formats. `48000` is the model's native rate; any other value is resampled server-side. |
@@ -41,7 +40,7 @@ All fields go under the `engine.module` block in `config.json` alongside `"type"
 
 ### API key resolution
 
-Identical to ElevenLabs ([elevenlabs-module.md](elevenlabs.md), "API key resolution"): a non-empty literal `api_key` wins; otherwise, if `api_key_env` is set, the key is read from that environment variable. Non-string values raise `ConfigError`. If `api_key_env` names a variable that is unset or empty, construction raises `ConfigError` identifying the variable. If neither yields a key, construction raises `ConfigError`. The resolved key is always passed explicitly to `GradiumClient(api_key=...)`: the SDK's own fallback to `GRADIUM_API_KEY` is never relied on, so the module's key rules are the only ones in force and a config that names no key fails here, not inside the SDK.
+The shared rule ([elevenlabs-module.md](elevenlabs.md), "API key resolution"): the key is read from the environment variable `api_key_env` names, `GRADIUM_API_KEY` when the field is absent; an unset or empty variable makes construction raise `ConfigError` naming it, and a config with an `api_key` field is refused (`Gradium module does not take 'api_key': ...`). The resolved key is always passed explicitly to `GradiumClient(api_key=...)`: the SDK's own fallback to `GRADIUM_API_KEY` is never relied on, so the module's key rules are the only ones in force and an unset variable fails here, not inside the SDK.
 
 ### Validation
 

@@ -10,7 +10,7 @@ uv sync --no-dev --extra elevenlabs
 pip install "tts-engine[elevenlabs]"
 ```
 
-Prefer referencing an environment variable so secrets do not appear in configuration files:
+The API key is read from an environment variable, so no secret appears in the configuration file:
 
 ```json
 {
@@ -27,8 +27,7 @@ Prefer referencing an environment variable so secrets do not appear in configura
 
 | Field | Required | Default | Description |
 |---|---|---|---|
-| `api_key_env` | one of `api_key_env` or `api_key` | — | Name of the environment variable holding the API key. Recommended for file-based configuration. |
-| `api_key` | one of `api_key_env` or `api_key` | — | Literal API key. A non-empty literal key takes precedence over `api_key_env`. |
+| `api_key_env` | no | `ELEVENLABS_API_KEY` | Name of the environment variable holding the API key. The key itself is never written in the config: a config with `api_key` is refused. |
 | `voice_id` | yes | — | ElevenLabs voice ID. |
 | `model` | no | `eleven_flash_v2_5` | Model ID. `eleven_flash_v2_5` favors latency; `eleven_multilingual_v2` favors quality; `eleven_v4_turbo`, `eleven_v4` and `eleven_v3*` stream over the text-to-dialogue socket, which holds a dialogue session from a separate, smaller pool. |
 | `stability` | no | `0.5` | Voice stability from 0.0 to 1.0. |
@@ -39,7 +38,8 @@ The module emits mono PCM at 44,100 Hz.
 
 ## Troubleshooting
 
-- Verify that the environment variable named by `api_key_env` is set in the process running the engine.
+- Verify that the environment variable named by `api_key_env` (`ELEVENLABS_API_KEY` by default) is set in the process running the engine.
+- `does not take 'api_key'` means the config still writes the key itself: move it to an environment variable and name that variable in `api_key_env`.
 - Verify that `voice_id` exists and is available to the configured ElevenLabs account.
 
 ## See also

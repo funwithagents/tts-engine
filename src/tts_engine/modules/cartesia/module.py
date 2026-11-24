@@ -45,6 +45,7 @@ from tts_engine.modules.base import (
     VoiceInfo,
     cut_at_boundary,
     finite_number,
+    key_env_field,
     normalize_gender,
     open_cancellable,
     resolve_api_key,
@@ -65,6 +66,7 @@ _VOLUME_RANGE = (0.5, 2.0)
 _BUFFER_DELAY_RANGE = (0, 5000)
 _DEFAULT_TIMEOUT = 30.0
 _LABEL = "Cartesia module"
+_KEY_ENV = "CARTESIA_API_KEY"
 # A context takes one segment: it is ended at the first sentence end past
 # _SEGMENT_SOFT characters, and at a word boundary at _SEGMENT_HARD at the
 # latest. The next context opens once this one's `done` has arrived, so the
@@ -292,23 +294,7 @@ class CartesiaModule(TTSModule):
             "The Cartesia Sonic model.",
             default=_DEFAULT_MODEL,
         ),
-        Field(
-            "api_key_env",
-            "string",
-            "The environment variable holding the Cartesia API key.",
-            allow_empty=True,
-            secret="env",
-            message="Cartesia module 'api_key_env' must be a string",
-        ),
-        Field(
-            "api_key",
-            "string",
-            "The Cartesia API key itself. Prefer 'api_key_env', which keeps the "
-            "key out of the config file.",
-            allow_empty=True,
-            secret="literal",
-            message="Cartesia module 'api_key' must be a string",
-        ),
+        key_env_field("Cartesia", _KEY_ENV),
         Field(
             "sample_rate",
             "integer",
@@ -386,7 +372,7 @@ class CartesiaModule(TTSModule):
         from cartesia import Cartesia
         from websockets.exceptions import InvalidStatus
 
-        api_key = resolve_api_key(config, label=_LABEL)
+        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
 
         voice_id: str = values["voice_id"]
         model: str = values["model"]
@@ -472,7 +458,7 @@ class CartesiaModule(TTSModule):
                 "The 'cartesia' module requires the cartesia extra: "
                 "pip install tts-engine[cartesia]"
             ) from exc
-        api_key = resolve_api_key(config, label=_LABEL)
+        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
         timeout = finite_number(
             config,
             "timeout",

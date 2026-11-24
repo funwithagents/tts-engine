@@ -11,10 +11,11 @@ working through ``RENAMED`` (old → new), with a deprecation warning.
 """
 
 import logging
+from collections.abc import Mapping
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.audiofile import AudioFileModule
-from tts_engine.modules.base import TTSModule, VoiceInfo
+from tts_engine.modules.base import TTSModule, VoiceInfo, supplied_keys
 from tts_engine.modules.cartesia import CartesiaModule
 from tts_engine.modules.deepgram import DeepgramModule
 from tts_engine.modules.elevenlabs import ElevenLabsModule
@@ -72,12 +73,22 @@ def resolve_type(module_type: object) -> str:
     return module_type
 
 
-def load_module(tts_config: dict) -> TTSModule:
+def load_module(
+    tts_config: dict, *, keys: Mapping[str, str] | None = None
+) -> TTSModule:
+    """The module ``tts_config["type"]`` names, built from its block. *keys*
+    (variable name → key) are looked up before the environment for the key the
+    block names (``api_key_env``)."""
     cls = REGISTRY[resolve_type(tts_config.get("type"))]
-    return cls(tts_config)
+    with supplied_keys(keys):
+        return cls(tts_config)
 
 
-def list_voices(module_config: dict) -> list[VoiceInfo]:
+def list_voices(
+    module_config: dict, *, keys: Mapping[str, str] | None = None
+) -> list[VoiceInfo]:
     """The voices of the backend named by ``module_config["type"]`` (see
-    ``TTSModule.list_voices``)."""
-    return REGISTRY[resolve_type(module_config.get("type"))].list_voices(module_config)
+    ``TTSModule.list_voices``); *keys* as for `load_module`."""
+    cls = REGISTRY[resolve_type(module_config.get("type"))]
+    with supplied_keys(keys):
+        return cls.list_voices(module_config)

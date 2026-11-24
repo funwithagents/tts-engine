@@ -28,8 +28,7 @@ All fields go under the `engine.module` block in `config.json` alongside `"type"
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `api_key` | non-empty string | one of `api_key`/`api_key_env` | — | OpenAI API key, given literally. |
-| `api_key_env` | non-empty string | one of `api_key`/`api_key_env` | — | Name of an environment variable holding the API key (OpenAI's own convention is `OPENAI_API_KEY`). Lets a config file be committed with no secret. |
+| `api_key_env` | non-empty string | no | `"OPENAI_API_KEY"` | Name of the environment variable holding the API key. The key itself is never in the config. |
 | `model` | non-empty string | no | `"gpt-realtime-2.1-mini"` | Realtime model id: `gpt-realtime-2.1-mini`, `gpt-realtime-2.1`, `gpt-realtime-2`, or a dated snapshot. Never default to the pre-2.1 `gpt-realtime-mini`: OpenAI shuts it down on 2027-01-20. |
 | `voice` | non-empty string | no | `"marin"` | A built-in voice: `alloy`, `ash`, `ballad`, `coral`, `echo`, `sage`, `shimmer`, `verse`, `marin`, `cedar` (OpenAI recommends `marin` or `cedar`). Unlike `/v1/audio/speech`, the session has a server default, but the module names one so a config's voice does not drift with OpenAI's default. |
 | `instructions` | non-empty string | no | — | Voice direction (tone, pace, accent, emotion), appended to the module's verbatim-reading instructions as "Voice direction: …" — the Realtime counterpart of `gpt-4o-mini-tts`'s `instructions`. It cannot replace the verbatim rule. |
@@ -40,7 +39,7 @@ The output format is fixed: the module always asks for `audio/pcm` at 24 kHz (th
 
 ### API key resolution
 
-The shared `resolve_api_key` ([tts-module-interface.md](../tts-module-interface.md), "Shared config helpers"): a non-empty literal `api_key` wins; otherwise `api_key_env` names the variable; an unset or empty variable, or neither field, raises `ConfigError`. The key is passed explicitly to `OpenAI(api_key=...)`; the SDK's `OPENAI_API_KEY` fallback is never relied on.
+The shared rule ([elevenlabs-module.md](elevenlabs.md), "API key resolution"): the key is read from the environment variable `api_key_env` names, `OPENAI_API_KEY` when the field is absent; an unset or empty variable makes construction raise `ConfigError` naming it, and a config with an `api_key` field is refused (`OpenAI module does not take 'api_key': ...`). The key is passed explicitly to `OpenAI(api_key=...)`; the SDK's `OPENAI_API_KEY` fallback is never relied on.
 
 ### Validation
 

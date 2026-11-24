@@ -88,11 +88,11 @@ def fields_schema(fields: Sequence[Field]) -> dict: ...
 - **`default`** is the value an absent field takes, and it changes how `null` is read: without one, an explicit `null` counts as absent; with one, it is rejected like any other wrong value. This is the policy the shared helpers already had.
 - **`nullable=False`** refuses an explicit `null` on a field that has no default and may be absent (pocket's `voice`).
 - **`implied`** is for a field the module falls back on in code (`voice or _DEFAULT_VOICE`) or leaves to the provider: the value a form shows as the default, never used to validate, so `null` stays accepted.
-- **`allow_empty`** lets a string be empty (`api_key`, where an empty literal means "use `api_key_env`").
+- **`allow_empty`** lets a string be empty, for a field where an empty value means something of its own.
 - **`message`** replaces the default wording of an invalid value, for the fields whose message predates this spec (`"ElevenLabs module requires a non-empty 'voice_id'"`).
 - **`read_fields`** returns each field's value (its default when absent) or raises `error` on the first invalid one; a number comes back as a `float`. Its rules and wording are those of the shared helpers ([tts-module-interface.md](tts-module-interface.md), "Shared config helpers"): a present string is non-empty, a number is finite and within its bounds, a bool is never a number, an integer is never a float. `optional_str`, `finite_number` and `positive_int` are now thin wrappers over it; the constructors no longer call them, and `list_voices` still does, since it reads a config that may lack the required fields.
 - **`field_problems`** runs the same rules and returns every failure as `(field name, message)` instead of raising on the first.
-- **`fields_schema`** returns the `properties` and `required` of a JSON Schema object: for each field its `type` (with `null` when it has no default and is not required), `description`, `default` (the default, else the implied value), `enum`, the bounds, and the annotations `x-advanced`, `x-secret-env` (`secret="env"`), `x-secret` (`secret="literal"`) and `x-options`.
+- **`fields_schema`** returns the `properties` and `required` of a JSON Schema object: for each field its `type` (with `null` when it has no default and is not required), `description`, `default` (the default, else the implied value), `enum`, the bounds, and the annotations `x-advanced`, `x-secret-env` (`secret="env"`), `x-secret` (`secret="literal"`, which no module declares any more: a key is never written in a config) and `x-options`.
 
 The file uses the standard library only and knows nothing about speech: the error type is the caller's.
 
@@ -153,7 +153,7 @@ The module's methods carry the contract's names, so `tts_engine.setup.check_setu
 - **`fields_for`** returns `fields`, unless a field's rule depends on another's value: deepgram's `speed` range and its `expressivity` follow the model family, so it returns them narrowed for an Aura model. A form is drawn from `fields`; a config is validated against `fields_for`.
 - **`config_rules`** is the module's hook for a rule a `Field` cannot state: across fields (kokoro's language following its voice) or on a field's content (an `hf://` reference's form). It raises `ConfigError` and looks at the config only: no provider import, no file, no network.
 
-`api_key` (`secret="literal"`) and `api_key_env` (`secret="env"`) are two declared fields of every hosted module. Neither is `required`: needing a key at all is a machine fact `resolve_api_key` reports at construction, not a shape rule.
+`api_key_env` (`secret="env"`) is the one key field of every hosted module, declared by `key_env_field`: not `required`, since it has a default, the provider's usual variable (`GRADIUM_API_KEY`); `openai-speech-compatible` has none, for a compatible server that needs no key. Whether that variable is set is a machine fact, reported by `check_setup` and at construction, not a shape rule. There is no `api_key` field: a key written in a config is refused by `check_config` (under the pointer `/api_key`) and at construction, so a config never holds a secret ([elevenlabs-module.md](modules/elevenlabs.md), "API key resolution").
 
 `base_dir` is not a field: it is the reserved key the loader injects ([configuration.md](configuration.md)).
 
@@ -186,7 +186,7 @@ Unknown keys in a module block are accepted, as the constructors accept them tod
 `check_setup` returns, in this order:
 
 1. **The extra** — one item, `extra:tts-engine[<extra>]`, never preparable: `ready` ("Installed.") when the module's `imports` succeed, else `missing` with the install hint the constructor raises. A fixture has none.
-2. **The keys** — one item per environment variable a `secret="env"` field names (`key:<VARIABLE>`), never preparable: `ready` when it is set and non-empty, else `missing` with a sentence naming the variable and the field. A config holding the key itself (`api_key`) has none. Whether the provider accepts the key is `probe`'s business.
+2. **The keys** — one item per environment variable a `secret="env"` field names, or names by default when it is absent (`key:<VARIABLE>`), never preparable: `ready` when it is set and non-empty, else `missing` with a sentence naming the variable and the field. Whether the provider accepts the key is `probe`'s business.
 3. **The files** — only once the extra imports, since looking them up uses the provider's library: the module's `check_files`.
 
 The environment read is the process's own: an application keeping keys in a file loads them first.

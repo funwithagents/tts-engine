@@ -22,8 +22,7 @@ pip install "tts-engine[gemini]"
 
 | Field | Required | Default | Description |
 |---|---|---|---|
-| `api_key_env` | one of `api_key_env` or `api_key` | — | Name of the environment variable holding the API key. Recommended for file-based configuration. |
-| `api_key` | one of `api_key_env` or `api_key` | — | Literal API key. A non-empty literal key takes precedence over `api_key_env`. |
+| `api_key_env` | no | `GEMINI_API_KEY` | Name of the environment variable holding the API key. The key itself is never written in the config: a config with `api_key` is refused. |
 | `voice` | no | API default | A prebuilt voice name, e.g. `Kore`, `Puck`, `Charon` or `Zephyr`. |
 | `model` | no | `gemini-3.8-flash-tts` | Gemini TTS model ID, e.g. `gemini-3.8-flash-lite-tts`. |
 | `language_code` | no | detected from the text | BCP-47 language code, e.g. `en-US` or `fr-FR`. |
@@ -36,7 +35,8 @@ The module emits mono PCM at 24,000 Hz. Text is sent verbatim as the prompt, so 
 
 ## Troubleshooting
 
-- Verify that the environment variable named by `api_key_env` is set in the process running the engine.
+- Verify that the environment variable named by `api_key_env` (`GEMINI_API_KEY` by default) is set in the process running the engine.
+- `does not take 'api_key'` means the config still writes the key itself: move it to an environment variable and name that variable in `api_key_env`.
 - A `TTSError` containing `No matching speaker voice` means `voice` is not a prebuilt voice; `NOT_FOUND` means the `model` ID is wrong; `Invalid language_code` means `language_code` is not a BCP-47 code the API accepts.
 - A `TTSError` containing `429 RESOURCE_EXHAUSTED` means the per-minute request quota of the model is spent (one request per sentence): wait a minute, shorten the text, or move the Google account to a higher tier.
 - A `TTSError` reporting that Gemini stopped synthesis early or blocked the prompt carries the API's reason, e.g. `SAFETY`.

@@ -748,12 +748,26 @@ def test_slice_text_short_text_is_one_slice_and_a_long_word_is_cut_at_the_bound(
 _LABEL = "X module"
 
 
-def test_resolve_api_key_prefers_the_literal_over_the_variable(monkeypatch):
+def test_resolve_api_key_reads_the_named_variable_or_the_default(monkeypatch):
+    monkeypatch.setenv("TTS_TEST_KEY", "named")
+    monkeypatch.setenv("TTS_DEFAULT_KEY", "default")
+
+    named = {"api_key_env": "TTS_TEST_KEY"}
+    assert resolve_api_key(named, label=_LABEL, default="TTS_DEFAULT_KEY") == "named"
+    assert resolve_api_key({}, label=_LABEL, default="TTS_DEFAULT_KEY") == "default"
+    null = {"api_key_env": None}
+    assert resolve_api_key(null, label=_LABEL, default="TTS_DEFAULT_KEY") == "default"
+
+
+def test_resolve_api_key_reads_the_keys_given_in_code_first_and_only_inside(
+    monkeypatch,
+):
+    from tts_engine.modules.base import supplied_keys
+
     monkeypatch.setenv("TTS_TEST_KEY", "from-env")
-    both = {"api_key": "literal", "api_key_env": "TTS_TEST_KEY"}
-    assert resolve_api_key(both, label=_LABEL) == "literal"
-    env_only = {"api_key": "", "api_key_env": "TTS_TEST_KEY"}
-    assert resolve_api_key(env_only, label=_LABEL) == "from-env"
+    with supplied_keys({"TTS_TEST_KEY": "from-code"}):
+        assert resolve_api_key({}, label=_LABEL, default="TTS_TEST_KEY") == "from-code"
+    assert resolve_api_key({}, label=_LABEL, default="TTS_TEST_KEY") == "from-env"
 
 
 @pytest.mark.parametrize("value", [None, ""])
@@ -765,26 +779,25 @@ def test_resolve_api_key_names_an_unset_or_empty_variable(monkeypatch, value):
     with pytest.raises(
         ConfigError, match="X module: environment variable 'TTS_TEST_KEY'"
     ):
-        resolve_api_key({"api_key_env": "TTS_TEST_KEY"}, label=_LABEL)
+        resolve_api_key({}, label=_LABEL, default="TTS_TEST_KEY")
 
 
-@pytest.mark.parametrize(
-    "config", [{}, {"api_key": ""}, {"api_key": None, "api_key_env": None}]
-)
-def test_resolve_api_key_requires_one_of_the_fields(config):
+@pytest.mark.parametrize("name", ["", ["K"]])
+def test_resolve_api_key_refuses_a_variable_name_that_is_not_one(name):
     with pytest.raises(
-        ConfigError, match="X module requires a non-empty 'api_key' or 'api_key_env'"
+        ConfigError, match="X module 'api_key_env' must be a non-empty string"
     ):
-        resolve_api_key(config, label=_LABEL)
+        resolve_api_key({"api_key_env": name}, label=_LABEL, default="K")
 
 
-@pytest.mark.parametrize(
-    "config, field",
-    [({"api_key": 5}, "api_key"), ({"api_key_env": ["K"]}, "api_key_env")],
-)
-def test_resolve_api_key_rejects_a_non_string(config, field):
-    with pytest.raises(ConfigError, match=f"X module '{field}' must be a string"):
-        resolve_api_key(config, label=_LABEL)
+@pytest.mark.parametrize("key", ["sk-123", "", None])
+def test_a_key_written_in_the_config_is_refused_whatever_its_value(key):
+    with pytest.raises(
+        ConfigError,
+        match="X module does not take 'api_key': keep the key in an environment "
+        "variable and name it in 'api_key_env'",
+    ):
+        resolve_api_key({"api_key": key}, label=_LABEL, default="K")
 
 
 def test_optional_str_absent_null_and_default_policy():

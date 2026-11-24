@@ -22,8 +22,7 @@ pip install "tts-engine[mistral]"
 
 | Field | Required | Default | Description |
 |---|---|---|---|
-| `api_key_env` | one of `api_key_env` or `api_key` | — | Name of the environment variable holding the API key. Recommended for file-based configuration. |
-| `api_key` | one of `api_key_env` or `api_key` | — | Literal API key. A non-empty literal key takes precedence over `api_key_env`. |
+| `api_key_env` | no | `MISTRAL_API_KEY` | Name of the environment variable holding the API key. The key itself is never written in the config: a config with `api_key` is refused. |
 | `voice_id` | yes | — | A preset voice's ID or slug (`client.audio.voices.list()` lists them), or a custom voice's ID. The API has no default voice. |
 | `model` | no | `voxtral-mini-tts-3-0` | Mistral TTS model ID. |
 | `expressiveness` | no | API default | Speaker guidance scale, a finite number of at least 1.0. |
@@ -34,7 +33,8 @@ The module emits mono PCM at 24,000 Hz. Text is sent verbatim, so the model's in
 
 ## Troubleshooting
 
-- Verify that the environment variable named by `api_key_env` is set in the process running the engine.
+- Verify that the environment variable named by `api_key_env` (`MISTRAL_API_KEY` by default) is set in the process running the engine.
+- `does not take 'api_key'` means the config still writes the key itself: move it to an environment variable and name that variable in `api_key_env`.
 - A `TTSError` containing `invalid_voice` means `voice_id` is not a preset or custom voice visible to the account; one containing `invalid_model` means the `model` ID is wrong.
 
 ## See also

@@ -22,8 +22,7 @@ pip install "tts-engine[cartesia]"
 
 | Field | Required | Default | Description |
 |---|---|---|---|
-| `api_key_env` | one of `api_key_env` or `api_key` | — | Name of the environment variable holding the API key. Recommended for file-based configuration. |
-| `api_key` | one of `api_key_env` or `api_key` | — | Literal API key. A non-empty literal key takes precedence over `api_key_env`. |
+| `api_key_env` | no | `CARTESIA_API_KEY` | Name of the environment variable holding the API key. The key itself is never written in the config: a config with `api_key` is refused. |
 | `voice_id` | yes | — | Cartesia voice ID (a UUID from the voice library or a cloned voice); the example is "Tessa", an English voice. |
 | `model` | no | `sonic-3.6` | Sonic model ID, e.g. `sonic-3`, a dated snapshot, or `sonic-latest`. |
 | `sample_rate` | no | `24000` | Output rate: `8000`, `16000`, `22050`, `24000`, `44100`, or `48000`. |
@@ -38,7 +37,8 @@ The module emits mono PCM at the configured `sample_rate`. A text stream goes to
 
 ## Troubleshooting
 
-- Verify that the environment variable named by `api_key_env` is set in the process running the engine.
+- Verify that the environment variable named by `api_key_env` (`CARTESIA_API_KEY` by default) is set in the process running the engine.
+- `does not take 'api_key'` means the config still writes the key itself: move it to an environment variable and name that variable in `api_key_env`.
 - A `TTSError` reporting HTTP 401 means the key was rejected; `Voice not found` or `Model not found` (status 404) means `voice_id` or `model` is wrong.
 - An unknown `emotion` is not rejected by the API: speech is produced without it.
 

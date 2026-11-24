@@ -25,6 +25,7 @@ from tts_engine.modules.base import (
     VoiceInfo,
     VoiceListingUnsupported,
     cleanup,
+    key_env_field,
     resolve_api_key,
     run_cancellable_worker,
     run_text_stream_worker,
@@ -39,6 +40,7 @@ _SAMPLE_RATE = 24000
 _DEFAULT_MODEL = "gemini-3.8-flash-tts"
 _DEFAULT_TIMEOUT = 30.0
 _LABEL = "Gemini module"
+_KEY_ENV = "GEMINI_API_KEY"
 _MIME = "audio/l16"
 _SLICE_BYTES = slice_bytes_for(_SAMPLE_RATE)
 
@@ -77,23 +79,7 @@ class GeminiModule(TTSModule):
             "The Gemini text-to-speech model.",
             default=_DEFAULT_MODEL,
         ),
-        Field(
-            "api_key_env",
-            "string",
-            "The environment variable holding the Gemini API key.",
-            allow_empty=True,
-            secret="env",
-            message="Gemini module 'api_key_env' must be a string",
-        ),
-        Field(
-            "api_key",
-            "string",
-            "The Gemini API key itself. Prefer 'api_key_env', which keeps the "
-            "key out of the config file.",
-            allow_empty=True,
-            secret="literal",
-            message="Gemini module 'api_key' must be a string",
-        ),
+        key_env_field("Gemini", _KEY_ENV),
         Field(
             "language_code",
             "string",
@@ -129,7 +115,7 @@ class GeminiModule(TTSModule):
         # when sys.modules["google.genai"] is None (see the spec).
         import google.genai as genai  # noqa: PLR0402
 
-        api_key = resolve_api_key(config, label=_LABEL)
+        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
 
         model: str = values["model"]
         voice: str | None = values["voice"]

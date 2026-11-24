@@ -95,15 +95,15 @@ def test_load_rejects_an_invalid_file_naming_the_field(tmp_path, change, message
 # --- new ------------------------------------------------------------------------
 
 
-def test_parse_module_gives_a_hosted_type_its_conventional_key_variable():
+def test_parse_module_gives_a_hosted_type_its_default_key_variable():
     assert audition.parse_module("cartesia") == {
         "type": "cartesia",
         "api_key_env": "CARTESIA_API_KEY",
     }
-    assert (
-        audition.parse_module("openai-speech-compatible")["api_key_env"]
-        == "OPENAI_SPEECH_COMPATIBLE_API_KEY"
-    )
+    # A compatible server reads no variable unless one is named.
+    assert audition.parse_module("openai-speech-compatible") == {
+        "type": "openai-speech-compatible"
+    }
     # A renamed type is given its current name.
     assert audition.parse_module("openai-compatible")["type"] == (
         "openai-speech-compatible"
@@ -324,6 +324,7 @@ def test_render_only_renders_again_what_changed(tmp_path, monkeypatch):
 
 def test_render_skips_an_unset_key_and_records_a_failing_config(tmp_path, monkeypatch):
     monkeypatch.delenv("AUDITION_TEST_KEY", raising=False)
+    monkeypatch.delenv("GRADIUM_API_KEY")
     path = _write(
         tmp_path / "mixed.json",
         {
@@ -337,6 +338,8 @@ def test_render_skips_an_unset_key_and_records_a_failing_config(tmp_path, monkey
                         "voice_id": "v",
                     },
                 },
+                # No variable named: the module's default one is the key it needs.
+                {"id": "default", "config": {"type": "gradium", "voice_id": "v"}},
                 {"id": "broken", "config": {"type": "nope"}},
                 {"id": "fine", "config": {"type": "tone"}},
             ],
@@ -351,6 +354,8 @@ def test_render_skips_an_unset_key_and_records_a_failing_config(tmp_path, monkey
     )
     assert results["hosted"]["status"] == "skipped"
     assert results["hosted"]["reason"] == "AUDITION_TEST_KEY is not set"
+    assert results["default"]["status"] == "skipped"
+    assert results["default"]["reason"] == "GRADIUM_API_KEY is not set"
     assert results["broken"]["status"] == "error"
     assert "Unknown TTS module type" in results["broken"]["error"]
     assert results["fine"]["status"] == "ok"

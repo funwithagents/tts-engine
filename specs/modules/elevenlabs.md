@@ -50,8 +50,7 @@ All fields go under the `engine.module` block in `config.json` alongside `"type"
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `api_key` | non-empty string | one of `api_key`/`api_key_env` | — | ElevenLabs API key, given literally. |
-| `api_key_env` | non-empty string | one of `api_key`/`api_key_env` | — | Name of an environment variable holding the API key. Lets a config file be committed with no secret. |
+| `api_key_env` | non-empty string | no | `"ELEVENLABS_API_KEY"` | Name of the environment variable holding the API key. The key itself is never in the config, so a config file can be committed or shared as it is. |
 | `voice_id` | non-empty string | yes | — | The voice ID used for synthesis. |
 | `model` | non-empty string | no | `"eleven_flash_v2_5"` | ElevenLabs model ID, which picks the socket for a text stream ("Two sockets"): a v2 model — `eleven_flash_v2_5` (recommended for low latency), `eleven_multilingual_v2` (quality) — streams over the text-to-speech socket; a model starting with `eleven_v3` or `eleven_v4` — `eleven_v4_turbo` (the flagship real-time model), `eleven_v4`, `eleven_v3`, `eleven_v3_conversational` — over the text-to-dialogue socket. A complete text goes over HTTP with every model. |
 | `stability` | number | no | `0.5` | Voice stability (0.0–1.0). |
@@ -60,7 +59,11 @@ All fields go under the `engine.module` block in `config.json` alongside `"type"
 
 ### API key resolution
 
-The module calls the shared `resolve_api_key` ([tts-module-interface.md](../tts-module-interface.md), "Shared config helpers"), which every API-backed module uses with its own label; this section is the reference description of the rule. The key is resolved in this order: a non-empty literal `api_key` wins; otherwise, if `api_key_env` is set, the key is read from that environment variable. Non-string values raise `ConfigError`. If `api_key_env` names a variable that is unset or empty, construction raises `ConfigError` identifying the variable. If neither `api_key` nor `api_key_env` yields a key, construction raises `ConfigError`. Prefer `api_key_env` so `config.json` can be committed without a secret.
+The module calls the shared `resolve_api_key` ([tts-module-interface.md](../tts-module-interface.md), "Shared config helpers"), which every API-backed module uses with its own label and default variable; this section is the reference description of the rule. **A key is only ever found under a variable name**: the one `api_key_env` names, or the provider's usual one when the field is absent (`ELEVENLABS_API_KEY` here; each module's field table gives its own). It is looked up in the keys given in code (below), then in the environment. No key under that name makes construction raise `ConfigError` naming it; an `api_key_env` that is not a non-empty string is a `ConfigError` too. The key is passed to the SDK explicitly, so no SDK's own environment fallback is in force.
+
+**No key in the config.** The config never holds the key itself, so a config file can be committed or shared as it is, and a setup page has only variables to show. An `api_key` field, which earlier versions accepted as a literal key, is refused by `check_config` and at construction, whatever its value: `ElevenLabs module does not take 'api_key': keep the key in an environment variable and name it in 'api_key_env'`. The field is declared once for every hosted module (`key_env_field(provider, variable)` in `modules/base.py`), so its description, default and message stay the same across them.
+
+**Keys given in code.** An application that holds a key itself (from a vault, typed by a user) passes it next to the config, never in it: `TTSEngine(config, keys={"GRADIUM_API_KEY": key})`, or `list_voices(module_config, keys=...)`. The key is looked up under the name `api_key_env` gives (its default when absent) in those keys first, then in the environment, so nothing is written to the config or to the process environment, and two engines can use two keys of one provider by naming two variables. The keys are set for the time a module is built or lists its voices (`supplied_keys`, a context variable in `modules/base.py`): the only moments a module reads its key, so they reach no other engine and need no change to the module interface.
 
 `voice_id` and `model` are validated as non-empty strings. `stability` and `similarity_boost` are validated at construction (through the shared `finite_number`) as numeric values in the inclusive range 0–1; booleans are rejected rather than treated as integers, and so are `NaN` and the infinities. Invalid module configuration therefore fails as `ConfigError` before the SDK client is used.
 
@@ -168,7 +171,7 @@ Registered in `REGISTRY` as `"elevenlabs"`.
 
 ## Voice listing
 
-`list_voices(config)` returns the voices of `ElevenLabs(api_key).voices.get_all()`: the premade voices and the account's own, not the shared Voice Library. It reads only `api_key` / `api_key_env` and `timeout` (passed as `timeout_in_seconds`, rounded up); `voice_id` and `model` are not needed.
+`list_voices(config)` returns the voices of `ElevenLabs(api_key).voices.get_all()`: the premade voices and the account's own, not the shared Voice Library. It reads only `api_key_env` and `timeout` (passed as `timeout_in_seconds`, rounded up); `voice_id` and `model` are not needed.
 
 - **Selector:** `{"voice_id": <voice_id>}`.
 - **Metadata:** from the voice's `labels`, `gender` (normalized) and `age` (`young`, `middle_aged`, …, as given); the other labels (accent, use case, descriptive) become tags.

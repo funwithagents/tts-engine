@@ -46,6 +46,7 @@ from tts_engine.modules.base import (
     VoiceInfo,
     cut_at_boundary,
     finite_number,
+    key_env_field,
     normalize_gender,
     open_cancellable,
     resolve_api_key,
@@ -70,6 +71,7 @@ _FLUX_SPEED_STEP = 0.05
 _EXPRESSIVITY_RANGE = (-2, 2)
 _DEFAULT_TIMEOUT = 30.0
 _LABEL = "Deepgram module"
+_KEY_ENV = "DEEPGRAM_API_KEY"
 # A segment (the text between two Flushes) is flushed at the first sentence end
 # past _SEGMENT_SOFT characters, and at a word boundary at _SEGMENT_HARD at the
 # latest. The next segment starts only once the Flush is answered, so the
@@ -261,23 +263,7 @@ class DeepgramModule(TTSModule):
             "('flux-<voice>-<language>').",
             default=_DEFAULT_MODEL,
         ),
-        Field(
-            "api_key_env",
-            "string",
-            "The environment variable holding the Deepgram API key.",
-            allow_empty=True,
-            secret="env",
-            message="Deepgram module 'api_key_env' must be a string",
-        ),
-        Field(
-            "api_key",
-            "string",
-            "The Deepgram API key itself. Prefer 'api_key_env', which keeps the "
-            "key out of the config file.",
-            allow_empty=True,
-            secret="literal",
-            message="Deepgram module 'api_key' must be a string",
-        ),
+        key_env_field("Deepgram", _KEY_ENV),
         Field(
             "sample_rate",
             "integer",
@@ -378,7 +364,7 @@ class DeepgramModule(TTSModule):
         else:
             from deepgram.speak.v1.types import SpeakV1Text as speak_type
 
-        api_key = resolve_api_key(config, label=_LABEL)
+        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
 
         sample_rate: int = values["sample_rate"]
         connect_kwargs: dict = {
@@ -435,7 +421,7 @@ class DeepgramModule(TTSModule):
                 "The 'deepgram' module requires the deepgram extra: "
                 "pip install tts-engine[deepgram]"
             ) from exc
-        api_key = resolve_api_key(config, label=_LABEL)
+        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
         timeout = finite_number(
             config,
             "timeout",

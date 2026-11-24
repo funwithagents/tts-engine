@@ -22,8 +22,7 @@ pip install "tts-engine[deepgram]"
 
 | Field | Required | Default | Description |
 |---|---|---|---|
-| `api_key_env` | one of `api_key_env` or `api_key` | — | Name of the environment variable holding the API key. Recommended for file-based configuration. |
-| `api_key` | one of `api_key_env` or `api_key` | — | Literal API key. A non-empty literal key takes precedence over `api_key_env`. |
+| `api_key_env` | no | `DEEPGRAM_API_KEY` | Name of the environment variable holding the API key. The key itself is never written in the config: a config with `api_key` is refused. |
 | `model` | no | `aura-2-thalia-en` | The model, which is also the voice: an Aura model, `aura-2-<voice>-<language>` (e.g. `aura-2-hector-fr`), or a Flux model, `flux-<voice>-<language>` (e.g. `flux-haley-en`). |
 | `sample_rate` | no | `24000` | Output rate: `8000`, `16000`, `24000`, `32000` or `48000`. |
 | `speed` | no | API default (1.0) | Speaking-rate multiplier: 0.7 to 1.5 with an Aura model; 0.5 to 1.5 in steps of 0.05 with a Flux model. |
@@ -35,7 +34,8 @@ The module emits mono PCM at the configured `sample_rate`. A text stream goes to
 
 ## Troubleshooting
 
-- Verify that the environment variable named by `api_key_env` is set in the process running the engine.
+- Verify that the environment variable named by `api_key_env` (`DEEPGRAM_API_KEY` by default) is set in the process running the engine.
+- `does not take 'api_key'` means the config still writes the key itself: move it to an environment variable and name that variable in `api_key_env`.
 - A `TTSError` reporting HTTP 401 means the key was rejected; HTTP 403 usually means the `model` does not exist or the account cannot use it; HTTP 400 means a value such as `speed` is out of range. A Flux model may also reject a particular `speed` for its voice (`SPEED_NOT_SUPPORTED`).
 
 ## See also

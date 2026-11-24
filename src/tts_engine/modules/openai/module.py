@@ -31,6 +31,7 @@ from tts_engine.modules.base import (
     TTSOptions,
     VoiceInfo,
     VoiceListingUnsupported,
+    key_env_field,
     open_cancellable,
     resolve_api_key,
     run_cancellable_worker,
@@ -54,6 +55,7 @@ _DEFAULT_MODEL = "gpt-realtime-2.1-mini"
 _DEFAULT_VOICE = "marin"
 _DEFAULT_TIMEOUT = 30.0
 _LABEL = "OpenAI module"
+_KEY_ENV = "OPENAI_API_KEY"
 _MIN_SPEED, _MAX_SPEED = 0.25, 1.5
 # A response's output is capped at 4096 tokens (transcript and reasoning
 # included, ~20 audio tokens per second of speech): a long text goes out in
@@ -193,23 +195,7 @@ class OpenAIModule(TTSModule):
             "The OpenAI Realtime model.",
             default=_DEFAULT_MODEL,
         ),
-        Field(
-            "api_key_env",
-            "string",
-            "The environment variable holding the OpenAI API key.",
-            allow_empty=True,
-            secret="env",
-            message="OpenAI module 'api_key_env' must be a string",
-        ),
-        Field(
-            "api_key",
-            "string",
-            "The OpenAI API key itself. Prefer 'api_key_env', which keeps the "
-            "key out of the config file.",
-            allow_empty=True,
-            secret="literal",
-            message="OpenAI module 'api_key' must be a string",
-        ),
+        key_env_field("OpenAI", _KEY_ENV),
         Field(
             "instructions",
             "string",
@@ -251,7 +237,7 @@ class OpenAIModule(TTSModule):
         import websockets.sync.client  # noqa: F401  (the SDK's Realtime transport)
         from openai import OpenAI
 
-        api_key = resolve_api_key(config, label=_LABEL)
+        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
         self._model: str = values["model"]
         voice: str = values["voice"]
         instructions: str | None = values["instructions"]

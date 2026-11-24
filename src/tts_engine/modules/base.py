@@ -126,6 +126,10 @@ class TTSModule(ABC):
         found = field_problems(
             config, cls.fields_for(config), label=f"{cls.title} module"
         )
+        try:
+            cls._refuse_key(config)
+        except ConfigError as exc:
+            found.insert(0, ("api_key", str(exc)))
         if not found:
             try:
                 cls.validated(config)
@@ -210,6 +214,7 @@ class TTSModule(ABC):
         is absent), after `config_rules`. Raises `ConfigError` on the first
         invalid field. The first thing a constructor does, before any import:
         what `check_config` accepts is what the constructor accepts."""
+        cls._refuse_key(config)
         values = read_fields(
             config,
             cls.fields_for(config),
@@ -234,16 +239,23 @@ class TTSModule(ABC):
         no import of the provider's library, no file, no network."""
 
     @classmethod
+    def _refuse_key(cls, config: dict) -> None:
+        """A module whose key comes from an environment variable refuses one written
+        in the config."""
+        if any(field.secret == "env" for field in cls.fields):
+            refuse_api_key(config, label=f"{cls.title} module")
+
+    @classmethod
     def _key_items(cls, config: dict) -> list[dict[str, Any]]:
-        """One item per environment variable the config names for a key, unless
-        the config holds the key itself."""
-        if any(
-            field.secret == "literal" and config.get(field.name) for field in cls.fields
-        ):
-            return []
+        """One item per environment variable the config names for a key, or that
+        its key field names by default."""
         found = []
         for field in cls.fields:
-            name = config.get(field.name) if field.secret == "env" else None
+            if field.secret != "env":
+                continue
+            name = config.get(field.name)
+            if name is None:
+                name = field.default
             if not isinstance(name, str) or not name:
                 continue
             present = bool(os.environ.get(name))
@@ -831,36 +843,79 @@ def resolve_path(config: dict, value: str) -> Path:
 # backend. `label` ("ElevenLabs module") prefixes each message.
 
 
-def resolve_api_key(config: dict, *, label: str) -> str:
-    """Resolve a provider's API key from a literal ``api_key`` or, failing
-    that, the environment variable named by ``api_key_env``, so a config file
-    can be committed with only the variable's name and no secret.
+def key_env_field(provider: str, variable: str | None) -> Field:
+    """The `api_key_env` field of a hosted module: the environment variable that
+    holds *provider*'s API key, *variable* by default. A config never holds the key
+    itself (no `api_key` field): it can be shared or committed as it is. With no
+    default (*variable* None, a keyless server), the field may stay absent."""
+    label = f"{provider} module 'api_key_env' must be a non-empty string"
+    if variable is None:
+        return Field(
+            "api_key_env",
+            "string",
+            f"The environment variable holding the {provider} API key. Absent, no "
+            "key is sent, for a server that needs none.",
+            secret="env",
+            message=label,
+        )
+    return Field(
+        "api_key_env",
+        "string",
+        f"The environment variable holding the {provider} API key.",
+        default=variable,
+        secret="env",
+        message=label,
+    )
 
-    A non-empty literal wins. Otherwise the variable named by ``api_key_env``
-    is read, and its being unset or empty is a ``ConfigError`` naming it. A
-    non-string value for either field, or neither yielding a key, is a
-    ``ConfigError`` too.
-    """
-    api_key = config.get("api_key")
-    env_name = config.get("api_key_env")
-    if api_key is not None and not isinstance(api_key, str):
-        raise ConfigError(f"{label} 'api_key' must be a string")
-    if env_name is not None and not isinstance(env_name, str):
-        raise ConfigError(f"{label} 'api_key_env' must be a string")
 
-    if api_key:
-        return api_key
+def refuse_api_key(config: dict, *, label: str) -> None:
+    """Refuse a key written in the config: `api_key` was accepted until the engine
+    took keys only from environment variables."""
+    if "api_key" in config:
+        raise ConfigError(
+            f"{label} does not take 'api_key': keep the key in an environment "
+            "variable and name it in 'api_key_env'"
+        )
 
-    if env_name:
-        api_key = os.environ.get(env_name)
-        if not api_key:
-            raise ConfigError(
-                f"{label}: environment variable {env_name!r} "
-                "(named by 'api_key_env') is unset or empty"
-            )
-        return api_key
 
-    raise ConfigError(f"{label} requires a non-empty 'api_key' or 'api_key_env'")
+# The keys given in code (`TTSEngine(config, keys=...)`), by variable name, while a
+# module is built or lists its voices: the only moments a module reads its key.
+_SUPPLIED_KEYS: contextvars.ContextVar[Mapping[str, str] | None] = (
+    contextvars.ContextVar("tts_engine_supplied_keys", default=None)
+)
+
+
+@contextlib.contextmanager
+def supplied_keys(keys: Mapping[str, str] | None) -> Iterator[None]:
+    """Within the block, *keys* (variable name → key) are looked up before the
+    environment: for a key the application holds itself (from a vault, typed by a
+    user), never written in the config nor put in the process environment."""
+    token = _SUPPLIED_KEYS.set(dict(keys) if keys else None)
+    try:
+        yield
+    finally:
+        _SUPPLIED_KEYS.reset(token)
+
+
+def resolve_api_key(config: dict, *, label: str, default: str) -> str:
+    """The provider's API key, under the variable name ``api_key_env`` gives
+    (*default* when absent): from the keys given in code (`supplied_keys`), else
+    from the environment. A config holds only the variable's name. No key under
+    that name is a ``ConfigError`` naming it."""
+    refuse_api_key(config, label=label)
+    env_name = config.get("api_key_env", default)
+    if env_name is None:
+        env_name = default
+    if not isinstance(env_name, str) or not env_name:
+        raise ConfigError(f"{label} 'api_key_env' must be a non-empty string")
+    supplied = _SUPPLIED_KEYS.get() or {}
+    api_key = supplied.get(env_name) or os.environ.get(env_name)
+    if not api_key:
+        raise ConfigError(
+            f"{label}: environment variable {env_name!r} "
+            "(named by 'api_key_env') is unset or empty"
+        )
+    return api_key
 
 
 @overload

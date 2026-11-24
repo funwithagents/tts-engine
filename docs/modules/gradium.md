@@ -10,7 +10,7 @@ uv sync --no-dev --extra gradium
 pip install "tts-engine[gradium]"
 ```
 
-Prefer referencing an environment variable so secrets do not appear in configuration files:
+The API key is read from an environment variable, so no secret appears in the configuration file:
 
 ```json
 {
@@ -26,8 +26,7 @@ Prefer referencing an environment variable so secrets do not appear in configura
 
 | Field | Required | Default | Description |
 |---|---|---|---|
-| `api_key_env` | one of `api_key_env` or `api_key` | — | Name of the environment variable holding the API key. Recommended for file-based configuration. |
-| `api_key` | one of `api_key_env` or `api_key` | — | Literal API key. A non-empty literal key takes precedence over `api_key_env`. |
+| `api_key_env` | no | `GRADIUM_API_KEY` | Name of the environment variable holding the API key. The key itself is never written in the config: a config with `api_key` is refused. |
 | `voice_id` | yes | — | Gradium voice ID, from the flagship catalog or a custom voice. |
 | `model` | no | `default` | Model alias: `default` or `gradium-tts-beta`. |
 | `sample_rate` | no | `48000` | Output rate: `8000`, `16000`, `24000`, `44100`, or `48000`. `48000` is native; other rates are resampled by the API. |
@@ -43,7 +42,8 @@ The module emits mono PCM at the configured `sample_rate`. Voice-setting fields 
 
 ## Troubleshooting
 
-- Verify that the environment variable named by `api_key_env` is set in the process running the engine.
+- Verify that the environment variable named by `api_key_env` (`GRADIUM_API_KEY` by default) is set in the process running the engine.
+- `does not take 'api_key'` means the config still writes the key itself: move it to an environment variable and name that variable in `api_key_env`.
 - Verify that `voice_id` exists and is available to the configured Gradium account.
 - A `TTSError` reporting a sample-rate mismatch means the API answered at a rate other than the configured `sample_rate`; check the value against the supported list.
 
