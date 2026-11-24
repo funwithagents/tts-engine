@@ -95,9 +95,9 @@ manager = client.speak.v1.connect(
 )
 socket = manager.__enter__()  # V1SocketClient over a websockets.sync connection
 socket.send_text(SpeakV1Text(text="Hello "))
-socket.send_flush()            # ... utterance over on the matching `Flushed`
-socket.send_clear()            # cancel: everything until `Cleared` is stale
-for message in socket:         # the reader thread: bytes (audio) or a typed event
+socket.send_flush()  # ... utterance over on the matching `Flushed`
+socket.send_clear()  # cancel: everything until `Cleared` is stale
+for message in socket:  # the reader thread: bytes (audio) or a typed event
     ...
 manager.__exit__(None, None, None)  # close(): the WebSocket close handshake
 ```

@@ -13,8 +13,8 @@ from module_setup.secrets import SecretStore
 
 from examples.setup_demo.app import APP, DEFAULT_CONFIG, build_page
 from examples.setup_demo.session import (
-    Sessions,
     SpeechSession,
+    Voice,
     build_session,
     describe_result,
 )
@@ -81,13 +81,10 @@ def test_an_utterance_in_progress_can_be_interrupted() -> None:
     assert not session.interrupt()
 
 
-def _model(tmp_path: Path, sessions: Sessions) -> AppModel:
+def _model(tmp_path: Path) -> AppModel:
     """The demo's model over a folder of its own, its secrets kept off os.environ."""
     folder = ConfigFolder(tmp_path, APP.default_config)
-    return AppModel(APP, folder, SecretStore(folder.env_path, {}), locked=sessions.busy)
-
-
-SILENT = {"tts": {**DEFAULT_CONFIG["tts"], "player": {"discard": True}}}
+    return AppModel(APP, folder, SecretStore(folder.env_path, {}))
 
 
 def test_a_config_the_engine_refuses_fails_the_start_and_frees_its_loop() -> None:
@@ -111,56 +108,79 @@ def test_a_session_is_the_engine_built_from_the_saved_section(tmp_path: Path) ->
         session.stop()
 
 
-def test_a_session_starts_from_the_saved_config_and_locks_it_until_stopped(
+def _silent(**module: object) -> dict[str, object]:
+    return {"tts": {"module": {"type": "tone", **module}, "player": {"discard": True}}}
+
+
+def test_the_voice_is_built_at_the_first_utterance_and_kept_while_the_config_holds(
     tmp_path: Path,
 ) -> None:
-    sessions = Sessions()
-    model = _model(tmp_path, sessions)
-    model.save(SILENT)
+    model = _model(tmp_path)
+    model.save(_silent())
+    voice = Voice()
+    assert voice.session is None
+    try:
+        first = voice.say(model, "one")
+        built = voice.session
+        second = voice.say(model, "two")
 
-    assert sessions.start(model) == []
-    assert sessions.session is not None and sessions.busy()
-    assert sessions.start(model) == ["A session is already running."]
-    with pytest.raises(RuntimeError, match="Stop the session"):
-        model.save(DEFAULT_CONFIG)
-
-    assert sessions.stop() is True
-    assert not sessions.busy() and sessions.stop() is False
-    model.save(DEFAULT_CONFIG)
+        assert not isinstance(first, list) and first.text_chars == 3
+        assert not isinstance(second, list) and second.text_chars == 3
+        assert built is not None and voice.session is built
+    finally:
+        voice.close()
+    assert voice.session is None
 
 
-def test_a_session_does_not_start_with_a_config_that_has_problems(
+def test_a_saved_change_is_heard_at_the_next_utterance_and_never_locks_the_config(
     tmp_path: Path,
 ) -> None:
-    sessions = Sessions()
-    model = _model(tmp_path, sessions)
+    model = _model(tmp_path)
+    model.save(_silent())
+    voice = Voice()
+    try:
+        voice.say(model, "before")
+        before = voice.session
+
+        model.save(_silent(sample_rate=16000))  # saving is never refused
+        voice.say(model, "after")
+
+        assert voice.session is not before and voice.session is not None
+        assert voice.session.sample_rate == 16000
+    finally:
+        voice.close()
+
+
+def test_a_config_that_cannot_speak_says_why_and_builds_nothing(
+    tmp_path: Path,
+) -> None:
+    model = _model(tmp_path)
     model.save({"tts": {"module": {"type": "nope"}}})
+    voice = Voice()
 
-    blockers = sessions.start(model)
+    said = voice.say(model, "hello")
 
-    assert blockers and blockers[0].startswith("/tts/module")
-    assert sessions.session is None and not sessions.busy()
+    assert isinstance(said, list) and said[0].startswith("/tts/module")
+    assert voice.session is None
 
 
 def test_the_demo_declares_one_tts_section_whose_default_is_ready(
     tmp_path: Path,
 ) -> None:
-    model = _model(tmp_path, Sessions())
+    model = _model(tmp_path)
 
     assert [section.name for section in APP.sections] == ["tts"]
     assert model.saved_config() == DEFAULT_CONFIG
     assert model.blockers(DEFAULT_CONFIG) == []
 
 
-def test_the_page_puts_the_session_first_and_opens_on_setup(tmp_path: Path) -> None:
-    sessions = Sessions()
-
-    page = build_page(_model(tmp_path, sessions), sessions)
+def test_the_page_puts_speak_first_and_opens_on_setup(tmp_path: Path) -> None:
+    page = build_page(_model(tmp_path), Voice())
 
     tabs = [b.label for b in page.blocks.values() if isinstance(b, gr.Tab)]
     labels = [getattr(block, "label", None) for block in page.blocks.values()]
     [selector] = [b for b in page.blocks.values() if isinstance(b, gr.Tabs)]
-    assert tabs == ["Session", "Setup", "Secrets"]
+    assert tabs == ["Speak", "Setup", "Secrets"]
     assert "Text to speak" in labels and "Section to test" in labels
     assert "Variable" in labels
     assert selector.selected == "setup"

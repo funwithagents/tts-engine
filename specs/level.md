@@ -32,7 +32,7 @@ The voice audition tool ([voice-audition.md](voice-audition.md), "Level and gain
 @dataclass(frozen=True)
 class Level:
     level_dbfs: float | None  # RMS of the active speech; None when none is active
-    peak_dbfs: float | None   # largest absolute sample; None for a silent signal
+    peak_dbfs: float | None  # largest absolute sample; None for a silent signal
 ```
 
 - **Input:** signed 16-bit little-endian mono PCM, the engine's sink format ([audio-sink.md](audio-sink.md)), at `sample_rate`. An odd byte count or a `sample_rate` ≤ 0 raises `ValueError`.
@@ -50,9 +50,9 @@ Active RMS matched the ear on the voices it was first tried on (ten modules on o
 @dataclass(frozen=True)
 class GainSuggestion:
     target_dbfs: float
-    gain_db: float          # within the field's range, to 0.1 dB
+    gain_db: float  # within the field's range, to 0.1 dB
     peak_after_dbfs: float  # the peak once gain_db is applied
-    limited: bool = False   # the field's range stopped gain_db short of the target
+    limited: bool = False  # the field's range stopped gain_db short of the target
 
     @property
     def clips(self) -> bool: ...  # peak_after_dbfs > 0

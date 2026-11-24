@@ -5,8 +5,8 @@ the engine's calls are coroutines. The session owns one event loop on a thread o
 and runs every call there, so a handler just waits for the result. One utterance at a time:
 a new one waits for the previous.
 
-`Sessions` holds at most one, started from the app's saved config: what the page's Start and
-Stop do, and what locks the config while a session runs.
+`Voice` is what the page's Speak uses: the session built from the app's saved config when an
+utterance needs it, rebuilt when that config has changed.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from tts_engine.config import TTSEngineConfig
 from tts_engine.engine import TTSEngine
 from tts_engine.utterance import UtteranceResult
 
-__all__ = ["Sessions", "SpeechSession", "build_session", "describe_result"]
+__all__ = ["SpeechSession", "Voice", "build_session", "describe_result"]
 
 
 class SpeechSession:
@@ -114,52 +114,54 @@ def build_session(section: Mapping[str, Any], folder: Path) -> SpeechSession:
     return SpeechSession(TTSEngineConfig.from_dict(dict(section), base_dir=folder))
 
 
-class Sessions:
-    """At most one `SpeechSession`, started from the app's saved config."""
+class Voice:
+    """The engine the page speaks with, built from the app's saved config when it is
+    needed: nothing runs between utterances, so nothing is started or locked.
+
+    Each `say` reads the saved config and reuses the engine built from the same `tts`
+    section, else closes it and builds one from the new section; a save (from any browser
+    tab, or the file edited by hand) is heard at the next utterance. One utterance at a time:
+    a second waits, and an engine is only replaced between two.
+    """
 
     def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._starting = False
-        self._stopping = False
+        self._speaking = threading.Lock()
+        self._section: dict[str, Any] | None = None
         self.session: SpeechSession | None = None
-        self.error: str | None = None  # why the last start failed
 
-    def busy(self) -> bool:
-        """Whether a session is running or starting: the config is in use."""
-        return self._starting or self.session is not None
-
-    def start(self, model: AppModel) -> list[str]:
-        """Start a session with the saved config; why it did not start, else []."""
-        with self._lock:
-            if self.busy():
-                return ["A session is already running."]
-            self._starting = True
-        try:
+    def say(self, model: AppModel, text: str) -> UtteranceResult | list[str]:
+        """Speak *text* with the saved config's voice; why it cannot, as a list, instead.
+        Raises what the engine raises; `concurrent.futures.CancelledError` when
+        interrupted."""
+        with self._speaking:
             config = model.saved_config()
             blockers = model.blockers(config)
             if blockers:
                 return blockers
-            try:
-                session = build_session(model.used_config(config)["tts"], model.path)
-            except Exception as exc:  # noqa: BLE001 - said on the page
-                self.error = str(exc) or type(exc).__name__
-                return [f"The engine did not start: {self.error}"]
-            self.session, self.error = session, None
-            return []
-        finally:
-            self._starting = False
+            section = model.used_config(config)["tts"]
+            if self.session is None or section != self._section:
+                self._close()
+                try:
+                    self.session = build_session(section, model.path)
+                except Exception as exc:  # noqa: BLE001 - said on the page
+                    return [
+                        f"The voice could not be built: {str(exc) or type(exc).__name__}"
+                    ]
+                self._section = section
+            return self.session.say(text)
 
-    def stop(self) -> bool:
-        """Stop the running session; False when there is none (or it is already stopping).
-        The config stays locked until the engine has closed."""
-        with self._lock:
-            session = self.session
-            if session is None or self._stopping:
-                return False
-            self._stopping = True
-        try:
+    def interrupt(self) -> bool:
+        """Cancel the utterance in progress; False when nothing is being said."""
+        session = self.session
+        return session is not None and session.interrupt()
+
+    def close(self) -> None:
+        """Close the engine, if one was built: when the page's process ends."""
+        self.interrupt()
+        with self._speaking:
+            self._close()
+
+    def _close(self) -> None:
+        session, self.session, self._section = self.session, None, None
+        if session is not None:
             session.stop()
-        finally:
-            with self._lock:
-                self.session, self._stopping = None, False
-        return True

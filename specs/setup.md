@@ -68,7 +68,9 @@ A module declares its config fields as data, and both its constructor and `check
 @dataclass(frozen=True)
 class Field:
     name: str
-    kind: FieldKind | tuple[FieldKind, ...]   # "string", "number", "integer", "boolean", "objects"
+    kind: (
+        FieldKind | tuple[FieldKind, ...]
+    )  # "string", "number", "integer", "boolean", "objects"
     description: str
     default: Any = None
     implied: Any = None
@@ -85,8 +87,16 @@ class Field:
     message: str | None = None
 
 
-def read_fields(config: dict, fields: Sequence[Field], *, label: str, error: type[Exception] = ValueError) -> dict[str, Any]: ...
-def field_problems(config: dict, fields: Sequence[Field], *, label: str) -> list[tuple[str, str]]: ...
+def read_fields(
+    config: dict,
+    fields: Sequence[Field],
+    *,
+    label: str,
+    error: type[Exception] = ValueError,
+) -> dict[str, Any]: ...
+def field_problems(
+    config: dict, fields: Sequence[Field], *, label: str
+) -> list[tuple[str, str]]: ...
 def fields_schema(fields: Sequence[Field]) -> dict: ...
 ```
 
@@ -109,8 +119,8 @@ The file uses the standard library only and knows nothing about speech: the erro
 ```python
 class TTSModule(ABC):
     kind: ClassVar[ModuleKind]
-    title: ClassVar[str]                      # "ElevenLabs", "Phonon"
-    extra: ClassVar[str | None]               # "elevenlabs"; None for the fixtures
+    title: ClassVar[str]  # "ElevenLabs", "Phonon"
+    extra: ClassVar[str | None]  # "elevenlabs"; None for the fixtures
     fields: ClassVar[tuple[Field, ...]]
 
     # The contract, over the module block, each with a default:
@@ -276,5 +286,5 @@ The contract's conformance check runs over the same examples.
 1. **`phonon`'s items stay `unknown`.** Its always-needed files (`config.json`, `tokenizer.json`) could at least prove a model was never fetched; a full answer needs the runtime to expose which files a config selects.
 2. **`check_setup` imports the providers**: `pocket`'s pulls torch, which takes about a second the first time. It loads no model.
 3. **Deprecated fields and renamed types** are accepted and not offered. Whether `check_config` should report them as warnings (a third kind of result) is deferred.
-4. **The demo app** — a page with a Setup panel over these functions and a Session tab that builds the engine and speaks — is a separate spec ([setup-demo.md](setup-demo.md)).
+4. **The demo app** — a page with a Setup panel over these functions and a Speak tab that builds the engine and speaks — is a separate spec ([setup-demo.md](setup-demo.md)).
 5. **`phonon`'s progress is unmeasured.** Its runtime downloads inside the load with no hook, and which files (hence how many bytes) it fetches is its own choice; the Hugging Face cache's growth could be watched once the runtime says what it selects.
