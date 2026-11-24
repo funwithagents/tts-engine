@@ -158,7 +158,7 @@ dev = [
     # (specs/setup.md); a test-time dependency only, never a runtime one.
     "app-setup",
 ]
-# The demo page (examples/setup_demo, specs/setup-demo.md): module-setup's panels, gradio
+# The demo page (examples/gradio_demo, specs/gradio-demo.md): module-setup's panels, gradio
 # included. Synced by default with dev, so the demo is type-checked and tested; never a
 # dependency of the published package.
 demo = [

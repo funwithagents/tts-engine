@@ -1,15 +1,15 @@
 ---
 code:
-  - examples/setup_demo/__init__.py
-  - examples/setup_demo/__main__.py
-  - examples/setup_demo/app.py
-  - examples/setup_demo/session.py
+  - examples/gradio_demo/__init__.py
+  - examples/gradio_demo/__main__.py
+  - examples/gradio_demo/app.py
+  - examples/gradio_demo/session.py
   - pyproject.toml
 tests:
-  - tests/examples/test_setup_demo.py
+  - tests/examples/test_gradio_demo.py
 ---
 
-# Setup demo
+# Gradio demo
 
 **Status:** Implemented
 
@@ -20,7 +20,7 @@ A page to try the engine without writing a config by hand: choose a voice, confi
 ## Running it
 
 ```
-uv run python -m examples.setup_demo [--folder PATH] [--host ADDRESS] [--port N]
+uv run python -m examples.gradio_demo [--folder PATH] [--host ADDRESS] [--port N]
 ```
 
 The page opens on its Setup tab with the `tone` fixture, which needs nothing installed. The app's folder (its saved config and its `.env`) is `~/.config/tts-engine-demo` unless `--folder` names another. The page listens on `127.0.0.1` unless `--host` names another address.
@@ -39,7 +39,7 @@ The page opens on its Setup tab with the `tone` fixture, which needs nothing ins
 
 ## Testing
 
-`tests/examples/test_setup_demo.py`: a session speaks and reports what it said; an utterance in progress is interrupted; a config the engine refuses fails and frees its loop; a session is the engine built from the saved section; the voice is built at the first utterance and kept while the saved config holds, rebuilt from a saved change at the next one, the config never locked; a config with problems says why and builds nothing; the demo's default config is ready; the page puts its Speak tab first, then the two panels, and opens on Setup.
+`tests/examples/test_gradio_demo.py`: a session speaks and reports what it said; an utterance in progress is interrupted; a config the engine refuses fails and frees its loop; a session is the engine built from the saved section; the voice is built at the first utterance and kept while the saved config holds, rebuilt from a saved change at the next one, the config never locked; a config with problems says why and builds nothing; the demo's default config is ready; the page puts its Speak tab first, then the two panels, and opens on Setup.
 
 The page was also run live, then again once it was built from module-setup's panels: the checks over a kokoro config, a session started, an utterance spoken, a test sentence, the session stopped; and the piper extra, uninstalled, installed back by the page's model through uv and seen ready without a restart. It was then driven in a headless browser: Kokoro chosen, a voice picked from its list (54 voices), the output switched to `discard`, saved, a session started, a sentence spoken (first audio after about 200 ms), stopped.
 

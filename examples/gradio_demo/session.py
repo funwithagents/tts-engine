@@ -1,4 +1,4 @@
-"""The demo's sessions, with no gradio (specs/setup-demo.md).
+"""The demo's sessions, with no gradio (specs/gradio-demo.md).
 
 A `SpeechSession` is a running engine. The page's handlers run on gradio's worker threads;
 the engine's calls are coroutines. The session owns one event loop on a thread of its own

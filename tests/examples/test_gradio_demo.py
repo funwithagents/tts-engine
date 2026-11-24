@@ -1,4 +1,4 @@
-"""The demo page's session and declaration (specs/setup-demo.md)."""
+"""The demo page's session and declaration (specs/gradio-demo.md)."""
 
 import concurrent.futures
 import threading
@@ -11,8 +11,8 @@ from module_setup.app import AppModel
 from module_setup.folder import ConfigFolder
 from module_setup.secrets import SecretStore
 
-from examples.setup_demo.app import APP, DEFAULT_CONFIG, build_page
-from examples.setup_demo.session import (
+from examples.gradio_demo.app import APP, DEFAULT_CONFIG, build_page
+from examples.gradio_demo.session import (
     SpeechSession,
     Voice,
     build_session,

@@ -19,7 +19,7 @@ setup.probe(config)             # a light real check: {"ok": True, "message": ..
 ## Try it: the demo page
 
 ```
-uv run python -m examples.setup_demo
+uv run python -m examples.gradio_demo
 ```
 
 from a checkout opens a page built on these functions: choose a voice, fill its fields, install its extra and download its model with a click, then hear it. Its folder (saved config, keys) is `~/.config/tts-engine-demo` unless `--folder` names another.

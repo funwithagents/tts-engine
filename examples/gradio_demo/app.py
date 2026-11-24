@@ -1,4 +1,4 @@
-"""The engine's demo page (specs/setup-demo.md).
+"""The engine's demo page (specs/gradio-demo.md).
 
 The demo's own Speak tab next to module-setup's Setup and Secrets panels, over one section,
 `tts`, the engine block: the Setup panel chooses and configures a voice, installs its extra
@@ -6,7 +6,7 @@ and downloads its model; Speak builds the engine from the saved config when it n
 (again after a save) and says what is typed. Nothing runs between utterances, so there is
 no Start, no Stop and no lock on the config.
 
-    uv run python -m examples.setup_demo [--folder PATH] [--host ADDRESS] [--port N]
+    uv run python -m examples.gradio_demo [--folder PATH] [--host ADDRESS] [--port N]
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from module_setup.folder import ConfigFolder, default_folder
 from module_setup.ui import secrets_panel, setup_panel
 
 import tts_engine.setup
-from examples.setup_demo.session import Voice, describe_result
+from examples.gradio_demo.session import Voice, describe_result
 
 __all__ = ["APP", "build_page", "main"]
 
