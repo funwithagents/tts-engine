@@ -188,28 +188,38 @@ def check_config(config: dict[str, Any]) -> list[dict[str, Any]]:
     return problems
 
 
-def _selected(config: dict[str, Any]) -> tuple[type[TTSModule], dict[str, Any]]:
-    """The module class and block of a config `check_config` accepts."""
+def _selected(
+    config: dict[str, Any], base_dir: str | None
+) -> tuple[type[TTSModule], dict[str, Any]]:
+    """The module class and block of a config `check_config` accepts, the block as the
+    loader gives it to the module: its relative paths against *base_dir*, the folder the
+    app also builds its engine against (the working directory when None)."""
     cls = _module_class(config)
     if cls is None:
         raise ConfigError("the config selects no registered TTS module")
-    return cls, config["module"]
+    return cls, TTSEngineConfig.from_dict(config, base_dir=base_dir).module
 
 
-def check_setup(config: dict[str, Any]) -> list[dict[str, Any]]:
-    cls, module = _selected(config)
+def check_setup(
+    config: dict[str, Any], *, base_dir: str | None = None
+) -> list[dict[str, Any]]:
+    cls, module = _selected(config, base_dir)
     return cls.check_setup(module)
 
 
 def prepare(
     config: dict[str, Any],
     on_progress: Callable[[dict[str, Any]], None] | None = None,
+    *,
+    base_dir: str | None = None,
 ) -> None:
-    cls, module = _selected(config)
+    cls, module = _selected(config, base_dir)
     cls.prepare(module, on_progress)
 
 
-def options(name: str, config: dict[str, Any]) -> list[dict[str, Any]]:
+def options(
+    name: str, config: dict[str, Any], *, base_dir: str | None = None
+) -> list[dict[str, Any]]:
     if name == "output-devices":
         import sounddevice as sd
 
@@ -222,17 +232,17 @@ def options(name: str, config: dict[str, Any]) -> list[dict[str, Any]]:
                     {"label": device["name"], "fields": {"device": device["name"]}}
                 )
         return found
-    cls, module = _selected(config)
+    cls, module = _selected(config, base_dir)
     return cls.options(name, module)
 
 
-def _check(config: dict[str, Any]) -> str:
+def _check(config: dict[str, Any], base_dir: str | None) -> str:
     """The lightest real check of this config, what it showed in words; raises what
     goes wrong. A hosted module makes one authenticated, free call (its voice list)
     and looks for the configured voice there; one with no voice list is built and
     closed; a local module loads its model and releases it. Nothing is synthesized
     and no device is opened."""
-    block = TTSEngineConfig.from_dict(config).module
+    block = TTSEngineConfig.from_dict(config, base_dir=base_dir).module
     cls = REGISTRY[resolve_type(block.get("type"))]
     problems = cls.check_config(block)
     if problems:
@@ -275,14 +285,14 @@ def _build_and_close(block: dict[str, Any]) -> None:
     module.close()
 
 
-def probe(config: dict[str, Any]) -> dict[str, Any]:
+def probe(config: dict[str, Any], *, base_dir: str | None = None) -> dict[str, Any]:
     """Check this config for real, as lightly as possible (`_check`): never a
-    synthesis, never a device. Never raises."""
+    synthesis, never a device. Never raises. Relative paths against *base_dir*."""
     outcome: dict[str, Any] = {}
 
     def work() -> None:
         try:
-            outcome["message"] = _check(config)
+            outcome["message"] = _check(config, base_dir)
             outcome["ok"] = True
         except Exception as exc:  # noqa: BLE001 - a probe reports, it never raises
             outcome["message"] = str(exc) or type(exc).__name__

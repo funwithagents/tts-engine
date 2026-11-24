@@ -701,3 +701,27 @@ def test_a_module_that_reads_a_key_accepts_the_secrets_wherever_it_is_built(
 
     assert "secrets" in inspect.signature(cls.__init__).parameters
     assert "secrets" in inspect.signature(cls.list_voices).parameters
+
+
+def test_a_relative_path_is_found_against_the_app_s_folder_not_the_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("piper")
+    folder = tmp_path / "app"
+    (folder / "voices").mkdir(parents=True)
+    (folder / "voices" / "mine.onnx").write_bytes(b"")
+    (folder / "voices" / "mine.onnx.json").write_text("{}")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)  # where the app happened to be launched from
+    config = {"module": {"type": "piper", "model": "voices/mine.onnx"}}
+
+    def files(base_dir: str | None) -> list[tuple[str, str]]:
+        return [
+            (item["id"], item["status"])
+            for item in setup.check_setup(config, base_dir=base_dir)
+            if item["id"].startswith("piper:")
+        ]
+
+    assert files(str(folder)) == [("piper:model", "ready"), ("piper:config", "ready")]
+    assert files(None) == [("piper:model", "missing"), ("piper:config", "missing")]
