@@ -181,6 +181,7 @@ def test_the_page_puts_speak_first_and_opens_on_setup(tmp_path: Path) -> None:
     labels = [getattr(block, "label", None) for block in page.blocks.values()]
     [selector] = [b for b in page.blocks.values() if isinstance(b, gr.Tabs)]
     assert tabs == ["Speak", "Setup", "Secrets"]
-    assert "Text to speak" in labels and "Section to test" in labels
+    buttons = [b.value for b in page.blocks.values() if isinstance(b, gr.Button)]
+    assert "Text to speak" in labels and buttons.count("Test") == 1  # the tts section's
     assert "Variable" in labels
     assert selector.selected == "setup"
