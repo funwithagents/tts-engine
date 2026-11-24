@@ -13,6 +13,8 @@ Implements `specs/gradio-demo.md` as revised: module-setup no longer draws a pag
 - `pyproject.toml`, `uv.lock` — module-setup at its pull request's new commit.
 - `specs/gradio-demo.md`, `specs/_index.md`, `specs/setup.md`, `docs/setup.md` — the panels, the options, no settings file, no session to start.
 
+- `examples/gradio_demo/default_config.json` — the default config as a committed file (the Phonon voice), written into an empty folder on first launch (after the user's testing).
+
 ## Steps
 
 1. Build the engine on demand in `Voice`, rebuilt when the saved section changes.

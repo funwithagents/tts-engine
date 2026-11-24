@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import json
 import logging
 from collections.abc import Sequence
 from pathlib import Path
@@ -29,8 +30,11 @@ __all__ = ["APP", "build_page", "main"]
 
 log = logging.getLogger(__name__)
 
-# The tone fixture: it needs nothing installed, so the page works before any choice.
-DEFAULT_CONFIG = {"tts": {"module": {"type": "tone"}}}
+# Written into an empty folder on first launch: the Phonon voice, a local model. On a
+# fresh install the Setup tab says what it needs (its extra, its model download).
+DEFAULT_CONFIG = json.loads(
+    (Path(__file__).parent / "default_config.json").read_text(encoding="utf-8")
+)
 
 SAMPLE_TEXT = "Hello! This is the voice you set up, speaking from the demo page."
 

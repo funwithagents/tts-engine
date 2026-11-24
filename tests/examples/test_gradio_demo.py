@@ -164,14 +164,15 @@ def test_a_config_that_cannot_speak_says_why_and_builds_nothing(
     assert voice.session is None
 
 
-def test_the_demo_declares_one_tts_section_whose_default_is_ready(
+def test_the_demo_declares_one_tts_section_whose_default_is_valid(
     tmp_path: Path,
 ) -> None:
     model = _model(tmp_path)
 
     assert [section.name for section in APP.sections] == ["tts"]
     assert model.saved_config() == DEFAULT_CONFIG
-    assert model.blockers(DEFAULT_CONFIG) == []
+    # What the machine needs for it (the phonon extra, its model) depends on the machine.
+    assert model.check_config(DEFAULT_CONFIG) == []
 
 
 def test_the_page_puts_speak_first_and_opens_on_setup(tmp_path: Path) -> None:
@@ -185,3 +186,21 @@ def test_the_page_puts_speak_first_and_opens_on_setup(tmp_path: Path) -> None:
     assert "Text to speak" in labels and buttons.count("Test") == 1  # the tts section's
     assert "Variable" in labels
     assert selector.selected == "setup"
+
+
+def test_the_default_config_is_the_committed_file_written_into_an_empty_folder(
+    tmp_path: Path,
+) -> None:
+    import json
+
+    committed = json.loads(
+        (
+            Path(__file__).parents[2] / "examples/gradio_demo/default_config.json"
+        ).read_text()
+    )
+    folder = tmp_path / "fresh"
+
+    _model(folder)
+
+    assert APP.default_config == committed
+    assert json.loads((folder / "config.json").read_text()) == committed

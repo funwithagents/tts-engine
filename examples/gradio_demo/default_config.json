@@ -1,0 +1,8 @@
+{
+  "tts": {
+    "module": {
+      "type": "phonon",
+      "voice": "Juniper"
+    }
+  }
+}
