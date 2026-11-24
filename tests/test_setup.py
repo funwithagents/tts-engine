@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 from module_setup.contract import check_contract
+from packaging.requirements import Requirement
 
 from tts_engine import setup
 from tts_engine.config import ConfigError
@@ -312,16 +313,39 @@ def test_schema_config_and_extras_need_no_provider_library_and_check_setup_says_
 # --- check_setup and prepare ----------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", sorted(n for n, c in REGISTRY.items() if c.extra))
-def test_an_installed_extra_is_reported_ready(name: str) -> None:
-    extra = REGISTRY[name].extra
-    items = REGISTRY[name].check_setup({"type": name})
+def _installs_here(extra: str) -> bool:
+    """Whether the extra brings a package on this platform: the dev environment syncs every
+    extra, but one whose packages all carry another platform's marker (qwen3, Apple-silicon
+    macOS only) installs nothing."""
+    requirements = tomllib.loads(
+        (_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]["optional-dependencies"][extra]
+    return any(
+        (marker := Requirement(text).marker) is None or marker.evaluate()
+        for text in requirements
+    )
 
+
+@pytest.mark.parametrize("name", sorted(n for n, c in REGISTRY.items() if c.extra))
+def test_an_extra_is_ready_where_it_installs_and_missing_with_its_hint_elsewhere(
+    name: str,
+) -> None:
+    cls = REGISTRY[name]
+    assert cls.extra is not None
+    items = cls.check_setup({"type": name})
+
+    if _installs_here(cls.extra):
+        status, detail = "ready", "Installed."
+    else:
+        with pytest.raises(ConfigError) as error:
+            cls.imports()
+        status, detail = "missing", str(error.value)
+        assert f"tts-engine[{cls.extra}]" in detail
     assert items[0] == {
-        "id": f"extra:tts-engine[{extra}]",
-        "title": f"{REGISTRY[name].title} extra",
-        "status": "ready",
-        "detail": "Installed.",
+        "id": f"extra:tts-engine[{cls.extra}]",
+        "title": f"{cls.title} extra",
+        "status": status,
+        "detail": detail,
         "preparable": False,
     }
 
