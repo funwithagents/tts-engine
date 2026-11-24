@@ -1251,7 +1251,7 @@ wheels = [
 [[package]]
 name = "module-setup"
 version = "0.1.0"
-source = { git = "https://github.com/funwithagents/module-setup?rev=module-contract#6b28422d9a9152cc15504c1f97ee6f2610e5af90" }
+source = { git = "https://github.com/funwithagents/module-setup?rev=main#54cc4ab3faa1876536c86fea22dbf8922f46aae8" }
 dependencies = [
     { name = "packaging" },
 ]
@@ -2990,7 +2990,7 @@ provides-extras = ["elevenlabs", "pocket", "gradium", "mistral", "deepgram", "ge
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "module-setup", git = "https://github.com/funwithagents/module-setup?rev=module-contract" },
+    { name = "module-setup", git = "https://github.com/funwithagents/module-setup?rev=main" },
     { name = "opentelemetry-sdk", specifier = ">=1.20,<2" },
     { name = "pyright", specifier = ">=1.1.411" },
     { name = "pytest" },

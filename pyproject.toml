@@ -172,9 +172,7 @@ explicit = true
 
 [tool.uv.sources]
 torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
-# Temporary: the branch of module-setup's first pull request. Becomes `rev = "main"`
-# once that pull request is merged.
-module-setup = { git = "https://github.com/funwithagents/module-setup", rev = "module-contract" }
+module-setup = { git = "https://github.com/funwithagents/module-setup", rev = "main" }
 
 [tool.pytest.ini_options]
 # Only the fast, deterministic tier is collected by default; tests-e2e/ is opt-in.
