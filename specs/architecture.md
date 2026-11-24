@@ -157,13 +157,13 @@ class TTSEngine:
         config: TTSEngineConfig,
         *,
         sink: AudioSink | None = None,
-        keys: Mapping[str, str] | None = None,
+        secrets: Mapping[str, str] | None = None,
     ) -> None:
         """Build the module (via load_module) from config. Use the injected sink,
         or build the default local AudioPlayer from config when sink is None."""
 ```
 
-- The constructor is the entry point for all use (library and MCP). It reads `config.module` (the raw module dict, including `type`) through `load_module`, passing `keys`: API keys the application holds itself, by variable name, looked up before the environment ([elevenlabs-module.md](modules/elevenlabs.md), "API key resolution"); a config never holds a key. If no `sink` is given it builds the default `AudioPlayer` from `config.player` (a `PlayerConfig`) **and the module's declared `sample_rate`** — `AudioPlayer(device=config.player.device, sample_rate=module.sample_rate)`. The module owns the rate (see [tts-module-interface.md](tts-module-interface.md)); the player opens its output stream to match. With `config.player.discard` it builds a `DiscardPlayer(sample_rate=module.sample_rate)` instead: no device, the audio dropped at real-time pace ([audio-player.md](audio-player.md), "`DiscardPlayer`").
+- The constructor is the entry point for all use (library and MCP). It reads `config.module` (the raw module dict, including `type`) through `load_module`, passing `secrets`: API keys the application holds itself, by variable name, looked up before the environment ([elevenlabs-module.md](modules/elevenlabs.md), "API key resolution"); a config never holds a key. If no `sink` is given it builds the default `AudioPlayer` from `config.player` (a `PlayerConfig`) **and the module's declared `sample_rate`** — `AudioPlayer(device=config.player.device, sample_rate=module.sample_rate)`. The module owns the rate (see [tts-module-interface.md](tts-module-interface.md)); the player opens its output stream to match. With `config.player.discard` it builds a `DiscardPlayer(sample_rate=module.sample_rate)` instead: no device, the audio dropped at real-time pace ([audio-player.md](audio-player.md), "`DiscardPlayer`").
 - **Sink injection** ([audio-sink.md](audio-sink.md)) makes the playback destination swappable: pass `sink=` to send synthesized PCM somewhere other than the local speaker (a robot pipeline, a buffer, a network stream). When a sink is injected the engine builds no `AudioPlayer` and never imports sounddevice, so the engine stays usable on hosts with no audio device. Backwards compatible — omitting `sink` reproduces today's local playback exactly.
 - `TTSEngine.sample_rate` (read-only property) exposes the active module's declared rate, so a custom sink can resample the int16-mono PCM to its destination's format.
 - **Output gain.** When `config.gain_db` is not `0`, the constructor wraps the sink it resolved (injected or default) in the internal gain step below. The wrapper is private: the constructor's signature and the `AudioSink` contract are unchanged.

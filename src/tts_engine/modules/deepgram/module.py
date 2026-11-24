@@ -32,7 +32,7 @@ import re
 import threading
 import time
 from collections import deque
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from dataclasses import replace
 from typing import Any
 
@@ -49,7 +49,6 @@ from tts_engine.modules.base import (
     key_env_field,
     normalize_gender,
     open_cancellable,
-    resolve_api_key,
     run_cancellable_worker,
     run_text_stream_worker,
     slice_bytes_for,
@@ -71,7 +70,6 @@ _FLUX_SPEED_STEP = 0.05
 _EXPRESSIVITY_RANGE = (-2, 2)
 _DEFAULT_TIMEOUT = 30.0
 _LABEL = "Deepgram module"
-_KEY_ENV = "DEEPGRAM_API_KEY"
 # A segment (the text between two Flushes) is flushed at the first sentence end
 # past _SEGMENT_SOFT characters, and at a word boundary at _SEGMENT_HARD at the
 # latest. The next segment starts only once the Flush is answered, so the
@@ -263,7 +261,7 @@ class DeepgramModule(TTSModule):
             "('flux-<voice>-<language>').",
             default=_DEFAULT_MODEL,
         ),
-        key_env_field("Deepgram", _KEY_ENV),
+        key_env_field("Deepgram", "DEEPGRAM_API_KEY"),
         Field(
             "sample_rate",
             "integer",
@@ -352,7 +350,9 @@ class DeepgramModule(TTSModule):
                 "pip install tts-engine[deepgram]"
             ) from exc
 
-    def __init__(self, config: dict) -> None:
+    def __init__(
+        self, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> None:
         values = self.validated(config)
         model: str = values["model"]
         flux = model.startswith(_FLUX_PREFIX)
@@ -364,7 +364,7 @@ class DeepgramModule(TTSModule):
         else:
             from deepgram.speak.v1.types import SpeakV1Text as speak_type
 
-        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
+        api_key = self.resolve_api_key(config, secrets)
 
         sample_rate: int = values["sample_rate"]
         connect_kwargs: dict = {
@@ -409,7 +409,9 @@ class DeepgramModule(TTSModule):
             raise TTSError(f"Deepgram request failed: {exc}") from exc
 
     @classmethod
-    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+    def list_voices(
+        cls, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> list[VoiceInfo]:
         """The `tts` entries of `GET /v1/models`. The model is the voice, so
         each entry selects it with `model`; its gender is one of the metadata
         tags (`masculine` / `feminine`), the other tags, the accent and the
@@ -421,7 +423,7 @@ class DeepgramModule(TTSModule):
                 "The 'deepgram' module requires the deepgram extra: "
                 "pip install tts-engine[deepgram]"
             ) from exc
-        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
+        api_key = cls.resolve_api_key(config, secrets)
         timeout = finite_number(
             config,
             "timeout",

@@ -15,7 +15,7 @@ import base64
 import logging
 import math
 import threading
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from typing import Any
 
 import numpy as np
@@ -33,7 +33,6 @@ from tts_engine.modules.base import (
     key_env_field,
     normalize_gender,
     optional_str,
-    resolve_api_key,
     run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
@@ -47,7 +46,6 @@ _SAMPLE_RATE = 24000
 _DEFAULT_MODEL = "voxtral-mini-tts-3-0"
 _DEFAULT_TIMEOUT = 30.0
 _LABEL = "Mistral module"
-_KEY_ENV = "MISTRAL_API_KEY"
 _SLICE_BYTES = slice_bytes_for(_SAMPLE_RATE)
 _FLOAT_BYTES = 4
 
@@ -76,7 +74,7 @@ class MistralModule(TTSModule):
             "The Mistral text-to-speech model.",
             default=_DEFAULT_MODEL,
         ),
-        key_env_field("Mistral", _KEY_ENV),
+        key_env_field("Mistral", "MISTRAL_API_KEY"),
         Field(
             "expressiveness",
             "number",
@@ -110,12 +108,14 @@ class MistralModule(TTSModule):
                 "pip install tts-engine[mistral]"
             ) from exc
 
-    def __init__(self, config: dict) -> None:
+    def __init__(
+        self, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> None:
         values = self.validated(config)
         self.imports()
         from mistralai.client import Mistral
 
-        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
+        api_key = self.resolve_api_key(config, secrets)
 
         voice_id: str = values["voice_id"]
         model: str = values["model"]
@@ -148,7 +148,9 @@ class MistralModule(TTSModule):
         self._client.__exit__(None, None, None)
 
     @classmethod
-    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+    def list_voices(
+        cls, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> list[VoiceInfo]:
         """The presets and the account's custom voices, from
         `audio.voices.search()` followed page by page. Gender is given; age is
         in years when set."""
@@ -159,7 +161,7 @@ class MistralModule(TTSModule):
                 "The 'mistral' module requires the mistral extra: "
                 "pip install tts-engine[mistral]"
             ) from exc
-        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
+        api_key = cls.resolve_api_key(config, secrets)
         timeout = finite_number(
             config,
             "timeout",

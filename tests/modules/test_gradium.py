@@ -15,7 +15,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tts_engine.config import ConfigError
+from tts_engine.config import ConfigError, MissingSecretError
 from tts_engine.modules.base import TTSError, TTSOptions
 from tts_engine.modules.gradium import GradiumModule
 from tts_engine.modules.gradium import module as gradium_module
@@ -160,7 +160,7 @@ def test_api_key_from_env(fake_gradium, monkeypatch):
     assert fake_gradium.client_kwargs == {"api_key": "env-secret"}
 
 
-def test_a_key_given_in_code_wins_over_the_environment_and_stays_with_its_engine(
+def test_a_secret_given_in_code_wins_over_the_environment_and_stays_with_its_engine(
     fake_gradium, monkeypatch
 ):
     from tts_engine import TTSEngine
@@ -170,17 +170,17 @@ def test_a_key_given_in_code_wins_over_the_environment_and_stays_with_its_engine
     config = {"type": "gradium", "voice_id": "v"}  # GRADIUM_API_KEY by default
     TTSEngine(
         TTSEngineConfig.from_dict({"module": config, "player": {"discard": True}}),
-        keys={"GRADIUM_API_KEY": "from-code"},
+        secrets={"GRADIUM_API_KEY": "from-code"},
     )
     assert fake_gradium.client_kwargs == {"api_key": "from-code"}
 
-    # A name the given keys lack is read from the environment.
-    load_module(config, keys={"OTHER_KEY": "unused"})
+    # A name the given secrets lack is read from the environment.
+    load_module(config, secrets={"OTHER_KEY": "unused"})
     assert fake_gradium.client_kwargs == {"api_key": "k"}
 
-    # The keys given to one engine are not seen by the next one.
+    # The secrets given to one engine are not seen by the next one.
     monkeypatch.delenv("GRADIUM_API_KEY")
-    with pytest.raises(ConfigError, match="'GRADIUM_API_KEY'"):
+    with pytest.raises(MissingSecretError, match="'GRADIUM_API_KEY'"):
         load_module(config)
 
 

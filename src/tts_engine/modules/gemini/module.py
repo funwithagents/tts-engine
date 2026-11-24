@@ -13,7 +13,7 @@ sentences (see specs/modules/gemini.md).
 import logging
 import math
 import threading
-from collections.abc import AsyncIterator, Callable, Generator, Iterator
+from collections.abc import AsyncIterator, Callable, Generator, Iterator, Mapping
 from typing import Any, cast
 
 from tts_engine.config import ConfigError
@@ -26,7 +26,6 @@ from tts_engine.modules.base import (
     VoiceListingUnsupported,
     cleanup,
     key_env_field,
-    resolve_api_key,
     run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
@@ -40,7 +39,6 @@ _SAMPLE_RATE = 24000
 _DEFAULT_MODEL = "gemini-3.8-flash-tts"
 _DEFAULT_TIMEOUT = 30.0
 _LABEL = "Gemini module"
-_KEY_ENV = "GEMINI_API_KEY"
 _MIME = "audio/l16"
 _SLICE_BYTES = slice_bytes_for(_SAMPLE_RATE)
 
@@ -79,7 +77,7 @@ class GeminiModule(TTSModule):
             "The Gemini text-to-speech model.",
             default=_DEFAULT_MODEL,
         ),
-        key_env_field("Gemini", _KEY_ENV),
+        key_env_field("Gemini", "GEMINI_API_KEY"),
         Field(
             "language_code",
             "string",
@@ -108,14 +106,16 @@ class GeminiModule(TTSModule):
                 "pip install tts-engine[gemini]"
             ) from exc
 
-    def __init__(self, config: dict) -> None:
+    def __init__(
+        self, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> None:
         values = self.validated(config)
         self.imports()
         # Not `from google import genai`: that binds None instead of raising
         # when sys.modules["google.genai"] is None (see the spec).
         import google.genai as genai  # noqa: PLR0402
 
-        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
+        api_key = self.resolve_api_key(config, secrets)
 
         model: str = values["model"]
         voice: str | None = values["voice"]
@@ -149,7 +149,9 @@ class GeminiModule(TTSModule):
         self._client.close()
 
     @classmethod
-    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+    def list_voices(
+        cls, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> list[VoiceInfo]:
         """Gemini has no voice-listing endpoint."""
         raise VoiceListingUnsupported(
             "Gemini module: the API has no voice-listing endpoint; the prebuilt "

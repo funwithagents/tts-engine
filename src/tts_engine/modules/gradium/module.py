@@ -18,7 +18,7 @@ import asyncio
 import concurrent.futures
 import logging
 import threading
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from typing import Any
 
 from tts_engine.config import ConfigError
@@ -31,7 +31,6 @@ from tts_engine.modules.base import (
     key_env_field,
     normalize_gender,
     optional_str,
-    resolve_api_key,
     run_cancellable_worker,
     run_text_stream_worker,
     split_at_last_space,
@@ -43,7 +42,6 @@ log = logging.getLogger(__name__)
 _SAMPLE_RATES = (8000, 16000, 24000, 44100, 48000)
 _DEFAULT_TIMEOUT = 30.0
 _LABEL = "Gradium module"
-_KEY_ENV = "GRADIUM_API_KEY"
 # How often the receive loop (and the connection setup) wakes to poll `stop`
 # while the server is silent, so a cancel is honored promptly.
 _RECV_POLL_SECONDS = 0.1
@@ -76,7 +74,7 @@ class GradiumModule(TTSModule):
             "The Gradium model alias, 'default' or 'gradium-tts-beta'.",
             default="default",
         ),
-        key_env_field("Gradium", _KEY_ENV),
+        key_env_field("Gradium", "GRADIUM_API_KEY"),
         Field(
             "sample_rate",
             "integer",
@@ -153,12 +151,14 @@ class GradiumModule(TTSModule):
                 "pip install tts-engine[gradium]"
             ) from exc
 
-    def __init__(self, config: dict) -> None:
+    def __init__(
+        self, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> None:
         values = self.validated(config)
         self.imports()
         from gradium import GradiumClient
 
-        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
+        api_key = self.resolve_api_key(config, secrets)
 
         # Sent only when set, so the API's own defaults apply otherwise.
         json_config: dict[str, float | str] = {
@@ -184,7 +184,9 @@ class GradiumModule(TTSModule):
             self._client = GradiumClient(api_key=api_key, base_url=base_url)
 
     @classmethod
-    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+    def list_voices(
+        cls, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> list[VoiceInfo]:
         """The public catalog and the account's own voices, from
         `voice_get(include_catalog=True)`. The SDK is async, so the call runs
         on a private event loop in a helper thread, which also works when the
@@ -196,7 +198,7 @@ class GradiumModule(TTSModule):
                 "The 'gradium' module requires the gradium extra: "
                 "pip install tts-engine[gradium]"
             ) from exc
-        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
+        api_key = cls.resolve_api_key(config, secrets)
         timeout = finite_number(
             config,
             "timeout",

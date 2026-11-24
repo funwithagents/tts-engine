@@ -44,7 +44,7 @@ All fields go under the `engine.module` block in `config.json` alongside `"type"
 
 ### API key resolution
 
-The shared rule ([elevenlabs-module.md](elevenlabs.md), "API key resolution"), with no default variable: when `api_key_env` names one, the key is read from it, and an unset or empty variable makes construction raise `ConfigError` naming it; when it is absent, no variable is read, not even `OPENAI_API_KEY`, and the client gets the placeholder key `"unused"`, so a key is never sent to a server the config did not give it to. A config with an `api_key` field is refused (`OpenAI speech-compatible module does not take 'api_key': ...`). The key is always passed explicitly to `OpenAI(api_key=...)`; the SDK's own `OPENAI_API_KEY` fallback is never relied on.
+The shared rule ([elevenlabs-module.md](elevenlabs.md), "API key resolution"), with no default variable: when `api_key_env` names one, the key is found under it (in the secrets given in code, then the environment), and no key under it makes construction raise `MissingSecretError` naming it; when it is absent, no variable is read, not even `OPENAI_API_KEY`, and the client gets the placeholder key `"unused"`, so a key is never sent to a server the config did not give it to. A config with an `api_key` field is refused (`OpenAI speech-compatible module does not take 'api_key': ...`). The key is always passed explicitly to `OpenAI(api_key=...)`; the SDK's own `OPENAI_API_KEY` fallback is never relied on.
 
 ### Validation
 

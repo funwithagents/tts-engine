@@ -33,7 +33,7 @@ import re
 import threading
 import time
 import uuid
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from typing import Any, cast
 
 from tts_engine.config import ConfigError
@@ -48,7 +48,6 @@ from tts_engine.modules.base import (
     key_env_field,
     normalize_gender,
     open_cancellable,
-    resolve_api_key,
     run_cancellable_worker,
     run_text_stream_worker,
     slice_bytes_for,
@@ -66,7 +65,6 @@ _VOLUME_RANGE = (0.5, 2.0)
 _BUFFER_DELAY_RANGE = (0, 5000)
 _DEFAULT_TIMEOUT = 30.0
 _LABEL = "Cartesia module"
-_KEY_ENV = "CARTESIA_API_KEY"
 # A context takes one segment: it is ended at the first sentence end past
 # _SEGMENT_SOFT characters, and at a word boundary at _SEGMENT_HARD at the
 # latest. The next context opens once this one's `done` has arrived, so the
@@ -294,7 +292,7 @@ class CartesiaModule(TTSModule):
             "The Cartesia Sonic model.",
             default=_DEFAULT_MODEL,
         ),
-        key_env_field("Cartesia", _KEY_ENV),
+        key_env_field("Cartesia", "CARTESIA_API_KEY"),
         Field(
             "sample_rate",
             "integer",
@@ -365,14 +363,16 @@ class CartesiaModule(TTSModule):
                 "pip install tts-engine[cartesia]"
             ) from exc
 
-    def __init__(self, config: dict) -> None:
+    def __init__(
+        self, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> None:
         values = self.validated(config)
         self.imports()
         import websockets.sync.client  # noqa: F401  (the SDK's [websockets] extra)
         from cartesia import Cartesia
         from websockets.exceptions import InvalidStatus
 
-        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
+        api_key = self.resolve_api_key(config, secrets)
 
         voice_id: str = values["voice_id"]
         model: str = values["model"]
@@ -448,7 +448,9 @@ class CartesiaModule(TTSModule):
         self._client.close()
 
     @classmethod
-    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+    def list_voices(
+        cls, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> list[VoiceInfo]:
         """Every voice `voices.list()` returns, across its pages: the public
         library and the account's own."""
         try:
@@ -458,7 +460,7 @@ class CartesiaModule(TTSModule):
                 "The 'cartesia' module requires the cartesia extra: "
                 "pip install tts-engine[cartesia]"
             ) from exc
-        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
+        api_key = cls.resolve_api_key(config, secrets)
         timeout = finite_number(
             config,
             "timeout",

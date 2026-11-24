@@ -35,7 +35,7 @@ All fields go under the `engine.module` block in `config.json` alongside `"type"
 
 ### API key resolution
 
-The shared rule ([elevenlabs-module.md](elevenlabs.md), "API key resolution"): the key is read from the environment variable `api_key_env` names, `MISTRAL_API_KEY` when the field is absent; an unset or empty variable makes construction raise `ConfigError` naming it, and a config with an `api_key` field is refused (`Mistral module does not take 'api_key': ...`). The resolved key is always passed explicitly to `Mistral(api_key=...)`; the SDK's own environment fallback is never relied on.
+The shared rule ([elevenlabs-module.md](elevenlabs.md), "API key resolution"): the key is found under the variable `api_key_env` names (in the secrets given in code, then the environment), `MISTRAL_API_KEY` when the field is absent; no key under it makes construction raise `MissingSecretError` naming it, and a config with an `api_key` field is refused (`Mistral module does not take 'api_key': ...`). The resolved key is always passed explicitly to `Mistral(api_key=...)`; the SDK's own environment fallback is never relied on.
 
 ### Validation
 

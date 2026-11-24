@@ -20,7 +20,7 @@ import logging
 import queue
 import threading
 import time
-from collections.abc import AsyncIterator, Callable, Iterable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterable, Iterator, Mapping
 from typing import TYPE_CHECKING
 
 from tts_engine.config import ConfigError
@@ -33,7 +33,6 @@ from tts_engine.modules.base import (
     VoiceListingUnsupported,
     key_env_field,
     open_cancellable,
-    resolve_api_key,
     run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
@@ -55,7 +54,6 @@ _DEFAULT_MODEL = "gpt-realtime-2.1-mini"
 _DEFAULT_VOICE = "marin"
 _DEFAULT_TIMEOUT = 30.0
 _LABEL = "OpenAI module"
-_KEY_ENV = "OPENAI_API_KEY"
 _MIN_SPEED, _MAX_SPEED = 0.25, 1.5
 # A response's output is capped at 4096 tokens (transcript and reasoning
 # included, ~20 audio tokens per second of speech): a long text goes out in
@@ -195,7 +193,7 @@ class OpenAIModule(TTSModule):
             "The OpenAI Realtime model.",
             default=_DEFAULT_MODEL,
         ),
-        key_env_field("OpenAI", _KEY_ENV),
+        key_env_field("OpenAI", "OPENAI_API_KEY"),
         Field(
             "instructions",
             "string",
@@ -231,13 +229,15 @@ class OpenAIModule(TTSModule):
                 "pip install tts-engine[openai]"
             ) from exc
 
-    def __init__(self, config: dict) -> None:
+    def __init__(
+        self, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> None:
         values = self.validated(config)
         self.imports()
         import websockets.sync.client  # noqa: F401  (the SDK's Realtime transport)
         from openai import OpenAI
 
-        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
+        api_key = self.resolve_api_key(config, secrets)
         self._model: str = values["model"]
         voice: str = values["voice"]
         instructions: str | None = values["instructions"]
@@ -284,7 +284,9 @@ class OpenAIModule(TTSModule):
         self._client.close()
 
     @classmethod
-    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+    def list_voices(
+        cls, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> list[VoiceInfo]:
         """The Realtime API has no voice-listing endpoint."""
         raise VoiceListingUnsupported(
             "OpenAI module: the Realtime API has no voice-listing endpoint; its "

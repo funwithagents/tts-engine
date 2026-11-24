@@ -17,7 +17,7 @@ from typing import Any, ClassVar, Literal, TypeVar, cast, overload
 
 import numpy as np
 
-from tts_engine.config import ConfigError
+from tts_engine.config import ConfigError, MissingSecretError
 from tts_engine.modules.fields import Field, field_problems, read_fields
 from tts_engine.utterance import note_segment
 
@@ -237,6 +237,36 @@ class TTSModule(ABC):
         """The module's rules across fields, or on a field's content, that a
         `Field` cannot state. Raises `ConfigError`. Looks at the config only:
         no import of the provider's library, no file, no network."""
+
+    @classmethod
+    def takes_secrets(cls) -> bool:
+        """Whether the module reads a key (an `api_key_env` field): only such a module
+        is given the secrets of `TTSEngine(config, secrets=...)`."""
+        # A module that declares no fields (a stub, a module written elsewhere)
+        # reads no key.
+        return any(field.secret == "env" for field in getattr(cls, "fields", ()))
+
+    @classmethod
+    def resolve_api_key(
+        cls, config: dict, secrets: Mapping[str, str] | None = None
+    ) -> str:
+        """The module's API key, under the variable its `api_key_env` field names
+        (the field's default when absent): from *secrets* (variable name → key, given
+        in code) first, then from the environment. The config never holds the key:
+        one written there is refused. No key under that name is a
+        `MissingSecretError` carrying the variable."""
+        label = f"{cls.title} module"
+        cls._refuse_key(config)
+        field = next((f for f in cls.fields if f.secret == "env"), None)
+        name = config.get(field.name) if field is not None else None
+        if name is None and field is not None:
+            name = field.default
+        if not isinstance(name, str) or not name:
+            raise ConfigError(f"{label} 'api_key_env' must be a non-empty string")
+        api_key = (secrets or {}).get(name) or os.environ.get(name)
+        if not api_key:
+            raise MissingSecretError(name, label=label)
+        return api_key
 
     @classmethod
     def _refuse_key(cls, config: dict) -> None:
@@ -876,46 +906,6 @@ def refuse_api_key(config: dict, *, label: str) -> None:
             f"{label} does not take 'api_key': keep the key in an environment "
             "variable and name it in 'api_key_env'"
         )
-
-
-# The keys given in code (`TTSEngine(config, keys=...)`), by variable name, while a
-# module is built or lists its voices: the only moments a module reads its key.
-_SUPPLIED_KEYS: contextvars.ContextVar[Mapping[str, str] | None] = (
-    contextvars.ContextVar("tts_engine_supplied_keys", default=None)
-)
-
-
-@contextlib.contextmanager
-def supplied_keys(keys: Mapping[str, str] | None) -> Iterator[None]:
-    """Within the block, *keys* (variable name → key) are looked up before the
-    environment: for a key the application holds itself (from a vault, typed by a
-    user), never written in the config nor put in the process environment."""
-    token = _SUPPLIED_KEYS.set(dict(keys) if keys else None)
-    try:
-        yield
-    finally:
-        _SUPPLIED_KEYS.reset(token)
-
-
-def resolve_api_key(config: dict, *, label: str, default: str) -> str:
-    """The provider's API key, under the variable name ``api_key_env`` gives
-    (*default* when absent): from the keys given in code (`supplied_keys`), else
-    from the environment. A config holds only the variable's name. No key under
-    that name is a ``ConfigError`` naming it."""
-    refuse_api_key(config, label=label)
-    env_name = config.get("api_key_env", default)
-    if env_name is None:
-        env_name = default
-    if not isinstance(env_name, str) or not env_name:
-        raise ConfigError(f"{label} 'api_key_env' must be a non-empty string")
-    supplied = _SUPPLIED_KEYS.get() or {}
-    api_key = supplied.get(env_name) or os.environ.get(env_name)
-    if not api_key:
-        raise ConfigError(
-            f"{label}: environment variable {env_name!r} "
-            "(named by 'api_key_env') is unset or empty"
-        )
-    return api_key
 
 
 @overload

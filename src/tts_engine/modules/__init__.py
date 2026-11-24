@@ -15,7 +15,7 @@ from collections.abc import Mapping
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.audiofile import AudioFileModule
-from tts_engine.modules.base import TTSModule, VoiceInfo, supplied_keys
+from tts_engine.modules.base import TTSModule, VoiceInfo
 from tts_engine.modules.cartesia import CartesiaModule
 from tts_engine.modules.deepgram import DeepgramModule
 from tts_engine.modules.elevenlabs import ElevenLabsModule
@@ -74,21 +74,23 @@ def resolve_type(module_type: object) -> str:
 
 
 def load_module(
-    tts_config: dict, *, keys: Mapping[str, str] | None = None
+    tts_config: dict, *, secrets: Mapping[str, str] | None = None
 ) -> TTSModule:
-    """The module ``tts_config["type"]`` names, built from its block. *keys*
-    (variable name → key) are looked up before the environment for the key the
-    block names (``api_key_env``)."""
+    """The module ``tts_config["type"]`` names, built from its block. *secrets*
+    (variable name → key) are given to a module that reads a key, which looks them
+    up before the environment (`TTSModule.resolve_api_key`)."""
     cls = REGISTRY[resolve_type(tts_config.get("type"))]
-    with supplied_keys(keys):
-        return cls(tts_config)
+    if cls.takes_secrets():
+        return cls(tts_config, secrets=secrets)  # type: ignore[call-arg]
+    return cls(tts_config)
 
 
 def list_voices(
-    module_config: dict, *, keys: Mapping[str, str] | None = None
+    module_config: dict, *, secrets: Mapping[str, str] | None = None
 ) -> list[VoiceInfo]:
     """The voices of the backend named by ``module_config["type"]`` (see
-    ``TTSModule.list_voices``); *keys* as for `load_module`."""
+    ``TTSModule.list_voices``); *secrets* as for `load_module`."""
     cls = REGISTRY[resolve_type(module_config.get("type"))]
-    with supplied_keys(keys):
-        return cls.list_voices(module_config)
+    if cls.takes_secrets():
+        return cls.list_voices(module_config, secrets=secrets)  # type: ignore[call-arg]
+    return cls.list_voices(module_config)

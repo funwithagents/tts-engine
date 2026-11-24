@@ -21,6 +21,21 @@ class ConfigError(ValueError):
     """
 
 
+class MissingSecretError(ConfigError):
+    """No key under the variable a module's config names (`api_key_env`, or its
+    default): neither in the secrets given in code nor in the environment. Carries
+    the variable, so a caller can say which key to set without reading the
+    message."""
+
+    def __init__(self, variable: str, *, label: str) -> None:
+        super().__init__(
+            f"{label}: no key under {variable!r}: set the environment variable, "
+            "or pass it in `secrets`"
+        )
+        self.variable = variable
+        self.label = label
+
+
 def _read(path: str) -> str:
     """Read a config file as UTF-8, whatever the platform's default encoding
     (a non-ASCII voice name must not depend on the locale); a file that is

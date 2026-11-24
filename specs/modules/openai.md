@@ -39,7 +39,7 @@ The output format is fixed: the module always asks for `audio/pcm` at 24 kHz (th
 
 ### API key resolution
 
-The shared rule ([elevenlabs-module.md](elevenlabs.md), "API key resolution"): the key is read from the environment variable `api_key_env` names, `OPENAI_API_KEY` when the field is absent; an unset or empty variable makes construction raise `ConfigError` naming it, and a config with an `api_key` field is refused (`OpenAI module does not take 'api_key': ...`). The key is passed explicitly to `OpenAI(api_key=...)`; the SDK's `OPENAI_API_KEY` fallback is never relied on.
+The shared rule ([elevenlabs-module.md](elevenlabs.md), "API key resolution"): the key is found under the variable `api_key_env` names (in the secrets given in code, then the environment), `OPENAI_API_KEY` when the field is absent; no key under it makes construction raise `MissingSecretError` naming it, and a config with an `api_key` field is refused (`OpenAI module does not take 'api_key': ...`). The key is passed explicitly to `OpenAI(api_key=...)`; the SDK's `OPENAI_API_KEY` fallback is never relied on.
 
 ### Validation
 

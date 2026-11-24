@@ -82,9 +82,9 @@ class TTSEngine:
         config: TTSEngineConfig,
         *,
         sink: AudioSink | None = None,
-        keys: Mapping[str, str] | None = None,
+        secrets: Mapping[str, str] | None = None,
     ) -> None:
-        self._module = load_module(config.module, keys=keys)
+        self._module = load_module(config.module, secrets=secrets)
         self._sink: AudioSink = (
             sink
             if sink is not None

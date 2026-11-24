@@ -3,6 +3,7 @@
 See specs/setup.md.
 """
 
+import inspect
 import json
 import subprocess
 import sys
@@ -626,3 +627,17 @@ def test_probe_runs_from_a_thread_that_already_has_an_event_loop() -> None:
         return setup.probe({"module": {"type": "tone"}}, sink=_RecordingSink())
 
     assert asyncio.run(on_a_loop())["ok"] is True
+
+
+@pytest.mark.parametrize(
+    "name", sorted(n for n, c in REGISTRY.items() if c.takes_secrets())
+)
+def test_a_module_that_reads_a_key_accepts_the_secrets_wherever_it_is_built(
+    name: str,
+) -> None:
+    # load_module and list_voices hand `secrets` to such a module; one that did not
+    # accept them would fail with a TypeError instead of speaking.
+    cls = REGISTRY[name]
+
+    assert "secrets" in inspect.signature(cls.__init__).parameters
+    assert "secrets" in inspect.signature(cls.list_voices).parameters

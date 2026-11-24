@@ -23,7 +23,7 @@ import math
 import threading
 import time
 import urllib.parse
-from collections.abc import AsyncIterator, Callable, Iterable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 
 from tts_engine.config import ConfigError
@@ -36,7 +36,6 @@ from tts_engine.modules.base import (
     finite_number,
     key_env_field,
     normalize_gender,
-    resolve_api_key,
     run_cancellable_worker,
     run_text_stream_worker,
     split_at_last_space,
@@ -46,7 +45,6 @@ from tts_engine.modules.fields import Field
 _OUTPUT_FORMAT = "mp3_44100_128"
 _DEFAULT_TIMEOUT = 30.0
 _LABEL = "ElevenLabs module"
-_KEY_ENV = "ELEVENLABS_API_KEY"
 _STREAM_INPUT_URL = "wss://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream-input"
 _DIALOGUE_STREAM_INPUT_URL = "wss://api.elevenlabs.io/v1/text-to-dialogue/stream-input"
 # Models the text-to-speech socket rejects (HTTP 400 at the handshake) and the
@@ -137,7 +135,7 @@ class ElevenLabsModule(TTSModule):
             "text-to-dialogue API.",
             default="eleven_flash_v2_5",
         ),
-        key_env_field("ElevenLabs", _KEY_ENV),
+        key_env_field("ElevenLabs", "ELEVENLABS_API_KEY"),
         Field(
             "stability",
             "number",
@@ -179,7 +177,9 @@ class ElevenLabsModule(TTSModule):
                 "pip install tts-engine[elevenlabs]"
             ) from exc
 
-    def __init__(self, config: dict) -> None:
+    def __init__(
+        self, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> None:
         values = self.validated(config)
         self.imports()
         import miniaudio
@@ -188,7 +188,7 @@ class ElevenLabsModule(TTSModule):
         from websockets.exceptions import ConnectionClosedOK
         from websockets.sync.client import connect
 
-        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
+        api_key = self.resolve_api_key(config, secrets)
 
         voice_id: str = values["voice_id"]
         model: str = values["model"]
@@ -263,7 +263,9 @@ class ElevenLabsModule(TTSModule):
         )
 
     @classmethod
-    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+    def list_voices(
+        cls, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> list[VoiceInfo]:
         """The premade voices and the account's own, from `voices.get_all()`
         (the key needs the `voices_read` permission). The voice's `labels`
         carry its gender and age; the other labels become tags."""
@@ -274,7 +276,7 @@ class ElevenLabsModule(TTSModule):
                 "The 'elevenlabs' module requires the elevenlabs extra: "
                 "pip install tts-engine[elevenlabs]"
             ) from exc
-        api_key = resolve_api_key(config, label=_LABEL, default=_KEY_ENV)
+        api_key = cls.resolve_api_key(config, secrets)
         timeout = finite_number(
             config,
             "timeout",

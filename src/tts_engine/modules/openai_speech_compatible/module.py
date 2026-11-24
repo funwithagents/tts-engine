@@ -15,7 +15,7 @@ specs/modules/openai-speech-compatible.md).
 
 import logging
 import threading
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from typing import Any
 
 from tts_engine.config import ConfigError
@@ -29,7 +29,6 @@ from tts_engine.modules.base import (
     cleanup,
     key_env_field,
     optional_str,
-    resolve_api_key,
     run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
@@ -133,16 +132,16 @@ class OpenAISpeechCompatibleModule(TTSModule):
                 "pip install tts-engine[openai-compatible]"
             ) from exc
 
-    def __init__(self, config: dict) -> None:
+    def __init__(
+        self, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> None:
         values = self.validated(config)
         self.imports()
         from openai import OpenAI
 
         # No variable named: a server that needs no key (the SDK still wants one).
         api_key = (
-            resolve_api_key(config, label=_LABEL, default=values["api_key_env"])
-            if values["api_key_env"]
-            else _NO_KEY
+            self.resolve_api_key(config, secrets) if values["api_key_env"] else _NO_KEY
         )
 
         voice: str = values["voice"]
@@ -180,7 +179,9 @@ class OpenAISpeechCompatibleModule(TTSModule):
         self._client.close()
 
     @classmethod
-    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+    def list_voices(
+        cls, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> list[VoiceInfo]:
         """`/v1/audio/speech` has no voice-listing endpoint; a server other
         than OpenAI's documents its own voices."""
         base_url = optional_str(config, "base_url", label=_LABEL)
