@@ -194,7 +194,7 @@ wheels = [
 [[package]]
 name = "app-setup"
 version = "0.1.0"
-source = { git = "https://github.com/funwithagents/app-setup?rev=main#97299e3be015324bf3336e45a6f366f31801f233" }
+source = { git = "https://github.com/funwithagents/app-setup?rev=setup-overview#12c2272c5d4771c4fc529a1a330b0af3f4be440e" }
 dependencies = [
     { name = "packaging" },
 ]
@@ -3510,9 +3510,9 @@ requires-dist = [
 provides-extras = ["elevenlabs", "pocket", "gradium", "mistral", "deepgram", "gemini", "cartesia", "openai-compatible", "openai", "phonon", "qwen3", "kokoro", "piper", "mcp", "hosted-modules", "all-modules", "all"]
 
 [package.metadata.requires-dev]
-demo = [{ name = "app-setup", extras = ["ui"], git = "https://github.com/funwithagents/app-setup?rev=main" }]
+demo = [{ name = "app-setup", extras = ["ui"], git = "https://github.com/funwithagents/app-setup?rev=setup-overview" }]
 dev = [
-    { name = "app-setup", git = "https://github.com/funwithagents/app-setup?rev=main" },
+    { name = "app-setup", git = "https://github.com/funwithagents/app-setup?rev=setup-overview" },
     { name = "opentelemetry-sdk", specifier = ">=1.20,<2" },
     { name = "pyright", specifier = ">=1.1.411" },
     { name = "pytest" },
