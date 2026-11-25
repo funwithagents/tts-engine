@@ -49,7 +49,7 @@ APP = App(
     name="tts-engine-demo",
     title="tts-engine — set up a voice",
     host="tts-engine",
-    sections=(Section("tts", tts_engine.setup, title="Text to speech"),),
+    sections=(Section("tts", tts_engine.setup, title="Text to speech", open="always"),),
     default_config=DEFAULT_CONFIG,
     bare=True,
 )
