@@ -174,19 +174,18 @@ Registered in `REGISTRY` as `"qwen3"` ([modules/__init__.py](../../src/tts_engin
 
 ## Example config
 
-`examples/config.qwen3.json`:
+`examples/configs/qwen3.json`, the engine block (the MCP server takes it as its `engine`):
 
 ```json
 {
-  "engine": {
-    "module": {
-      "type": "qwen3",
-      "voice": "ryan",
-      "language": "english"
-    },
-    "player": { "device": null }
+  "module": {
+    "type": "qwen3",
+    "voice": "ryan",
+    "language": "english"
   },
-  "server": { "host": "127.0.0.1", "port": 8000 }
+  "player": {
+    "device": null
+  }
 }
 ```
 

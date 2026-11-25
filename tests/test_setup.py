@@ -41,10 +41,11 @@ _ROOT = Path(__file__).resolve().parent.parent
 
 
 def _examples() -> dict[str, dict[str, Any]]:
-    """The engine block of every example config, by file name."""
+    """Every example config (an engine block, as the contract describes it), by file
+    name."""
     return {
-        path.name: json.loads(path.read_text(encoding="utf-8"))["engine"]
-        for path in sorted((_ROOT / "examples").glob("config.*.json"))
+        path.name: json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted((_ROOT / "examples" / "configs").glob("*.json"))
     }
 
 
@@ -128,6 +129,14 @@ def test_every_example_config_is_accepted() -> None:
     }
 
     assert refused == {}
+
+
+def test_every_registered_module_has_an_example_config_named_after_it() -> None:
+    examples = _examples()
+
+    assert {block["module"]["type"] for block in examples.values()} == set(REGISTRY)
+    for name in REGISTRY:
+        assert examples[f"{name}.json"]["module"]["type"] == name
 
 
 ENGINE_PROBLEMS = [

@@ -18,4 +18,4 @@ A fixture module for tests and demos, not a TTS backend. For any text it plays a
 ## See also
 
 - [specs/modules/tone.md](../../specs/modules/tone.md): the module's contract: every field's validation, the audio format, cancellation, errors and what it was validated against.
-- [examples/config.tone.json](../../examples/config.tone.json): a complete MCP-server config.
+- [examples/configs/tone.json](../../examples/configs/tone.json): a complete engine config.

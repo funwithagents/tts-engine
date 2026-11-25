@@ -51,14 +51,15 @@ Its configuration wraps the same engine block as a library config ([configuratio
 }
 ```
 
-Start from the example for your module in [`examples/`](../examples), then run:
+Start from [`examples/mcp/config.json`](../examples/mcp/config.json), a `server` block around the `tone` fixture, which runs with no provider installed. For a real voice, replace its `engine` block with the contents of any file of [`examples/configs/`](../examples/configs) (an engine config per module):
 
 ```bash
-cp examples/config.pocket.json config.json   # or config.elevenlabs.json, …
-uv run tts-engine-mcp --config config.json
+# With no provider installed, try the transport with the tone fixture module:
+uv run tts-engine-mcp --config examples/mcp/config.json
 
-# Or, with no provider installed, try the transport with the tone fixture module:
-uv run tts-engine-mcp --config examples/config.tone.json
+# A copy of it whose engine block is examples/configs/pocket.json's (or kokoro.json's, …):
+cp examples/mcp/config.json config.json   # then edit its "engine" block
+uv run tts-engine-mcp --config config.json
 ```
 
 The `server` block defaults to `127.0.0.1:8000` when omitted. Connect an MCP client to `http://127.0.0.1:8000/mcp`. On shutdown (Ctrl-C), the server closes the engine, releasing the provider's client or the local model. Server log verbosity is controlled by the `--log-level` command-line flag rather than the JSON configuration:

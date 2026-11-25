@@ -158,6 +158,12 @@ dev = [
     # (specs/setup.md); a test-time dependency only, never a runtime one.
     "app-setup",
 ]
+# The demo page (examples/gradio_demo, specs/gradio-demo.md): app-setup's panels, gradio
+# included. Synced by default with dev, so the demo is type-checked and tested; never a
+# dependency of the published package.
+demo = [
+    "app-setup[ui]",
+]
 
 [[tool.uv.index]]
 # PyPI's Linux torch wheel is the CUDA build and drags gigabytes of NVIDIA
@@ -169,6 +175,11 @@ dev = [
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
 explicit = true
+
+[tool.uv]
+# The demo group is synced with dev, so `uv sync` gives an environment that runs, tests
+# and type-checks the demo page.
+default-groups = ["dev", "demo"]
 
 [tool.uv.sources]
 torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
@@ -198,7 +209,7 @@ target-version = "py311"  # keep in sync with requires-python
 "tests-e2e/__init__.py" = ["N999"]  # dir name intentionally hyphenated (opt-in tier)
 
 [tool.pyright]
-include = ["src", "tests", "tests-e2e", "benchmarks"]  # type-check test code and the benchmark too, not just src
+include = ["src", "tests", "tests-e2e", "benchmarks", "examples"]  # type-check test code, the benchmark and the demo too, not just src
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.11"

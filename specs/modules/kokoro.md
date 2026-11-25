@@ -171,18 +171,17 @@ Registered in `REGISTRY` as `"kokoro"` ([modules/__init__.py](../../src/tts_engi
 
 ## Example config
 
-`examples/config.kokoro.json`:
+`examples/configs/kokoro.json`, the engine block (the MCP server takes it as its `engine`):
 
 ```json
 {
-  "engine": {
-    "module": {
-      "type": "kokoro",
-      "voice": "af_heart"
-    },
-    "player": { "device": null }
+  "module": {
+    "type": "kokoro",
+    "voice": "af_heart"
   },
-  "server": { "host": "127.0.0.1", "port": 8000 }
+  "player": {
+    "device": null
+  }
 }
 ```
 

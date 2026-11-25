@@ -1,0 +1,15 @@
+{
+  "module": {
+    "type": "audiofile",
+    "default_file": "../../tests-e2e/fixtures/default.wav",
+    "files": [
+      {
+        "text": "Hello, world!",
+        "file": "../../tests-e2e/fixtures/hello.wav"
+      }
+    ]
+  },
+  "player": {
+    "device": null
+  }
+}

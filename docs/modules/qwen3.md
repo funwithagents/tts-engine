@@ -44,5 +44,5 @@ The module emits mono PCM at 24,000 Hz and synthesizes one sentence per call, fo
 ## See also
 
 - [specs/modules/qwen3.md](../../specs/modules/qwen3.md): the module's contract: every field's validation, the audio format, cancellation, errors and what it was validated against.
-- [examples/config.qwen3.json](../../examples/config.qwen3.json): a complete MCP-server config.
+- [examples/configs/qwen3.json](../../examples/configs/qwen3.json): a complete engine config.
 - [Latency benchmark](../../benchmarks/README.md#results): measured time to first audio for each of its models.

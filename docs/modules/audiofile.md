@@ -27,4 +27,4 @@ Paths are absolute or relative to `base_dir` (the config file's directory when l
 ## See also
 
 - [specs/modules/audiofile.md](../../specs/modules/audiofile.md): the module's contract: every field's validation, the audio format, cancellation, errors and what it was validated against.
-- [examples/config.audiofile.json](../../examples/config.audiofile.json): a complete MCP-server config.
+- [examples/configs/audiofile.json](../../examples/configs/audiofile.json): a complete engine config.

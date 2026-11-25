@@ -17,7 +17,7 @@
 
 Pass that object directly to a loader; do not add an outer `"engine"` key. A larger application can store it under any key it chooses, while the optional MCP server format specifically stores it under `"engine"`.
 
-The [`examples/`](../examples) directory holds one complete MCP-server config per module (`config.pocket.json`, `config.phonon.json`, `config.qwen3.json`, `config.kokoro.json`, `config.piper.json`, `config.elevenlabs.json`, `config.elevenlabs-v4.json`, `config.gradium.json`, `config.mistral.json`, `config.deepgram.json`, `config.deepgram-flux.json`, `config.gemini.json`, `config.cartesia.json`, `config.openai.json`, `config.openai-speech-compatible.json`, `config.tone.json`, `config.audiofile.json`). No single example is the default.
+The [`examples/configs/`](../examples/configs) directory holds one complete engine config per module (`pocket.json`, `phonon.json`, `qwen3.json`, `kokoro.json`, `piper.json`, `elevenlabs.json`, `elevenlabs-v4.json`, `gradium.json`, `mistral.json`, `deepgram.json`, `deepgram-flux.json`, `gemini.json`, `cartesia.json`, `openai.json`, `openai-speech-compatible.json`, `tone.json`, `audiofile.json`), each exactly the object a loader takes. No single example is the default. The MCP server's format wraps one in an `engine` key next to a `server` block: [`examples/mcp/config.json`](../examples/mcp/config.json).
 
 | Source | Constructor | Expected shape |
 |---|---|---|
@@ -99,7 +99,7 @@ peak after  -7.6 dBFS
       tts-engine-level --config engine.json
   ```
 
-- **In a checkout of this repository:** `uv run tts-engine-level --config examples/config.tone.json`.
+- **In a checkout of this repository:** `uv run tts-engine-level --config examples/configs/tone.json`.
 
 A hosted module reads its key from the environment variable its `api_key_env` names, as in normal use, so set it in the shell that runs the command.
 

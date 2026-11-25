@@ -14,7 +14,7 @@ The documentation of `tts-engine`, by what you want to do. The [README](../READM
 | measure how long the listener waited, or see an utterance in a trace | [utterance-timing.md](utterance-timing.md): the `UtteranceResult` each call returns, and its OpenTelemetry span |
 | capture the audio, or play it somewhere else | [audio-sinks.md](audio-sinks.md): the default player and custom sinks |
 | give an agent a `say` tool, or run the MCP server | [agents-and-mcp.md](agents-and-mcp.md) |
-| build a settings screen for the engine, or check a config before building it | [setup.md](setup.md): the config as a schema, the extra and the files a config needs, a test sentence |
+| build a settings screen for the engine, or check a config before building it | [setup.md](setup.md): the config as a schema, the extra and the files a config needs, a test sentence; and the demo page built on it |
 | find out why nothing is heard, why a voice is too loud or too quiet, or why a backend fails | [troubleshooting.md](troubleshooting.md) |
 
 Beyond the user documentation:

@@ -48,5 +48,5 @@ The module emits mono PCM at 24,000 Hz. It synthesizes one sentence per call, fo
 ## See also
 
 - [specs/modules/kokoro.md](../../specs/modules/kokoro.md): the module's contract: every field's validation, the audio format, cancellation, errors and what it was validated against.
-- [examples/config.kokoro.json](../../examples/config.kokoro.json): a complete MCP-server config.
+- [examples/configs/kokoro.json](../../examples/configs/kokoro.json): a complete engine config.
 - [Latency benchmark](../../benchmarks/README.md#results): measured time to first audio for each of its models.

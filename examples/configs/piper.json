@@ -1,0 +1,9 @@
+{
+  "module": {
+    "type": "piper",
+    "voice": "en_US-ljspeech-medium"
+  },
+  "player": {
+    "device": null
+  }
+}

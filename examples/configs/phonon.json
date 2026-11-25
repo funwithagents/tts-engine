@@ -1,0 +1,9 @@
+{
+  "module": {
+    "type": "phonon",
+    "voice": "Juniper"
+  },
+  "player": {
+    "device": null
+  }
+}

@@ -7,6 +7,7 @@ parses an `engine` block (module + player) on its own.
 
 import json
 import re
+from pathlib import Path
 
 import pytest
 
@@ -358,3 +359,30 @@ def test_an_integer_too_large_for_a_float_is_a_config_error():
         TTSEngineConfig.from_json(
             '{"module": {"type": "tone"}, "gain_db": 1' + "0" * 400 + "}"
         )
+
+
+# --- The examples ------------------------------------------------------------------
+
+_EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
+
+
+def test_the_mcp_example_is_a_server_block_around_a_ready_to_run_engine():
+    config = MCPServerConfig.from_json_file(str(_EXAMPLES / "mcp" / "config.json"))
+
+    assert (config.server.host, config.server.port) == ("127.0.0.1", 8000)
+    assert config.engine.module["type"] == "tone"
+
+
+def test_an_example_engine_config_dropped_into_the_mcp_example_loads_as_a_server_config(
+    tmp_path,
+):
+    # The MCP docs: replace the example's `engine` block with any file of examples/configs.
+    server = json.loads((_EXAMPLES / "mcp" / "config.json").read_text())
+    engine = json.loads((_EXAMPLES / "configs" / "pocket.json").read_text())
+
+    config = MCPServerConfig.from_json_file(
+        _write(tmp_path, {**server, "engine": engine})
+    )
+
+    assert config.engine.module["type"] == "pocket"
+    assert config.engine.module["voice"] == engine["module"]["voice"]
