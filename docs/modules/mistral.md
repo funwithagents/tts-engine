@@ -40,5 +40,5 @@ The module emits mono PCM at 24,000 Hz. Text is sent verbatim, so the model's in
 ## See also
 
 - [specs/modules/mistral.md](../../specs/modules/mistral.md): the module's contract: every field's validation, the audio format, cancellation, errors and what it was validated against.
-- [examples/config.mistral.json](../../examples/config.mistral.json): a complete MCP-server config.
+- [examples/configs/mistral.json](../../examples/configs/mistral.json): a complete engine config.
 - [Latency benchmark](../../benchmarks/README.md#results): measured time to first audio for each of its models.

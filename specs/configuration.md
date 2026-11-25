@@ -1,9 +1,10 @@
 ---
 code:
-  - examples/config.elevenlabs.json
-  - examples/config.pocket.json
-  - examples/config.tone.json
-  - examples/config.audiofile.json
+  - examples/configs/elevenlabs.json
+  - examples/configs/pocket.json
+  - examples/configs/tone.json
+  - examples/configs/audiofile.json
+  - examples/mcp/config.json
   - src/tts_engine/config.py
 tests:
   - tests/test_config.py
@@ -17,7 +18,7 @@ tests:
 
 The MCP server is started with `--config <path>` pointing to a JSON object. There is no default path — the argument is required. The entry point parses it with `MCPServerConfig.from_json_file(path)`. Library callers can load the same file the same way and take `.engine`, or build the engine config directly from an in-memory `engine` block with `TTSEngineConfig.from_dict(engine_block)` (see "Constructors" below).
 
-The `examples/` directory holds one complete config per module (`examples/config.<type>.json`, e.g. `config.elevenlabs.json`, `config.pocket.json`, `config.tone.json`, `config.audiofile.json`) with placeholder values, and must be kept in sync with this spec and the module specs. There is deliberately no single `config.example.json`: no module is the default (see [project.md](project.md), "Dependency strategy for TTS backends").
+The `examples/configs/` directory holds one complete engine config per module (`examples/configs/<type>.json`, e.g. `elevenlabs.json`, `pocket.json`, `tone.json`, `audiofile.json`): the engine block alone, exactly what `TTSEngineConfig.from_json_file` takes and the setup contract's `check_config` accepts, with placeholder values, and must be kept in sync with this spec and the module specs. There is deliberately no single default example: no module is the default (see [project.md](project.md), "Dependency strategy for TTS backends"). The MCP server's format has one example, `examples/mcp/config.json`: a `server` block around a ready-to-run engine (the `tone` fixture); replacing its `engine` block with any file of `examples/configs/` serves that module.
 
 ## Top-level structure
 

@@ -158,18 +158,17 @@ Registered in `REGISTRY` as `"phonon"` ([modules/__init__.py](../../src/tts_engi
 
 ## Example config
 
-`examples/config.phonon.json`:
+`examples/configs/phonon.json`, the engine block (the MCP server takes it as its `engine`):
 
 ```json
 {
-  "engine": {
-    "module": {
-      "type": "phonon",
-      "voice": "Juniper"
-    },
-    "player": { "device": null }
+  "module": {
+    "type": "phonon",
+    "voice": "Juniper"
   },
-  "server": { "host": "127.0.0.1", "port": 8000 }
+  "player": {
+    "device": null
+  }
 }
 ```
 

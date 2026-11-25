@@ -257,7 +257,7 @@ An unknown name returns `[]`.
 
 - Every registered module declares `title`, `extra` and `fields`, and every field has a description.
 - `config_schema()` is stable across calls and has one branch per registered module.
-- Every example config under `examples/` passes `check_config`, and uses only keys the schema names.
+- Every example config under `examples/configs/` (an engine block each) passes `check_config`, and uses only keys the schema names.
 - For each module, a config that `check_config` refuses on a field is refused by the constructor with the same message, and the reverse — run with the provider library present, the key set to a dummy and the network unused (the constructor is stopped at its first import or load).
 - `config_schema`, `check_config` and `required_extras` import no provider library: run in a subprocess with every provider import blocked. In the same subprocess, every module with an extra reports that extra `missing` in `check_setup`, with the hint its `imports` raises, and nothing else.
 - `required_extras` returns `tts-engine[<extra>]` for each module, `[]` for the fixtures, for `{}` and for an unknown type, and every extra it names is declared in `pyproject.toml`.

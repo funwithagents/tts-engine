@@ -87,6 +87,7 @@ Implementation plans for TTS Engine — each plan turns a settled part of a spec
 | [Setup: items one by one, required or not](202611242130_setup-items-one-by-one.md) | The dev dependency renamed `app-setup`; every `check_setup` item carries `required` (`false` for a file the constructor fetches itself); `prepare(config, item)` makes one item ready, safely alongside another (phonon's loads under a lock), its progress measured for a Hub download through `hf_hub_download`'s `tqdm_class` ([specs/setup.md](../specs/setup.md)) | Done |
 | [Gradio demo](202611232130_gradio-demo.md) | The engine's demo page ([specs/gradio-demo.md](../specs/gradio-demo.md)): a module-setup app with one `tts` section, a `SpeechSession` on its own loop, the Session tab (Speak, Interrupt, timing), the `demo` dependency group | Done |
 | [Gradio demo: its own page around the panels](202611241030_gradio-demo-panels.md) | The demo builds its page from module-setup's Setup and Secrets panels ([specs/gradio-demo.md](../specs/gradio-demo.md)) and builds its own engine (`Voice`: built from the saved config when Speak needs it, rebuilt after a save; no Start, no lock); no settings file | Done |
+| [Gradio demo: running from a config file, and a config app](202611251532_demo-config-file.md) | The demo is a bare app (its config the engine block), speaks with a `--config` file (Setup read-only, `--env`), and a config app edits one file; the example configs become engine blocks under `examples/configs/`, the MCP server its own example | Done |
 
 ## Status legend
 

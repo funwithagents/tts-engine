@@ -1,0 +1,9 @@
+{
+  "module": {
+    "type": "kokoro",
+    "voice": "af_heart"
+  },
+  "player": {
+    "device": null
+  }
+}

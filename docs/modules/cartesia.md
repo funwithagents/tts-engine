@@ -45,5 +45,5 @@ The module emits mono PCM at the configured `sample_rate`. A text stream goes to
 ## See also
 
 - [specs/modules/cartesia.md](../../specs/modules/cartesia.md): the module's contract: every field's validation, the audio format, cancellation, errors and what it was validated against.
-- [examples/config.cartesia.json](../../examples/config.cartesia.json): a complete MCP-server config.
+- [examples/configs/cartesia.json](../../examples/configs/cartesia.json): a complete engine config.
 - [Latency benchmark](../../benchmarks/README.md#results): measured time to first audio for each of its models.

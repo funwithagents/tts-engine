@@ -2,7 +2,7 @@
 
 **Kind:** `hosted` · **Synthesis:** ElevenLabs cloud API · **Install:** `tts-engine[elevenlabs]` · **Credentials:** API key · **Voice listing:** yes
 
-The ElevenLabs module streams MP3 from the ElevenLabs API and decodes it to signed 16-bit PCM in process before passing it to the audio sink. Every model works for both a complete text and a text stream: a text stream goes over the text-to-speech WebSocket with a v2 model, or over the text-to-dialogue WebSocket with a v3/v4 model such as `eleven_v4_turbo` (see [`examples/config.elevenlabs-v4.json`](../../examples/config.elevenlabs-v4.json)). Install it with the `elevenlabs` extra:
+The ElevenLabs module streams MP3 from the ElevenLabs API and decodes it to signed 16-bit PCM in process before passing it to the audio sink. Every model works for both a complete text and a text stream: a text stream goes over the text-to-speech WebSocket with a v2 model, or over the text-to-dialogue WebSocket with a v3/v4 model such as `eleven_v4_turbo` (see [`examples/configs/elevenlabs-v4.json`](../../examples/configs/elevenlabs-v4.json)). Install it with the `elevenlabs` extra:
 
 ```bash
 uv sync --no-dev --extra elevenlabs
@@ -45,6 +45,6 @@ The module emits mono PCM at 44,100 Hz.
 ## See also
 
 - [specs/modules/elevenlabs.md](../../specs/modules/elevenlabs.md): the module's contract: every field's validation, the audio format, cancellation, errors and what it was validated against.
-- [examples/config.elevenlabs.json](../../examples/config.elevenlabs.json): a complete MCP-server config, with the module's defaults.
-- [examples/config.elevenlabs-v4.json](../../examples/config.elevenlabs-v4.json): the same with a v4 model (the text-to-dialogue socket).
+- [examples/configs/elevenlabs.json](../../examples/configs/elevenlabs.json): a complete engine config, with the module's defaults.
+- [examples/configs/elevenlabs-v4.json](../../examples/configs/elevenlabs-v4.json): the same with a v4 model (the text-to-dialogue socket).
 - [Latency benchmark](../../benchmarks/README.md#results): measured time to first audio for each of its models.

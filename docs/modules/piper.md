@@ -45,5 +45,5 @@ Catalog voices are pinned to one commit of the repository. The module emits mono
 ## See also
 
 - [specs/modules/piper.md](../../specs/modules/piper.md): the module's contract: every field's validation, the audio format, cancellation, errors and what it was validated against.
-- [examples/config.piper.json](../../examples/config.piper.json): a complete MCP-server config.
+- [examples/configs/piper.json](../../examples/configs/piper.json): a complete engine config.
 - [Latency benchmark](../../benchmarks/README.md#results): measured time to first audio for each of its models.

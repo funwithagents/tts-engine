@@ -22,7 +22,16 @@ setup.probe(config)             # a light real check: {"ok": True, "message": ..
 uv run python -m examples.gradio_demo
 ```
 
-from a checkout opens a page built on these functions: choose a voice, fill its fields, install its extra and prepare its model files with a click (or let the first utterance fetch them), then hear it. Its folder (saved config, keys) is `~/.config/tts-engine-demo` unless `--folder` names another.
+from a checkout opens a page built on these functions: choose a voice, fill its fields, install its extra and prepare its model files with a click (or let the first utterance fetch them), then hear it. Its folder (saved config, keys) is `~/.config/tts-engine-demo` unless `--folder` names another; its config is the engine block itself.
+
+Two more launches work on a config file, an engine block such as any of [`examples/configs/`](../examples/configs):
+
+```
+uv run python -m examples.gradio_demo --config examples/configs/tone.json   # speak with the file as it is
+uv run python -m examples.config_app examples/configs/kokoro.json          # edit the file, nothing spoken
+```
+
+The first speaks with the file without ever writing it (its Setup tab is read-only; its checks, installs and test still work, and a hand edit is heard at the next utterance). The second edits the file with the Setup and Secrets tabs, Save writing it back. Either takes its keys from the `.env` next to the file unless `--env PATH` names another. A demo folder made by an earlier version holds the config wrapped in a `tts` key: delete it once and the demo writes a new one.
 
 ## The functions
 

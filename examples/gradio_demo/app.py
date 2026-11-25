@@ -6,7 +6,12 @@ and downloads its model; Speak builds the engine from the saved config when it n
 (again after a save) and says what is typed. Nothing runs between utterances, so there is
 no Start, no Stop and no lock on the config.
 
-    uv run python -m examples.gradio_demo [--folder PATH] [--host ADDRESS] [--port N]
+The app is bare: its config is the engine block itself, in its folder's `config.json` or in
+a file given with `--config` (any of `examples/configs/`), which is spoken with as it is, the
+Setup tab read-only.
+
+    uv run python -m examples.gradio_demo [--folder DIR | --config FILE] [--env PATH]
+        [--host ADDRESS] [--port N]
 """
 
 from __future__ import annotations
@@ -20,7 +25,8 @@ from pathlib import Path
 
 import gradio as gr
 from app_setup.app import App, AppModel, Section
-from app_setup.folder import ConfigFolder, default_folder
+from app_setup.config_file import ConfigFileError
+from app_setup.launch import add_config_arguments, open_source
 from app_setup.ui import secrets_panel, setup_panel
 
 import tts_engine.setup
@@ -31,7 +37,8 @@ __all__ = ["APP", "build_page", "main"]
 log = logging.getLogger(__name__)
 
 # Written into an empty folder on first launch: the Phonon voice, a local model. On a
-# fresh install the Setup tab says what it needs (its extra, its model download).
+# fresh install the Setup tab says what it needs (its extra, its model download). The
+# engine block alone: the app is bare.
 DEFAULT_CONFIG = json.loads(
     (Path(__file__).parent / "default_config.json").read_text(encoding="utf-8")
 )
@@ -44,6 +51,7 @@ APP = App(
     host="tts-engine",
     sections=(Section("tts", tts_engine.setup, title="Text to speech"),),
     default_config=DEFAULT_CONFIG,
+    bare=True,
 )
 
 
@@ -109,30 +117,38 @@ def build_page(model: AppModel, voice: Voice) -> gr.Blocks:
     return page
 
 
-def _arguments(argv: Sequence[str] | None) -> argparse.Namespace:
-    folder = default_folder(APP.name)
-    parser = argparse.ArgumentParser(description=APP.title)
-    parser.add_argument(
-        "--folder",
-        type=Path,
-        default=folder,
-        help=f"the demo's folder: its config and its keys (default: {folder})",
+def open_model(
+    argv: Sequence[str] | None = None,
+) -> tuple[AppModel, argparse.Namespace]:
+    """The demo's command line, and the model over the source it names: the folder
+    (``--folder``, by default ``~/.config/tts-engine-demo``), or a file spoken with as it
+    is (``--config``: never written, the Setup tab read-only); the keys from the ``.env``
+    next to the config unless ``--env`` names another. A missing or unreadable file stops
+    the demo with its error, before any page."""
+    parser = argparse.ArgumentParser(
+        prog="python -m examples.gradio_demo", description=APP.title
     )
+    add_config_arguments(parser, APP)
     parser.add_argument("--host", default="127.0.0.1", help="the address to serve on")
     parser.add_argument("--port", type=int, default=None, help="the port to serve on")
-    return parser.parse_args(argv)
+    options = parser.parse_args(argv)
+    try:
+        source = open_source(options, APP)
+    except ConfigFileError as exc:
+        parser.error(str(exc))
+    # Building the model makes a folder ready and loads the .env. Nothing locks the
+    # config: the voice is rebuilt from it at the next utterance after a save (or, for a
+    # file, a hand edit).
+    return AppModel(APP, source), options
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    options = _arguments(argv)
     logging.basicConfig(
         level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
     )
+    model, options = open_model(argv)
+    log.info("config: %s", model.source.config_path)
     voice = Voice()
-    # Building the model makes the folder ready and loads its .env. Nothing locks the
-    # config: the voice is rebuilt from it at the next utterance after a save.
-    model = AppModel(APP, ConfigFolder(options.folder, APP.default_config))
-    log.info("folder: %s", model.path)
 
     try:
         build_page(model, voice).launch(

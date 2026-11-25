@@ -1,0 +1,8 @@
+{
+  "module": {
+    "type": "tone"
+  },
+  "player": {
+    "device": null
+  }
+}

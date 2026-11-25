@@ -1,6 +1,7 @@
 """The demo page's session and declaration (specs/gradio-demo.md)."""
 
 import concurrent.futures
+import json
 import threading
 import time
 from pathlib import Path
@@ -11,7 +12,14 @@ from app_setup.app import AppModel
 from app_setup.folder import ConfigFolder
 from app_setup.secrets import SecretStore
 
-from examples.gradio_demo.app import APP, DEFAULT_CONFIG, build_page, unsaved_line
+from examples import config_app
+from examples.gradio_demo.app import (
+    APP,
+    DEFAULT_CONFIG,
+    build_page,
+    open_model,
+    unsaved_line,
+)
 from examples.gradio_demo.session import (
     SpeechSession,
     Voice,
@@ -170,9 +178,10 @@ def test_the_demo_declares_one_tts_section_whose_default_is_valid(
     model = _model(tmp_path)
 
     assert [section.name for section in APP.sections] == ["tts"]
-    assert model.saved_config() == DEFAULT_CONFIG
+    assert APP.bare  # its config is the engine block itself
+    assert model.saved_config() == {"tts": DEFAULT_CONFIG}
     # What the machine needs for it (the phonon extra, its model) depends on the machine.
-    assert model.check_config(DEFAULT_CONFIG) == []
+    assert model.check_config({"tts": DEFAULT_CONFIG}) == []
 
 
 def test_the_page_puts_speak_first_and_opens_on_setup(tmp_path: Path) -> None:
@@ -191,8 +200,6 @@ def test_the_page_puts_speak_first_and_opens_on_setup(tmp_path: Path) -> None:
 def test_the_default_config_is_the_committed_file_written_into_an_empty_folder(
     tmp_path: Path,
 ) -> None:
-    import json
-
     committed = json.loads(
         (
             Path(__file__).parents[2] / "examples/gradio_demo/default_config.json"
@@ -203,6 +210,7 @@ def test_the_default_config_is_the_committed_file_written_into_an_empty_folder(
     _model(folder)
 
     assert APP.default_config == committed
+    assert committed["module"]["type"] == "phonon"  # the engine block, unwrapped
     assert json.loads((folder / "config.json").read_text()) == committed
 
 
@@ -220,3 +228,114 @@ def test_the_speak_tab_says_when_the_setup_tab_has_unsaved_changes(
     )
     model.save(edited)
     assert unsaved_line(model, edited) == ""
+
+
+# --- The three launches -------------------------------------------------------------
+
+
+def _write(path: Path, document: dict) -> Path:
+    path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+_TONE_FILE = {"module": {"type": "tone"}, "player": {"discard": True}}
+
+
+def _buttons(page: gr.Blocks) -> list[object]:
+    return [b.value for b in page.blocks.values() if isinstance(b, gr.Button)]
+
+
+def test_the_demo_runs_from_its_folder_by_default_holding_the_engine_block(
+    tmp_path: Path,
+) -> None:
+    model, _ = open_model(["--folder", str(tmp_path / "demo")])
+
+    assert model.editable
+    assert json.loads((tmp_path / "demo" / "config.json").read_text()) == (
+        DEFAULT_CONFIG
+    )
+    assert model.source.env_path == tmp_path / "demo" / ".env"
+
+
+def test_the_demo_speaks_with_a_config_file_as_it_is_and_never_writes_it(
+    tmp_path: Path,
+) -> None:
+    path = _write(tmp_path / "voice.json", _TONE_FILE)
+    before = path.read_bytes()
+    model, _ = open_model(["--config", str(path)])
+    voice = Voice()
+    try:
+        said = voice.say(model, "hello")
+        assert not isinstance(said, list) and said.text_chars == 5
+
+        # A hand edit is heard at the next utterance, no relaunch.
+        _write(path, {**_TONE_FILE, "module": {"type": "tone", "sample_rate": 16000}})
+        voice.say(model, "again")
+        assert voice.session is not None and voice.session.sample_rate == 16000
+    finally:
+        voice.close()
+
+    assert not model.editable
+    with pytest.raises(RuntimeError):
+        model.save({"tts": {"module": {"type": "nope"}}})
+    assert json.loads(path.read_text())["module"]["sample_rate"] == 16000
+    assert before != path.read_bytes()  # only the hand edit changed it
+    assert model.source.env_path == tmp_path / ".env"  # the .env next to the file
+
+
+def test_a_file_s_setup_tab_is_read_only(tmp_path: Path) -> None:
+    path = _write(tmp_path / "voice.json", _TONE_FILE)
+    model, _ = open_model(["--config", str(path), "--env", str(tmp_path / "k.env")])
+
+    buttons = _buttons(build_page(model, Voice()))
+
+    # No Save, Revert or Reset: the file is spoken with as it is. The checks remain.
+    assert "Revert to saved" not in buttons and "Reset to defaults" not in buttons
+    assert "Speak" in buttons and "Test" in buttons and "Install all" in buttons
+    assert model.source.env_path == tmp_path / "k.env"
+
+
+def test_a_missing_config_file_stops_the_demo_with_its_name(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    missing = tmp_path / "nope.json"
+
+    with pytest.raises(SystemExit) as stopped:
+        open_model(["--config", str(missing)])
+
+    assert stopped.value.code == 2
+    assert f"config file {missing} does not exist" in capsys.readouterr().err
+
+
+def test_the_example_engine_configs_run_in_the_demo_as_they_are() -> None:
+    path = Path(__file__).parents[2] / "examples" / "configs" / "tone.json"
+    model, _ = open_model(["--config", str(path)])
+
+    assert model.blockers(model.saved_config()) == []
+    assert model.saved_config()["tts"]["module"] == {"type": "tone"}
+
+
+def test_the_config_app_saves_the_engine_block_alone_back_to_its_file(
+    tmp_path: Path,
+) -> None:
+    path = _write(tmp_path / "voice.json", _TONE_FILE)
+    model, options = config_app.open_model([str(path), "--port", "7999"])
+
+    edited = {"tts": {"module": {"type": "tone", "sample_rate": 16000}}}
+    model.save(edited)
+
+    assert model.editable and options.port == 7999
+    assert json.loads(path.read_text()) == edited["tts"]
+    assert model.saved_config() == edited
+    buttons = _buttons(config_app.config_page(model))
+    assert "Revert to saved" in buttons and "Reset to defaults" not in buttons
+    assert "Speak" not in buttons  # nothing runs
+
+
+def test_the_config_app_refuses_a_missing_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit):
+        config_app.open_model([str(tmp_path / "nope.json")])
+
+    assert "does not exist" in capsys.readouterr().err

@@ -131,7 +131,19 @@ Start at [docs/index.md](docs/index.md), the documentation by task. The pages us
 
 ## Examples
 
-[examples/](examples/) holds one complete, runnable config per module (`config.<type>.json`), plus a variant for ElevenLabs v4 and one for Deepgram Flux. They are in the MCP server's format (an `engine` block and a `server` block), so with the `mcp` extra installed, `uv run tts-engine-mcp --config examples/config.tone.json` starts a server as is; the `engine` block is what a library config takes. They hold no secrets: a hosted module reads its key from the environment variable named in `api_key_env`.
+[examples/configs/](examples/configs/) holds one complete, runnable engine config per module (`<type>.json`), plus a variant for ElevenLabs v4 and one for Deepgram Flux: each is exactly what `TTSEngineConfig.from_json_file` takes. They hold no secrets: a hosted module reads its key from the environment variable named in `api_key_env`. [examples/mcp/config.json](examples/mcp/config.json) is the MCP server's format (a `server` block around an `engine` block, here the `tone` fixture): with the `mcp` extra installed, `uv run tts-engine-mcp --config examples/mcp/config.json` starts a server as is, and replacing its `engine` block with any file of `examples/configs/` serves that voice.
+
+### The demo page
+
+A checkout also has a demo page (`app-setup`'s panels, synced with the dev environment): choose a voice, fill its fields, install its extra, download its model, then hear it. It launches three ways:
+
+```bash
+uv run python -m examples.gradio_demo                                   # from its folder, ~/.config/tts-engine-demo (or --folder DIR)
+uv run python -m examples.gradio_demo --config examples/configs/tone.json   # speak with a file as it is (its Setup tab read-only)
+uv run python -m examples.config_app examples/configs/kokoro.json          # edit a file: Setup and Secrets, Save writes it back
+```
+
+The keys (a hosted voice's) are read from the `.env` next to the config (in the folder, or in the file's directory) unless `--env PATH` names another; the shell's own variables win. A folder made by an earlier version of the demo holds its config wrapped in a `tts` key: delete it once (`rm -r ~/.config/tts-engine-demo`) and the demo writes a new one.
 
 ## Benchmark
 

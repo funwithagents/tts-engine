@@ -45,5 +45,5 @@ The module emits mono PCM at `sample_rate`. A text stream is synthesized one req
 ## See also
 
 - [specs/modules/openai-speech-compatible.md](../../specs/modules/openai-speech-compatible.md): the module's contract: every field's validation, the audio format, cancellation, errors and what it was validated against.
-- [examples/config.openai-speech-compatible.json](../../examples/config.openai-speech-compatible.json): a complete MCP-server config.
+- [examples/configs/openai-speech-compatible.json](../../examples/configs/openai-speech-compatible.json): a complete engine config.
 - [Latency benchmark](../../benchmarks/README.md#results): measured time to first audio for each of its models.

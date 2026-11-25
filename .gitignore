@@ -3,6 +3,10 @@
 *.pyo
 *.pyd
 config.json
+# ...except the MCP server's example, committed.
+!examples/mcp/config.json
+# Keys saved next to a config (a demo's or a config app's .env) stay local.
+.env
 .DS_Store
 
 # Latency benchmark (benchmarks/): results/ (merged, described) is

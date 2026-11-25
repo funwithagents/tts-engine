@@ -1,0 +1,10 @@
+{
+  "module": {
+    "type": "pocket",
+    "voice": "alba",
+    "device": "auto"
+  },
+  "player": {
+    "device": null
+  }
+}
