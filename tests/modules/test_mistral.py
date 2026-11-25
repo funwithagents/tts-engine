@@ -18,7 +18,7 @@ from tts_engine.config import ConfigError
 from tts_engine.modules.base import TTSError, TTSOptions
 from tts_engine.modules.mistral import MistralModule
 
-_BASE = {"type": "mistral", "api_key": "k", "voice_id": "v"}
+_BASE = {"type": "mistral", "voice_id": "v"}
 
 
 def _delta(samples) -> types.SimpleNamespace:
@@ -389,7 +389,7 @@ def test_list_voices_follows_every_page_then_closes_the_client(monkeypatch):
     monkeypatch.setitem(sys.modules, "mistralai.client", client)
 
     james, paul = MistralModule.list_voices(
-        {"type": "mistral", "api_key": "k", "server_url": "https://x", "timeout": 1.5}
+        {"type": "mistral", "server_url": "https://x", "timeout": 1.5}
     )
 
     assert calls["client"] == {"api_key": "k", "server_url": "https://x"}

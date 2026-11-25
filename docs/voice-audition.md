@@ -41,7 +41,7 @@ Good to know:
 - **The latency shown is this machine's**, three runs on one sentence after a warm-up. It is not comparable to the controlled numbers of the [latency benchmark](../benchmarks/README.md#results) and is not meant to be quoted.
 - **The level column** is the RMS of each sample's active speech (silences left out), with the engine `gain_db` that brings the voice to the target and the peak after it, flagged when it would clip. It is `tts_engine.level`'s measure, the one `tts-engine-level` uses. Change the target on the page; put the chosen value in the engine block next to the voice ([configuration.md](configuration.md#output-gain)).
 - **Choices stay in the browser** (`localStorage`); export them as `<name>-choices.json` to keep them, share them or hand them to an agent, and import them on another machine. `--choices FILE` embeds such a file as the page's starting choices, for a browser that has none stored: a page you publish opens with your decision.
-- **Rendered folders (`*.audition/`) are git-ignored** in this repository; an `api_key` in a config is never shown on the page.
+- **Rendered folders (`*.audition/`) are git-ignored** in this repository; a config holds no key (keys come from environment variables), and an `api_key` left in an older audition file is never shown on the page.
 
 ## Examples
 

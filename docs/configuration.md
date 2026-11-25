@@ -44,6 +44,10 @@ engine = TTSEngine(config)
 
 `from_dict()` and the JSON loaders validate the shared structure before the selected module validates and resolves its own fields during engine construction. For example, the ElevenLabs module reads the environment variable named by `api_key_env` at that point.
 
+**API keys.** A hosted module reads its key from the environment variable its `api_key_env` field names, by default the provider's usual one (`ELEVENLABS_API_KEY`, `GRADIUM_API_KEY`, `OPENAI_API_KEY`, …; each module's page gives its own). The key itself is never written in a config, so a config file can be shared or committed as it is. A module block that still has an `api_key` field, accepted by earlier versions, is refused: `ElevenLabs module does not take 'api_key': keep the key in an environment variable and name it in 'api_key_env'`. `openai-speech-compatible` is the one exception to the default: it reads no variable unless `api_key_env` names one, for a compatible server that needs no key.
+
+**A key your code holds.** An application that holds a key itself (from a vault, typed by a user) passes it next to the config, never in it: `TTSEngine(config, secrets={"GRADIUM_API_KEY": key})`, or `list_voices(module_config, secrets=...)`. The key is looked up under the name `api_key_env` gives (its default when absent) in those secrets first, then in the environment, so nothing is written to the config or to the process environment, and two engines can use two keys of one provider by naming two variables. Without a key under that name, building the engine raises `MissingSecretError` (a `ConfigError`), whose `variable` says which key to set.
+
 The optional `player.device` field selects the local output device: `null` uses the system default, a string selects by name, and an integer selects by device index. To inspect available devices:
 
 ```bash

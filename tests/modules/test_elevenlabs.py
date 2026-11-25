@@ -19,7 +19,6 @@ from tts_engine.modules.elevenlabs import ElevenLabsModule
 
 VALID_CONFIG = {
     "type": "elevenlabs",
-    "api_key": "test-api-key",
     "voice_id": "test-voice-id",
 }
 
@@ -478,7 +477,7 @@ def test_text_stream_sends_word_groups_then_eos_over_stream_input(
         "wss://api.elevenlabs.io/v1/text-to-speech/test-voice-id/stream-input"
         "?model_id=eleven_flash_v2_5&output_format=mp3_44100_128"
     )
-    assert connected["additional_headers"] == {"xi-api-key": "test-api-key"}
+    assert connected["additional_headers"] == {"xi-api-key": "k"}
     assert connected["open_timeout"] == 30.0
     assert ws.sent[0] == {
         "text": " ",
@@ -522,7 +521,7 @@ def test_text_stream_with_a_v3_or_v4_model_drives_the_dialogue_socket(
         "wss://api.elevenlabs.io/v1/text-to-dialogue/stream-input"
         f"?model_id={model}&output_format=mp3_44100_128"
     )
-    assert connected["additional_headers"] == {"xi-api-key": "test-api-key"}
+    assert connected["additional_headers"] == {"xi-api-key": "k"}
     assert ws.sent[0] == {
         "voices": ["test-voice-id"],
         "settings": {"stability": 0.5, "similarity": 0.75},
@@ -895,9 +894,7 @@ def test_list_voices_maps_labels_and_languages(monkeypatch):
             _el_voice("v2", None, {"language": "en", "use_case": "conversational"}),
         ],
     )
-    voices = ElevenLabsModule.list_voices(
-        {"type": "elevenlabs", "api_key": "k", "timeout": 2.5}
-    )
+    voices = ElevenLabsModule.list_voices({"type": "elevenlabs", "timeout": 2.5})
 
     assert calls["client"] == {"api_key": "k"}
     assert calls["get_all"] == {"request_options": {"timeout_in_seconds": 3}}
@@ -922,11 +919,12 @@ def test_list_voices_reports_an_api_error_by_its_message(monkeypatch):
     with pytest.raises(
         TTSError, match=r"HTTP 401: missing the permission voices_read$"
     ):
-        ElevenLabsModule.list_voices({"type": "elevenlabs", "api_key": "k"})
+        ElevenLabsModule.list_voices({"type": "elevenlabs"})
 
 
 def test_list_voices_needs_a_key_but_no_voice(monkeypatch):
     _fake_voice_sdk(monkeypatch)
-    assert ElevenLabsModule.list_voices({"type": "elevenlabs", "api_key": "k"}) == []
-    with pytest.raises(ConfigError):
+    assert ElevenLabsModule.list_voices({"type": "elevenlabs"}) == []
+    monkeypatch.delenv("ELEVENLABS_API_KEY")
+    with pytest.raises(ConfigError, match="'ELEVENLABS_API_KEY'"):
         ElevenLabsModule.list_voices({"type": "elevenlabs"})

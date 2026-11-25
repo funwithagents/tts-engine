@@ -60,18 +60,18 @@ _SCRIPT = textwrap.dedent(
     }, REGISTRY
 
     for module_type, config in (
-        ("elevenlabs", {"type": "elevenlabs", "api_key": "k", "voice_id": "v"}),
+        ("elevenlabs", {"type": "elevenlabs", "voice_id": "v"}),
         ("pocket", {"type": "pocket"}),
-        ("gradium", {"type": "gradium", "api_key": "k", "voice_id": "v"}),
+        ("gradium", {"type": "gradium", "voice_id": "v"}),
         ("phonon", {"type": "phonon"}),
-        ("mistral", {"type": "mistral", "api_key": "k", "voice_id": "v"}),
-        ("deepgram", {"type": "deepgram", "api_key": "k"}),
-        ("gemini", {"type": "gemini", "api_key": "k"}),
-        ("cartesia", {"type": "cartesia", "api_key": "k", "voice_id": "v"}),
-        ("openai", {"type": "openai", "api_key": "k"}),
+        ("mistral", {"type": "mistral", "voice_id": "v"}),
+        ("deepgram", {"type": "deepgram"}),
+        ("gemini", {"type": "gemini"}),
+        ("cartesia", {"type": "cartesia", "voice_id": "v"}),
+        ("openai", {"type": "openai"}),
         (
             "openai-speech-compatible",
-            {"type": "openai-speech-compatible", "api_key": "k", "voice": "v"},
+            {"type": "openai-speech-compatible", "voice": "v"},
         ),
         ("qwen3", {"type": "qwen3"}),
         ("kokoro", {"type": "kokoro"}),

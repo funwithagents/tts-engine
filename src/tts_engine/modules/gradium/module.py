@@ -18,7 +18,7 @@ import asyncio
 import concurrent.futures
 import logging
 import threading
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from typing import Any
 
 from tts_engine.config import ConfigError
@@ -28,13 +28,14 @@ from tts_engine.modules.base import (
     TTSOptions,
     VoiceInfo,
     finite_number,
+    key_env_field,
     normalize_gender,
     optional_str,
-    resolve_api_key,
     run_cancellable_worker,
     run_text_stream_worker,
     split_at_last_space,
 )
+from tts_engine.modules.fields import Field
 
 log = logging.getLogger(__name__)
 
@@ -56,60 +57,124 @@ _VOICE_SETTINGS: dict[str, tuple[float, float]] = {
 
 class GradiumModule(TTSModule):
     kind = "hosted"
+    title = "Gradium"
+    extra = "gradium"
+    fields = (
+        Field(
+            "voice_id",
+            "string",
+            "The id of the voice to speak with, from Gradium's catalog or a "
+            "custom voice of the account.",
+            required=True,
+            message="Gradium module requires a non-empty 'voice_id'",
+        ),
+        Field(
+            "model",
+            "string",
+            "The Gradium model alias, 'default' or 'gradium-tts-beta'.",
+            default="default",
+        ),
+        key_env_field("Gradium", "GRADIUM_API_KEY"),
+        Field(
+            "sample_rate",
+            "integer",
+            "The sample rate of the audio in Hz. 48000 is the voice's native "
+            "rate; the service resamples to the others.",
+            default=48000,
+            choices=_SAMPLE_RATES,
+            advanced=True,
+        ),
+        Field(
+            "temp",
+            "number",
+            "The sampling temperature, from 0 (steadier) to 1.4 (more varied).",
+            implied=0.7,
+            minimum=_VOICE_SETTINGS["temp"][0],
+            maximum=_VOICE_SETTINGS["temp"][1],
+        ),
+        Field(
+            "cfg_coef",
+            "number",
+            "How closely the output follows the original voice, from 1 to 4.",
+            implied=2.0,
+            minimum=_VOICE_SETTINGS["cfg_coef"][0],
+            maximum=_VOICE_SETTINGS["cfg_coef"][1],
+        ),
+        Field(
+            "padding_bonus",
+            "number",
+            "The speaking pace, from -4 to 4: a negative value speaks faster, a "
+            "positive one slower.",
+            implied=0.0,
+            minimum=_VOICE_SETTINGS["padding_bonus"][0],
+            maximum=_VOICE_SETTINGS["padding_bonus"][1],
+        ),
+        Field(
+            "rewrite_rules",
+            "string",
+            "The language whose text-rewriting rules (numbers, dates) are applied "
+            "before synthesis, or 'none' to disable them. Left unset, the voice's "
+            "language is used.",
+            advanced=True,
+        ),
+        Field(
+            "timeout",
+            "number",
+            "Seconds to wait for the connection to be ready, and for the next "
+            "message once the whole text has been sent, before the utterance "
+            "fails.",
+            default=_DEFAULT_TIMEOUT,
+            exclusive_minimum=0,
+            advanced=True,
+        ),
+        Field(
+            "pronunciation_id",
+            "string",
+            "The id of a pronunciation dictionary of the account to apply.",
+            advanced=True,
+        ),
+        Field(
+            "base_url",
+            "string",
+            "The API base URL, for a regional or self-hosted endpoint.",
+            advanced=True,
+        ),
+    )
 
-    def __init__(self, config: dict) -> None:
+    @classmethod
+    def imports(cls) -> None:
         try:
-            from gradium import GradiumClient
+            from gradium import GradiumClient  # noqa: F401
         except ImportError as exc:
             raise ConfigError(
                 "The 'gradium' module requires the gradium extra: "
                 "pip install tts-engine[gradium]"
             ) from exc
 
-        api_key = resolve_api_key(config, label=_LABEL)
+    def __init__(
+        self, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> None:
+        values = self.validated(config)
+        self.imports()
+        from gradium import GradiumClient
 
-        voice_id = config.get("voice_id")
-        if not isinstance(voice_id, str) or not voice_id:
-            raise ConfigError("Gradium module requires a non-empty 'voice_id'")
+        api_key = self.resolve_api_key(config, secrets)
 
-        model = optional_str(config, "model", label=_LABEL, default="default")
+        # Sent only when set, so the API's own defaults apply otherwise.
+        json_config: dict[str, float | str] = {
+            field: values[field]
+            for field in (*_VOICE_SETTINGS, "rewrite_rules")
+            if values[field] is not None
+        }
 
-        sample_rate = config.get("sample_rate", 48000)
-        if (
-            isinstance(sample_rate, bool)
-            or not isinstance(sample_rate, int)
-            or sample_rate not in _SAMPLE_RATES
-        ):
-            raise ConfigError(
-                "Gradium module 'sample_rate' must be one of "
-                + ", ".join(str(r) for r in _SAMPLE_RATES)
-            )
-
-        json_config: dict[str, float | str] = {}
-        for field, (lo, hi) in _VOICE_SETTINGS.items():
-            value = finite_number(config, field, label=_LABEL, minimum=lo, maximum=hi)
-            if value is not None:
-                json_config[field] = value
-        rewrite_rules = optional_str(config, "rewrite_rules", label=_LABEL)
-        if rewrite_rules is not None:
-            json_config["rewrite_rules"] = rewrite_rules
-
-        timeout = finite_number(
-            config,
-            "timeout",
-            label=_LABEL,
-            default=_DEFAULT_TIMEOUT,
-            exclusive_minimum=0,
-        )
-        self._timeout = float(timeout)
-
-        self._voice_id: str = voice_id
-        self._model: str = model
-        self._sample_rate: int = sample_rate
+        self._timeout: float = values["timeout"]
+        self._voice_id: str = values["voice_id"]
+        self._model: str = values["model"]
+        self._sample_rate: int = values["sample_rate"]
         self._json_config = json_config
-        self._pronunciation_id = optional_str(config, "pronunciation_id", label=_LABEL)
+        self._pronunciation_id: str | None = values["pronunciation_id"]
 
-        base_url = optional_str(config, "base_url", label=_LABEL)
+        base_url: str | None = values["base_url"]
         # The key is always passed explicitly: the SDK's own GRADIUM_API_KEY
         # fallback is never relied on, so this module's key rules are the only
         # ones in force.
@@ -119,7 +184,9 @@ class GradiumModule(TTSModule):
             self._client = GradiumClient(api_key=api_key, base_url=base_url)
 
     @classmethod
-    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+    def list_voices(
+        cls, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> list[VoiceInfo]:
         """The public catalog and the account's own voices, from
         `voice_get(include_catalog=True)`. The SDK is async, so the call runs
         on a private event loop in a helper thread, which also works when the
@@ -131,7 +198,7 @@ class GradiumModule(TTSModule):
                 "The 'gradium' module requires the gradium extra: "
                 "pip install tts-engine[gradium]"
             ) from exc
-        api_key = resolve_api_key(config, label=_LABEL)
+        api_key = cls.resolve_api_key(config, secrets)
         timeout = finite_number(
             config,
             "timeout",

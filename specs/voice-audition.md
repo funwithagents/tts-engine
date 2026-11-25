@@ -133,7 +133,7 @@ Before publishing, for every sample:
 
 Unknown keys are rejected so a typo is not silently ignored. A relative file path in a `config` (a pocket `.wav`, a kokoro model) resolves against the audition file's directory, as `TTSEngineConfig.from_json_file` does for a config file.
 
-**Secrets.** A config may carry a literal `api_key`; the file is the user's. The page never shows one: displayed configs replace `api_key` with `"***"`. `results.json` holds no config at all.
+**Secrets.** A config holds no key: the engine reads keys from environment variables and refuses an `api_key` field. An older audition file may still carry one; the page never shows it (displayed configs replace `api_key` with `"***"`), and that candidate fails at construction with the engine's message. `results.json` holds no config at all.
 
 ## `new`: candidates from the catalogs
 

@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable
+from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable, Mapping
 from typing import Self
 
 import numpy as np
@@ -68,7 +68,11 @@ class _GainSink:
 
 class TTSEngine:
     def __init__(
-        self, config: TTSEngineConfig, *, sink: AudioSink | None = None
+        self,
+        config: TTSEngineConfig,
+        *,
+        sink: AudioSink | None = None,
+        secrets: Mapping[str, str] | None = None,
     ) -> None:
         """Build the module (via load_module) from config. Use the injected sink,
         or build the default local AudioPlayer from config when sink is None
@@ -78,8 +82,13 @@ class TTSEngine:
         never imported — the engine stays usable on hosts with no audio device.
         A non-zero `config.gain_db` wraps the sink (injected or default) in the
         gain step; at 0 the sink is used as is and gets the module's bytes.
+
+        *secrets* (variable name → key) are API keys the application holds
+        itself, looked up before the environment under the name the config's
+        `api_key_env` gives: `secrets={"GRADIUM_API_KEY": key}`. The config never
+        holds a key.
         """
-        self._module = load_module(config.module)
+        self._module = load_module(config.module, secrets=secrets)
         module_type = str(config.module.get("type"))
         self._module_type = RENAMED.get(module_type, module_type)
         # The default device player, when the engine built one: the only sink

@@ -22,8 +22,7 @@ pip install "tts-engine[openai-compatible]"
 
 | Field | Required | Default | Description |
 |---|---|---|---|
-| `api_key_env` | one of `api_key_env` or `api_key` | — | Name of the environment variable holding the API key. Recommended for file-based configuration. |
-| `api_key` | one of `api_key_env` or `api_key` | — | Literal API key. A non-empty literal key takes precedence over `api_key_env`. For a compatible server that needs no key, use any placeholder, e.g. `"unused"`. |
+| `api_key_env` | no | — | Name of the environment variable holding the API key; set it to `OPENAI_API_KEY` for OpenAI's own endpoint. Absent, no key is read and a placeholder is sent, for a compatible server that needs none. The key itself is never written in the config: a config with `api_key` is refused. |
 | `voice` | yes | — | A built-in voice: `alloy`, `ash`, `ballad`, `coral`, `echo`, `fable`, `onyx`, `nova`, `sage`, `shimmer`, `verse`, `marin` or `cedar`, or a compatible server's voice name. |
 | `model` | no | `gpt-4o-mini-tts-2025-03-20` | Speech model ID, e.g. `gpt-4o-mini-tts`, `tts-1`, `tts-1-hd`, or a compatible server's model. The default snapshot is pinned because the `gpt-4o-mini-tts` alias's latency is erratic. |
 | `instructions` | no | — | Voice direction such as tone, pace or accent. Used by `gpt-4o-mini-tts`; ignored by `tts-1` and `tts-1-hd`. |
@@ -36,7 +35,8 @@ The module emits mono PCM at `sample_rate`. A text stream is synthesized one req
 
 ## Troubleshooting
 
-- Verify that the environment variable named by `api_key_env` is set in the process running the engine.
+- Verify that the environment variable named by `api_key_env` is set in the process running the engine. Without `api_key_env`, no key is sent: OpenAI's own endpoint then answers 401.
+- `does not take 'api_key'` means the config still writes the key itself: move it to an environment variable and name that variable in `api_key_env`.
 - A `TTSError` reporting `Error code: 401` means the key was rejected; `Error code: 400` with `Invalid value` lists the supported voices; `model_not_found` (404) means `model` is wrong.
 - `OpenAI-compatible server returned WAV, not raw pcm` means the server behind `base_url` ignores `response_format: "pcm"`. That server cannot be used with this module.
 - `TTS module type 'openai-compatible' is deprecated` in the log means the config still uses the old name: set `"type": "openai-speech-compatible"`. Nothing else changes.

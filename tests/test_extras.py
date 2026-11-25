@@ -13,9 +13,6 @@ _PYPROJECT = Path(__file__).resolve().parent.parent / "pyproject.toml"
 _SELF = re.compile(r"^tts-engine\[([^\]]+)\]$")
 _TRANSPORTS = {"mcp"}
 _BUNDLES = {"hosted-modules", "all-modules", "all"}
-# A protocol module, `<origin>-<api>-compatible`, shares the `<origin>-compatible`
-# extra with its origin's other protocol modules.
-_PROTOCOL = re.compile(r"^(?P<origin>[a-z0-9]+)-[a-z0-9-]+-compatible$")
 
 
 def _extras() -> dict[str, list[str]]:
@@ -24,17 +21,12 @@ def _extras() -> dict[str, list[str]]:
     ]
 
 
-def _extra_of(module_type: str) -> str:
-    match = _PROTOCOL.match(module_type)
-    return f"{match['origin']}-compatible" if match else module_type
-
-
 def _providers(kind: str | None = None) -> set[str]:
     """The extras of the registered providers (of ``kind``, if given)."""
     return {
-        _extra_of(name)
-        for name, module in REGISTRY.items()
-        if module.kind != "fixture" and (kind is None or module.kind == kind)
+        module.extra
+        for module in REGISTRY.values()
+        if module.extra is not None and (kind is None or module.kind == kind)
     }
 
 
@@ -51,7 +43,7 @@ def _expand(extras: dict[str, list[str]], name: str) -> set[str]:
     return found
 
 
-def test_every_provider_has_an_extra_named_after_its_type() -> None:
+def test_every_provider_declares_an_extra_and_every_extra_has_a_provider() -> None:
     extras = set(_extras())
     assert extras - _BUNDLES - _TRANSPORTS == _providers()
 

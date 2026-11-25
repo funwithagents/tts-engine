@@ -22,7 +22,7 @@ from tts_engine.modules.base import TTSError, TTSOptions, VoiceListingUnsupporte
 from tts_engine.modules.openai import OpenAIModule
 from tts_engine.modules.openai.module import _VERBATIM
 
-_BASE = {"type": "openai", "api_key": "k"}
+_BASE = {"type": "openai"}
 _NS = types.SimpleNamespace
 _POLL = 0.005  # the module's `_POLL_SECONDS`, patched down by `fake`
 

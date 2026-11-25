@@ -4,7 +4,6 @@ import asyncio
 import contextlib
 import contextvars
 import logging
-import math
 import os
 import queue
 import re
@@ -14,11 +13,12 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar, Literal, TypeVar, cast, overload
+from typing import Any, ClassVar, Literal, Self, TypeVar, cast, overload
 
 import numpy as np
 
-from tts_engine.config import ConfigError
+from tts_engine.config import ConfigError, MissingSecretError
+from tts_engine.modules.fields import Field, field_problems, read_fields
 from tts_engine.utterance import note_segment
 
 log = logging.getLogger(__name__)
@@ -77,6 +77,14 @@ class VoiceInfo:
     tags: tuple[str, ...] = ()
 
 
+def _voice_label(voice: VoiceInfo) -> str:
+    """ "River (en, fr, neutral)": a voice's name and what tells it apart."""
+    details = [", ".join(voice.languages)] if voice.languages else []
+    if voice.gender:
+        details.append(voice.gender)
+    return voice.name + (f" ({', '.join(details)})" if details else "")
+
+
 class VoiceListingUnsupported(Exception):
     """The backend has no catalog the module can read; the message says where
     its voices are documented."""
@@ -86,12 +94,347 @@ class VoiceListingUnsupported(Exception):
 # process (`local`), or nowhere — deterministic audio for tests (`fixture`).
 ModuleKind = Literal["hosted", "local", "fixture"]
 
+# How far the preparation of one item is: `(fraction, message)`, the fraction
+# the share done from 0.0 to 1.0, or None when it cannot be measured.
+Report = Callable[[float | None, str], None]
+
+
+def _size(count: float) -> str:
+    """A byte count for a person: "120 MB", "1.2 GB", "5 kB"."""
+    if count >= 1e9:
+        return f"{count / 1e9:.1f} GB"
+    if count >= 1e6:
+        return f"{count / 1e6:.0f} MB"
+    return f"{count / 1e3:.0f} kB"
+
+
+def _progress_bar(report: Report, name: str) -> type:
+    """A stand-in for `tqdm`, for `hf_hub_download(tqdm_class=...)`: it turns the
+    bytes the download receives into reports, about one per percent. It is not a
+    `tqdm` subclass, so the Hub never disables it for want of a terminal. Its
+    `update_transfer` makes a Xet download count on this one bar both the bytes
+    received over the network (which arrive as they go) and the ones written (which
+    may come in one flush at the end): the larger of the two is shown."""
+
+    class Bar:
+        def __init__(
+            self, *args: Any, total: float | None = None, initial: float = 0, **_: Any
+        ) -> None:
+            self.total = total
+            self.n = initial
+            self.received = initial
+            self._shown: int | None = None
+            self._show()
+
+        def update(self, n: float | None = 1) -> None:
+            self.n += n or 0
+            self._show()
+
+        def update_transfer(self, n: float | None = 1) -> None:
+            self.received += n or 0
+            self._show()
+
+        def set_postfix_str(self, *args: Any, **kwargs: Any) -> None: ...
+
+        def set_transfer_postfix_str(self, *args: Any, **kwargs: Any) -> None: ...
+
+        def refresh(self, *args: Any, **kwargs: Any) -> None: ...
+
+        def close(self) -> None: ...
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            self.close()
+
+        def _show(self) -> None:
+            done = max(self.n, self.received)
+            if not self.total:
+                step = int(done // 1e6)  # unmeasured: one report per megabyte
+                if step != self._shown:
+                    self._shown = step
+                    report(None, f"Downloading {name}: {_size(done)}")
+                return
+            fraction = min(max(done / self.total, 0.0), 1.0)
+            step = int(fraction * 100)
+            if step != self._shown:
+                self._shown = step
+                report(
+                    fraction,
+                    f"Downloading {name}: {_size(done)} of {_size(self.total)}",
+                )
+
+    return Bar
+
+
+def hub_download(
+    repo_id: str, filename: str, revision: str | None, report: Report
+) -> str:
+    """`huggingface_hub.hf_hub_download` of one file, the call a constructor
+    makes, its bytes reported against the file's size as they arrive. Its path
+    in the Hugging Face cache. Two calls for two files may run at the same time:
+    the Hub locks each file it writes."""
+    import huggingface_hub
+
+    report(0.0, f"Downloading {filename}")
+    return huggingface_hub.hf_hub_download(
+        repo_id,
+        filename,
+        revision=revision,
+        tqdm_class=_progress_bar(report, filename),
+    )
+
 
 class TTSModule(ABC):
     # Declared by every module (a class attribute, no default): what an
     # embedder needs to know before trying it — does it need a key and a
     # network, or weights on disk — and how the benchmark groups its results.
     kind: ClassVar[ModuleKind]
+
+    # What an application needs to set the module up before constructing it
+    # (specs/setup.md): its name for a person, the extra carrying its
+    # dependencies (None when it needs none), and its config fields.
+    title: ClassVar[str]
+    extra: ClassVar[str | None]
+    fields: ClassVar[tuple[Field, ...]]
+
+    # --- The setup contract, one method per function of `tts_engine.setup`,
+    # each over the module block only, each with a default a module overrides
+    # only when it needs to (specs/setup.md, "On a module").
+
+    @classmethod
+    def required_extras(cls, config: dict) -> list[str]:
+        """The extras this module needs, as requirement strings: its own
+        `extra`, whatever the rest of the config says."""
+        return [f"tts-engine[{cls.extra}]"] if cls.extra is not None else []
+
+    @classmethod
+    def check_config(cls, config: dict) -> list[tuple[str, str]]:
+        """Everything that makes the module refuse this config block, as
+        `(field name, message)`; the name is "" for a `config_rules` rule.
+        Empty when the constructor would accept its shape. Imports nothing."""
+        found = field_problems(
+            config, cls.fields_for(config), label=f"{cls.title} module"
+        )
+        try:
+            cls._refuse_key(config)
+        except ConfigError as exc:
+            found.insert(0, ("api_key", str(exc)))
+        if not found:
+            try:
+                cls.validated(config)
+            except ConfigError as exc:
+                found.append(("", str(exc)))
+        return found
+
+    @classmethod
+    def check_setup(cls, config: dict) -> list[dict[str, Any]]:
+        """What this machine is missing to run this config block, each item
+        `{"id", "title", "status", "detail", "preparable", "required"}`: the
+        module's extra (its imports tried), the keys its config names in
+        environment variables, then its files once the extra imports
+        (`check_files`). Local: no network. Never raises."""
+        found: list[dict[str, Any]] = []
+        imported = True
+        if cls.extra is not None:
+            requirement = f"tts-engine[{cls.extra}]"
+            try:
+                cls.imports()
+            except Exception as exc:  # noqa: BLE001 - reported, never raised
+                imported = False
+                status, detail = "missing", str(exc) or type(exc).__name__
+            else:
+                status, detail = "ready", "Installed."
+            found.append(
+                {
+                    "id": f"extra:{requirement}",
+                    "title": f"{cls.title} extra",
+                    "status": status,
+                    "detail": detail,
+                    "preparable": False,
+                    "required": True,
+                }
+            )
+        found += cls._key_items(config)
+        if imported:
+            found += cls.check_files(config)
+        return found
+
+    @classmethod
+    def prepare(
+        cls,
+        config: dict,
+        item: str,
+        on_progress: Callable[[dict[str, Any]], None] | None = None,
+    ) -> None:
+        """Make one preparable item of this config ready (an id `check_files`
+        returns): download it. Needs the extra installed (its install hint
+        otherwise). Blocking and idempotent: an item already ready returns at
+        once. Another item of the same config may be prepared at the same
+        time, on another thread. An id that is not a preparable item of this
+        config raises `ValueError` naming it; a failure raises `TTSError` (or
+        `ConfigError` for a value the provider refuses).
+
+        `on_progress` receives `{"fraction", "message"}` about this item:
+        `fetch`'s own reports, then `1.0` once it is ready."""
+        cls.imports()
+        found = next(
+            (
+                candidate
+                for candidate in cls.check_files(config)
+                if candidate["id"] == item and candidate["preparable"]
+            ),
+            None,
+        )
+        if found is None:
+            raise ValueError(
+                f"{cls.title} module: {item!r} is not an item this config can prepare"
+            )
+
+        def report(fraction: float | None, message: str) -> None:
+            if on_progress is not None:
+                on_progress({"fraction": fraction, "message": message})
+
+        if found["status"] != "ready":
+            cls.fetch(config, found, report)
+        report(1.0, f"{found['title']} ready")
+
+    @classmethod
+    def fetch(cls, config: dict, item: dict[str, Any], report: Report) -> None:
+        """Fetch one preparable item of `check_files` that is not ready, through
+        the call the constructor makes, so the constructor then finds it in
+        place. `report(fraction, message)` says how far it is: once as it
+        starts, then as it advances (`prepare` reports the end). Only a module
+        with preparable items overrides it."""
+        raise ValueError(f"{cls.title} module has nothing to prepare")
+
+    @classmethod
+    def options(cls, name: str, config: dict) -> list[dict[str, Any]]:
+        """The choices of a named list, each `{"label", "fields"}`: the fields
+        to merge into the module block. `"voices"` is the module's catalog
+        (`list_voices`); any other name is empty."""
+        if name != "voices":
+            return []
+        return [
+            {"label": _voice_label(voice), "fields": dict(voice.config)}
+            for voice in cls.list_voices(config)
+        ]
+
+    # --- What the contract methods are built on.
+
+    @classmethod
+    def imports(cls) -> None:
+        """Import what the module's extra provides, raising `ConfigError` with
+        the install hint when it is missing. The constructor calls it before
+        its own imports, and `check_setup` tries it. Nothing to import by
+        default (a fixture)."""
+
+    @classmethod
+    def check_files(cls, config: dict) -> list[dict[str, Any]]:
+        """The files this config needs on the machine (model weights, voice
+        files), as `check_setup` items. Called only once `imports` succeeded,
+        so it may use the provider's library to look up its cache. Local: no
+        network, no model load. None by default."""
+        return []
+
+    @classmethod
+    def validated(cls, config: dict) -> dict[str, Any]:
+        """The module's fields read from its config block (a default where one
+        is absent), after `config_rules`. Raises `ConfigError` on the first
+        invalid field. The first thing a constructor does, before any import:
+        what `check_config` accepts is what the constructor accepts."""
+        cls._refuse_key(config)
+        values = read_fields(
+            config,
+            cls.fields_for(config),
+            label=f"{cls.title} module",
+            error=ConfigError,
+        )
+        cls.config_rules(values, config)
+        return values
+
+    @classmethod
+    def fields_for(cls, config: dict) -> tuple[Field, ...]:
+        """The fields as this config reads them: `fields`, unless a field's
+        rule depends on another's value (a range that follows the model), in
+        which case the module returns them narrowed. A form is drawn from
+        `fields`; a config is validated against these."""
+        return cls.fields
+
+    @classmethod
+    def config_rules(cls, values: dict[str, Any], config: dict) -> None:
+        """The module's rules across fields, or on a field's content, that a
+        `Field` cannot state. Raises `ConfigError`. Looks at the config only:
+        no import of the provider's library, no file, no network."""
+
+    @classmethod
+    def takes_secrets(cls) -> bool:
+        """Whether the module reads a key (an `api_key_env` field): only such a module
+        is given the secrets of `TTSEngine(config, secrets=...)`."""
+        # A module that declares no fields (a stub, a module written elsewhere)
+        # reads no key.
+        return any(field.secret == "env" for field in getattr(cls, "fields", ()))
+
+    @classmethod
+    def resolve_api_key(
+        cls, config: dict, secrets: Mapping[str, str] | None = None
+    ) -> str:
+        """The module's API key, under the variable its `api_key_env` field names
+        (the field's default when absent): from *secrets* (variable name → key, given
+        in code) first, then from the environment. The config never holds the key:
+        one written there is refused. No key under that name is a
+        `MissingSecretError` carrying the variable."""
+        label = f"{cls.title} module"
+        cls._refuse_key(config)
+        field = next((f for f in cls.fields if f.secret == "env"), None)
+        name = config.get(field.name) if field is not None else None
+        if name is None and field is not None:
+            name = field.default
+        if not isinstance(name, str) or not name:
+            raise ConfigError(f"{label} 'api_key_env' must be a non-empty string")
+        api_key = (secrets or {}).get(name) or os.environ.get(name)
+        if not api_key:
+            raise MissingSecretError(name, label=label)
+        return api_key
+
+    @classmethod
+    def _refuse_key(cls, config: dict) -> None:
+        """A module whose key comes from an environment variable refuses one written
+        in the config."""
+        if any(field.secret == "env" for field in cls.fields):
+            refuse_api_key(config, label=f"{cls.title} module")
+
+    @classmethod
+    def _key_items(cls, config: dict) -> list[dict[str, Any]]:
+        """One item per environment variable the config names for a key, or that
+        its key field names by default."""
+        found = []
+        for field in cls.fields:
+            if field.secret != "env":
+                continue
+            name = config.get(field.name)
+            if name is None:
+                name = field.default
+            if not isinstance(name, str) or not name:
+                continue
+            present = bool(os.environ.get(name))
+            found.append(
+                {
+                    "id": f"key:{name}",
+                    "title": name,
+                    "status": "ready" if present else "missing",
+                    "detail": (
+                        "Set."
+                        if present
+                        else f"Set the environment variable {name} "
+                        f"(named by '{field.name}')."
+                    ),
+                    "preparable": False,
+                    "required": True,
+                }
+            )
+        return found
 
     def __init__(self, config: dict) -> None:
         """Construct the module from its `engine.module` block (the full dict,
@@ -661,36 +1004,39 @@ def resolve_path(config: dict, value: str) -> Path:
 # backend. `label` ("ElevenLabs module") prefixes each message.
 
 
-def resolve_api_key(config: dict, *, label: str) -> str:
-    """Resolve a provider's API key from a literal ``api_key`` or, failing
-    that, the environment variable named by ``api_key_env``, so a config file
-    can be committed with only the variable's name and no secret.
+def key_env_field(provider: str, variable: str | None) -> Field:
+    """The `api_key_env` field of a hosted module: the environment variable that
+    holds *provider*'s API key, *variable* by default. A config never holds the key
+    itself (no `api_key` field): it can be shared or committed as it is. With no
+    default (*variable* None, a keyless server), the field may stay absent."""
+    label = f"{provider} module 'api_key_env' must be a non-empty string"
+    if variable is None:
+        return Field(
+            "api_key_env",
+            "string",
+            f"The environment variable holding the {provider} API key. Absent, no "
+            "key is sent, for a server that needs none.",
+            secret="env",
+            message=label,
+        )
+    return Field(
+        "api_key_env",
+        "string",
+        f"The environment variable holding the {provider} API key.",
+        default=variable,
+        secret="env",
+        message=label,
+    )
 
-    A non-empty literal wins. Otherwise the variable named by ``api_key_env``
-    is read, and its being unset or empty is a ``ConfigError`` naming it. A
-    non-string value for either field, or neither yielding a key, is a
-    ``ConfigError`` too.
-    """
-    api_key = config.get("api_key")
-    env_name = config.get("api_key_env")
-    if api_key is not None and not isinstance(api_key, str):
-        raise ConfigError(f"{label} 'api_key' must be a string")
-    if env_name is not None and not isinstance(env_name, str):
-        raise ConfigError(f"{label} 'api_key_env' must be a string")
 
-    if api_key:
-        return api_key
-
-    if env_name:
-        api_key = os.environ.get(env_name)
-        if not api_key:
-            raise ConfigError(
-                f"{label}: environment variable {env_name!r} "
-                "(named by 'api_key_env') is unset or empty"
-            )
-        return api_key
-
-    raise ConfigError(f"{label} requires a non-empty 'api_key' or 'api_key_env'")
+def refuse_api_key(config: dict, *, label: str) -> None:
+    """Refuse a key written in the config: `api_key` was accepted until the engine
+    took keys only from environment variables."""
+    if "api_key" in config:
+        raise ConfigError(
+            f"{label} does not take 'api_key': keep the key in an environment "
+            "variable and name it in 'api_key_env'"
+        )
 
 
 @overload
@@ -713,12 +1059,12 @@ def optional_str(
     non-string: a value the config names is validated, only a missing one is
     defaulted.
     """
-    value = config.get(field, default)
-    if value is None and default is None:
-        return None
-    if not isinstance(value, str) or not value:
-        raise ConfigError(f"{label} '{field}' must be a non-empty string")
-    return value
+    return read_fields(
+        config,
+        [Field(field, "string", "", default=default)],
+        label=label,
+        error=ConfigError,
+    )[field]
 
 
 @overload
@@ -766,31 +1112,22 @@ def finite_number(
     The message names the field and the bounds (``"... must be a finite
     number > 0"``).
     """
-    value = config.get(field, default)
-    if value is None and default is None:
-        return None
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, int | float)
-        or not _is_finite(value)
-        or (minimum is not None and value < minimum)
-        or (maximum is not None and value > maximum)
-        or (exclusive_minimum is not None and value <= exclusive_minimum)
-    ):
-        raise ConfigError(
-            f"{label} '{field}' must be "
-            + _describe_bounds(minimum, maximum, exclusive_minimum)
-        )
-    return float(value)
-
-
-def _is_finite(value: float) -> bool:
-    """`math.isfinite`, with an integer too large for a float (valid JSON,
-    `1e400` written out) counted as not finite instead of raising."""
-    try:
-        return math.isfinite(value)
-    except OverflowError:
-        return False
+    return read_fields(
+        config,
+        [
+            Field(
+                field,
+                "number",
+                "",
+                default=default,
+                minimum=minimum,
+                maximum=maximum,
+                exclusive_minimum=exclusive_minimum,
+            )
+        ],
+        label=label,
+        error=ConfigError,
+    )[field]
 
 
 def positive_int(config: dict, field: str, *, label: str) -> int | None:
@@ -798,27 +1135,9 @@ def positive_int(config: dict, field: str, *, label: str) -> int | None:
     absent/``null`` policy and no default: a present value must be an ``int``
     >= 1 (a bool, a float or a string is rejected). The thread count of the
     local modules is one (``threads`` on phonon, kokoro and piper)."""
-    value = config.get(field)
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        raise ConfigError(f"{label} '{field}' must be an integer >= 1")
-    return value
-
-
-def _describe_bounds(
-    minimum: float | None, maximum: float | None, exclusive_minimum: float | None
-) -> str:
-    if minimum is not None and maximum is not None:
-        return f"a finite number between {minimum:g} and {maximum:g}"
-    bounds = []
-    if exclusive_minimum is not None:
-        bounds.append(f"> {exclusive_minimum:g}")
-    if minimum is not None:
-        bounds.append(f">= {minimum:g}")
-    if maximum is not None:
-        bounds.append(f"<= {maximum:g}")
-    return "a finite number" + (" " + " and ".join(bounds) if bounds else "")
+    return read_fields(
+        config, [Field(field, "integer", "", minimum=1)], label=label, error=ConfigError
+    )[field]
 
 
 # --- Shared PCM helpers --------------------------------------------------------

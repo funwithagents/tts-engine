@@ -78,9 +78,13 @@ A custom sink is supplied at construction; the engine uses it for the lifetime o
 ```python
 class TTSEngine:
     def __init__(
-        self, config: TTSEngineConfig, *, sink: AudioSink | None = None
+        self,
+        config: TTSEngineConfig,
+        *,
+        sink: AudioSink | None = None,
+        secrets: Mapping[str, str] | None = None,
     ) -> None:
-        self._module = load_module(config.module)
+        self._module = load_module(config.module, secrets=secrets)
         self._sink: AudioSink = (
             sink
             if sink is not None

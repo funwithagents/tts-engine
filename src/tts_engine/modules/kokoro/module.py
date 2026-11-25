@@ -11,27 +11,29 @@ import logging
 import threading
 from collections.abc import AsyncIterator, Callable, Iterable, Iterator
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
+    Report,
     TTSError,
     TTSModule,
     TTSOptions,
     VoiceInfo,
     feed_with_lookahead,
-    finite_number,
     float_to_int16_pcm,
+    hub_download,
     normalize_gender,
     optional_str,
-    positive_int,
     resolve_path,
     run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
     slice_bytes_for,
 )
+from tts_engine.modules.fields import Field
 
 log = logging.getLogger(__name__)
 
@@ -80,46 +82,159 @@ def _file_ref(config: dict, key: str, value: str) -> _FileRef:
 
 class KokoroModule(TTSModule):
     kind = "local"
-
-    def __init__(self, config: dict) -> None:
-        voice = optional_str(config, "voice", label=_LABEL) or _DEFAULT_VOICE
-        language = optional_str(config, "language", label=_LABEL)
-        if language is None:
-            language = _LANGUAGE_BY_PREFIX.get(voice[0])
-            if language is None:
-                raise ConfigError(
-                    f"Kokoro module: no default language for voice {voice!r}; "
-                    "set 'language' (an espeak-ng code such as 'en-us')"
-                )
-
-        speed = finite_number(
-            config, "speed", label=_LABEL, minimum=_MIN_SPEED, maximum=_MAX_SPEED
-        )
-        threads = positive_int(config, "threads", label=_LABEL)
-        model_ref = _file_ref(
-            config,
+    title = "Kokoro"
+    extra = "kokoro"
+    fields = (
+        Field(
+            "voice",
+            "string",
+            "The voice's name in the voices file. Its first letter is its "
+            "language, its second its gender.",
+            implied=_DEFAULT_VOICE,
+        ),
+        Field(
+            "language",
+            "string",
+            "The espeak-ng language code to pronounce with, such as 'en-us'. "
+            "Absent, it follows the voice's first letter.",
+        ),
+        Field(
+            "speed",
+            "number",
+            "The speaking rate, 1 being the voice's own.",
+            implied=1.0,
+            minimum=_MIN_SPEED,
+            maximum=_MAX_SPEED,
+        ),
+        Field(
+            "threads",
+            "integer",
+            "The number of CPU threads the model runs on. Absent, the runtime decides.",
+            minimum=1,
+            advanced=True,
+        ),
+        Field(
             "model",
-            optional_str(config, "model", label=_LABEL) or _DEFAULT_MODEL,
-        )
-        voices_ref = _file_ref(
-            config,
+            "string",
+            "The model file: hf://owner/repo/path[@revision] or a local path.",
+            implied=_DEFAULT_MODEL,
+            advanced=True,
+        ),
+        Field(
             "voices",
-            optional_str(config, "voices", label=_LABEL) or _DEFAULT_VOICES,
-        )
+            "string",
+            "The voices file: hf://owner/repo/path[@revision] or a local path.",
+            implied=_DEFAULT_VOICES,
+            advanced=True,
+        ),
+    )
 
+    @classmethod
+    def _refs(cls, values: dict[str, Any], config: dict) -> dict[str, _FileRef]:
+        """Where the model and the voices files are, by field name."""
+        return {
+            "model": _file_ref(config, "model", values["model"] or _DEFAULT_MODEL),
+            "voices": _file_ref(config, "voices", values["voices"] or _DEFAULT_VOICES),
+        }
+
+    @classmethod
+    def config_rules(cls, values: dict[str, Any], config: dict) -> None:
+        voice = values["voice"] or _DEFAULT_VOICE
+        if values["language"] is None and voice[0] not in _LANGUAGE_BY_PREFIX:
+            raise ConfigError(
+                f"Kokoro module: no default language for voice {voice!r}; "
+                "set 'language' (an espeak-ng code such as 'en-us')"
+            )
+        cls._refs(values, config)
+
+    @classmethod
+    def check_files(cls, config: dict) -> list[dict[str, Any]]:
+        refs = cls._refs(cls.validated(config), config)
         try:
-            from huggingface_hub import hf_hub_download
-            from huggingface_hub.errors import (
+            from huggingface_hub import try_to_load_from_cache
+        except ImportError:
+            try_to_load_from_cache = None
+        found = []
+        for key, ref in refs.items():
+            item: dict[str, Any] = {
+                "id": f"kokoro:{key}",
+                "title": f"Kokoro {key} file",
+            }
+            if isinstance(ref, Path):
+                present = ref.is_file()
+                item |= {
+                    "status": "ready" if present else "missing",
+                    "detail": str(ref) if present else f"File not found: {ref}",
+                    "preparable": False,
+                    "required": True,
+                }
+            elif try_to_load_from_cache is None:
+                item |= {
+                    "status": "unknown",
+                    "detail": "The kokoro extra is not installed.",
+                    "preparable": True,
+                    "required": False,
+                }
+            else:
+                repo_id, filename, revision = ref
+                cached = try_to_load_from_cache(repo_id, filename, revision=revision)
+                present = isinstance(cached, str)
+                item |= {
+                    "status": "ready" if present else "missing",
+                    "detail": (
+                        cached
+                        if present
+                        else f"{filename} of {repo_id} is not downloaded yet."
+                    ),
+                    "preparable": True,
+                    # The constructor downloads it when it is missing.
+                    "required": False,
+                }
+            found.append(item)
+        return found
+
+    @classmethod
+    def fetch(cls, config: dict, item: dict[str, Any], report: Report) -> None:
+        ref = cls._refs(cls.validated(config), config)[item["id"].split(":", 1)[1]]
+        assert not isinstance(ref, Path)
+        try:
+            hub_download(*ref, report)
+        except Exception as exc:
+            raise TTSError(f"kokoro download failed: {exc}") from exc
+
+    @classmethod
+    def imports(cls) -> None:
+        try:
+            from huggingface_hub import hf_hub_download  # noqa: F401
+            from huggingface_hub.errors import (  # noqa: F401
                 RemoteEntryNotFoundError,
                 RepositoryNotFoundError,
                 RevisionNotFoundError,
             )
-            from kokoro_onnx import Kokoro
+            from kokoro_onnx import Kokoro  # noqa: F401
         except ImportError as exc:
             raise ConfigError(
                 "The 'kokoro' module requires the kokoro extra: "
                 "pip install tts-engine[kokoro]"
             ) from exc
+
+    def __init__(self, config: dict) -> None:
+        values = self.validated(config)
+        voice: str = values["voice"] or _DEFAULT_VOICE
+        language: str = values["language"] or _LANGUAGE_BY_PREFIX[voice[0]]
+        speed: float | None = values["speed"]
+        threads: int | None = values["threads"]
+        refs = self._refs(values, config)
+        model_ref, voices_ref = refs["model"], refs["voices"]
+
+        self.imports()
+        from huggingface_hub import hf_hub_download
+        from huggingface_hub.errors import (
+            RemoteEntryNotFoundError,
+            RepositoryNotFoundError,
+            RevisionNotFoundError,
+        )
+        from kokoro_onnx import Kokoro
 
         # Checked here: kokoro-onnx opens the model before its own file check,
         # so a missing model would surface as an opaque onnxruntime error.

@@ -15,7 +15,8 @@ specs/modules/openai-speech-compatible.md).
 
 import logging
 import threading
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping
+from typing import Any
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
@@ -26,14 +27,14 @@ from tts_engine.modules.base import (
     VoiceInfo,
     VoiceListingUnsupported,
     cleanup,
-    finite_number,
+    key_env_field,
     optional_str,
-    resolve_api_key,
     run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
     slice_bytes_for,
 )
+from tts_engine.modules.fields import Field
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +42,8 @@ _DEFAULT_SAMPLE_RATE = 24000
 _DEFAULT_MODEL = "gpt-4o-mini-tts-2025-03-20"
 _DEFAULT_TIMEOUT = 30.0
 _LABEL = "OpenAI speech-compatible module"
+# The SDK refuses to build a client without a key: a keyless server gets this one.
+_NO_KEY = "unused"
 _MIN_SPEED, _MAX_SPEED = 0.25, 4.0
 # A WAV body (some compatible servers ignore `response_format`) starts with this.
 _WAV_MAGIC = b"RIFF"
@@ -48,56 +51,106 @@ _WAV_MAGIC = b"RIFF"
 
 class OpenAISpeechCompatibleModule(TTSModule):
     kind = "hosted"
-
-    def __init__(self, config: dict) -> None:
-        try:
-            from openai import OpenAI
-        except ImportError as exc:
-            raise ConfigError(
-                "The 'openai-speech-compatible' module requires the openai-compatible extra: "
-                "pip install tts-engine[openai-compatible]"
-            ) from exc
-
-        api_key = resolve_api_key(config, label=_LABEL)
-
-        voice = config.get("voice")
-        if not isinstance(voice, str) or not voice:
-            raise ConfigError(
-                "OpenAI speech-compatible module requires a non-empty 'voice'"
-            )
-
-        model = optional_str(config, "model", label=_LABEL, default=_DEFAULT_MODEL)
-
-        instructions = optional_str(config, "instructions", label=_LABEL)
-        speed = finite_number(
-            config, "speed", label=_LABEL, minimum=_MIN_SPEED, maximum=_MAX_SPEED
-        )
-        base_url = optional_str(config, "base_url", label=_LABEL)
-
-        timeout = finite_number(
-            config,
+    title = "OpenAI speech-compatible"
+    extra = "openai-compatible"
+    fields = (
+        Field(
+            "voice",
+            "string",
+            "The voice to speak with: one of OpenAI's built-in voices (marin, "
+            "cedar, alloy, ...) or a voice name of the compatible server.",
+            required=True,
+            message="OpenAI speech-compatible module requires a non-empty 'voice'",
+        ),
+        Field(
+            "model",
+            "string",
+            "The speech model, OpenAI's or the compatible server's.",
+            default=_DEFAULT_MODEL,
+        ),
+        key_env_field("OpenAI speech-compatible", None),
+        Field(
+            "instructions",
+            "string",
+            "A direction for the voice, such as its tone, pace or accent. Some "
+            "models ignore it.",
+        ),
+        Field(
+            "speed",
+            "number",
+            "The speaking rate, as a multiplier from 0.25 to 4.",
+            implied=1.0,
+            minimum=_MIN_SPEED,
+            maximum=_MAX_SPEED,
+        ),
+        Field(
+            "base_url",
+            "string",
+            "The base URL of an OpenAI-compatible server, including its /v1 "
+            "path. Left empty, requests go to OpenAI.",
+        ),
+        Field(
             "timeout",
-            label=_LABEL,
+            "number",
+            "Seconds to wait for the provider before a stalled request fails.",
             default=_DEFAULT_TIMEOUT,
             exclusive_minimum=0,
-        )
+            advanced=True,
+        ),
+        Field(
+            "sample_rate",
+            "integer",
+            "The sample rate of the server's PCM output, in Hz. OpenAI's is "
+            "always 24000; set it only with 'base_url', to match the server.",
+            default=_DEFAULT_SAMPLE_RATE,
+            exclusive_minimum=0,
+            advanced=True,
+            message=(
+                "OpenAI speech-compatible module 'sample_rate' must be a positive "
+                "integer"
+            ),
+        ),
+    )
 
-        sample_rate = config.get("sample_rate", _DEFAULT_SAMPLE_RATE)
-        if (
-            isinstance(sample_rate, bool)
-            or not isinstance(sample_rate, int)
-            or sample_rate <= 0
-        ):
-            raise ConfigError(
-                "OpenAI speech-compatible module 'sample_rate' must be a positive integer"
-            )
-        if sample_rate != _DEFAULT_SAMPLE_RATE and base_url is None:
+    @classmethod
+    def config_rules(cls, values: dict[str, Any], config: dict) -> None:
+        if values["sample_rate"] != _DEFAULT_SAMPLE_RATE and values["base_url"] is None:
             # OpenAI's own `pcm` is fixed at 24 kHz; the field only declares the
             # rate of a compatible server's output.
             raise ConfigError(
                 "OpenAI speech-compatible module 'sample_rate' other than 24000 requires 'base_url' "
                 "(OpenAI's pcm output is fixed at 24 kHz)"
             )
+
+    @classmethod
+    def imports(cls) -> None:
+        try:
+            from openai import OpenAI  # noqa: F401
+        except ImportError as exc:
+            raise ConfigError(
+                "The 'openai-speech-compatible' module requires the openai-compatible extra: "
+                "pip install tts-engine[openai-compatible]"
+            ) from exc
+
+    def __init__(
+        self, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> None:
+        values = self.validated(config)
+        self.imports()
+        from openai import OpenAI
+
+        # No variable named: a server that needs no key (the SDK still wants one).
+        api_key = (
+            self.resolve_api_key(config, secrets) if values["api_key_env"] else _NO_KEY
+        )
+
+        voice: str = values["voice"]
+        model: str = values["model"]
+        instructions: str | None = values["instructions"]
+        speed: float | None = values["speed"]
+        base_url: str | None = values["base_url"]
+        timeout: float = values["timeout"]
+        sample_rate: int = values["sample_rate"]
         self._sample_rate = sample_rate
         self._slice_bytes = slice_bytes_for(sample_rate)
 
@@ -126,7 +179,9 @@ class OpenAISpeechCompatibleModule(TTSModule):
         self._client.close()
 
     @classmethod
-    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+    def list_voices(
+        cls, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> list[VoiceInfo]:
         """`/v1/audio/speech` has no voice-listing endpoint; a server other
         than OpenAI's documents its own voices."""
         base_url = optional_str(config, "base_url", label=_LABEL)

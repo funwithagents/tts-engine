@@ -13,7 +13,7 @@ sentences (see specs/modules/gemini.md).
 import logging
 import math
 import threading
-from collections.abc import AsyncIterator, Callable, Generator, Iterator
+from collections.abc import AsyncIterator, Callable, Generator, Iterator, Mapping
 from typing import Any, cast
 
 from tts_engine.config import ConfigError
@@ -25,14 +25,13 @@ from tts_engine.modules.base import (
     VoiceInfo,
     VoiceListingUnsupported,
     cleanup,
-    finite_number,
-    optional_str,
-    resolve_api_key,
+    key_env_field,
     run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
     slice_bytes_for,
 )
+from tts_engine.modules.fields import Field
 
 log = logging.getLogger(__name__)
 
@@ -63,32 +62,65 @@ def _reason_name(reason: object) -> str:
 
 class GeminiModule(TTSModule):
     kind = "hosted"
+    title = "Gemini"
+    extra = "gemini"
+    fields = (
+        Field(
+            "voice",
+            "string",
+            "The prebuilt voice to speak with, such as Kore, Puck, Charon or "
+            "Zephyr. Left empty, Gemini picks its default voice.",
+        ),
+        Field(
+            "model",
+            "string",
+            "The Gemini text-to-speech model.",
+            default=_DEFAULT_MODEL,
+        ),
+        key_env_field("Gemini", "GEMINI_API_KEY"),
+        Field(
+            "language_code",
+            "string",
+            "The language to speak, as a BCP-47 code such as en-US or fr-FR. "
+            "Left empty, Gemini detects it from the text.",
+        ),
+        Field(
+            "timeout",
+            "number",
+            "Seconds to wait for the provider before a stalled request fails.",
+            default=_DEFAULT_TIMEOUT,
+            exclusive_minimum=0,
+            advanced=True,
+        ),
+    )
 
-    def __init__(self, config: dict) -> None:
+    @classmethod
+    def imports(cls) -> None:
         try:
             # Not `from google import genai`: that binds None instead of raising
             # when sys.modules["google.genai"] is None (see the spec).
-            import google.genai as genai  # noqa: PLR0402
+            import google.genai as genai  # noqa: F401, PLR0402
         except ImportError as exc:
             raise ConfigError(
                 "The 'gemini' module requires the gemini extra: "
                 "pip install tts-engine[gemini]"
             ) from exc
 
-        api_key = resolve_api_key(config, label=_LABEL)
+    def __init__(
+        self, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> None:
+        values = self.validated(config)
+        self.imports()
+        # Not `from google import genai`: that binds None instead of raising
+        # when sys.modules["google.genai"] is None (see the spec).
+        import google.genai as genai  # noqa: PLR0402
 
-        model = optional_str(config, "model", label=_LABEL, default=_DEFAULT_MODEL)
+        api_key = self.resolve_api_key(config, secrets)
 
-        voice = optional_str(config, "voice", label=_LABEL)
-        language_code = optional_str(config, "language_code", label=_LABEL)
-
-        timeout = finite_number(
-            config,
-            "timeout",
-            label=_LABEL,
-            default=_DEFAULT_TIMEOUT,
-            exclusive_minimum=0,
-        )
+        model: str = values["model"]
+        voice: str | None = values["voice"]
+        language_code: str | None = values["language_code"]
+        timeout: float = values["timeout"]
 
         # Only the fields that were set: the API's own defaults apply to the rest.
         speech_config: dict = {}
@@ -117,7 +149,9 @@ class GeminiModule(TTSModule):
         self._client.close()
 
     @classmethod
-    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+    def list_voices(
+        cls, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> list[VoiceInfo]:
         """Gemini has no voice-listing endpoint."""
         raise VoiceListingUnsupported(
             "Gemini module: the API has no voice-listing endpoint; the prebuilt "

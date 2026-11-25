@@ -6,25 +6,30 @@ are imported lazily inside `__init__` so `import tts_engine` and `load_module`
 never require the `pocket` extra — a missing extra becomes a clear `ConfigError`.
 """
 
+import hashlib
 import logging
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator
+from pathlib import Path
+from typing import Any
+from urllib.parse import urlparse
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
+    Report,
     TTSError,
     TTSModule,
     TTSOptions,
     VoiceInfo,
     VoiceListingUnsupported,
-    finite_number,
     float_to_int16_pcm,
-    optional_str,
+    hub_download,
     resolve_path,
     run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
 )
+from tts_engine.modules.fields import Field
 
 log = logging.getLogger(__name__)
 
@@ -32,61 +37,300 @@ _VALID_DEVICES = {"auto", "cpu", "cuda", "mps"}
 _VOICE_FILE_SUFFIXES = (".wav", ".mp3", ".flac", ".safetensors")
 _URL_PREFIXES = ("hf://", "http://", "https://")
 _LABEL = "Pocket module"
+_ITEM_TITLES = {
+    "model": "Pocket model weights",
+    "tokenizer": "Pocket tokenizer",
+    "voice": "Pocket voice",
+}
+
+
+def _hub_ref(source: str) -> tuple[str, str, str | None]:
+    """An `hf://owner/repo/path[@revision]` reference as the repository, the
+    file and the revision, split as the library's `download_if_necessary` does."""
+    parts = source.removeprefix("hf://").split("/")
+    repo_id, filename, revision = "/".join(parts[:2]), "/".join(parts[2:]), None
+    if "@" in filename:
+        filename, revision = filename.split("@")
+    return repo_id, filename, revision
+
+
+def _cached(source: str) -> tuple[str | None, bool]:
+    """Where pocket-tts's `download_if_necessary` would find `source` without
+    fetching it (None when it would fetch, or when a local file is absent),
+    and whether it can be fetched. Mirrors that function: an `hf://` reference
+    is in the Hugging Face cache, an `http(s)://` one in `~/.cache/pocket_tts`
+    under the hash of its URL, anything else is a local path."""
+    if source.startswith(("http://", "https://")):
+        suffix = Path(urlparse(source).path).suffix
+        name = hashlib.sha256(source.encode()).hexdigest() + suffix
+        path = Path.home() / ".cache" / "pocket_tts" / name
+        return (str(path) if path.exists() else None), True
+    if source.startswith("hf://"):
+        from huggingface_hub import try_to_load_from_cache
+
+        cached = try_to_load_from_cache(*_hub_ref(source))
+        return (cached if isinstance(cached, str) else None), True
+    return (source if Path(source).is_file() else None), False
+
+
+def _is_voice_state(voice: str) -> bool:
+    """Whether `voice` is a `.safetensors` voice state (the library's rule)."""
+    if voice.startswith(("http://", "https://")):
+        voice = urlparse(voice).path
+    elif voice.startswith("hf://"):
+        voice = voice.rsplit("@", 1)[0]
+    return voice.endswith(".safetensors")
 
 
 class PocketModule(TTSModule):
     kind = "local"
+    title = "Pocket"
+    extra = "pocket"
+    fields = (
+        Field(
+            "voice",
+            "string",
+            "A preset voice name such as 'alba', an audio file to clone "
+            "(.wav, .mp3, .flac) or a .safetensors voice state, as a local "
+            "path or an hf:// or https:// URL. Absent, the model's default voice.",
+            nullable=False,
+        ),
+        Field(
+            "language",
+            "string",
+            "The model to load, named by its language: 'english', 'french', "
+            "'german', 'italian', 'portuguese', 'spanish', 'dutch', or a "
+            "variant such as 'english_2m_2026-10'. Not together with 'config'.",
+            implied="english",
+        ),
+        Field(
+            "config",
+            "string",
+            "A custom model config YAML, for community or fine-tuned weights: "
+            "a local path or an hf:// or https:// URL. Not together with "
+            "'language'.",
+            advanced=True,
+        ),
+        Field(
+            "device",
+            "string",
+            "The device the model runs on. 'auto' picks CUDA when available, "
+            "else the CPU.",
+            default="auto",
+            choices=tuple(sorted(_VALID_DEVICES)),
+            message=f"Pocket module 'device' must be one of {sorted(_VALID_DEVICES)}",
+        ),
+        Field(
+            "quantize",
+            "boolean",
+            "Run the model with 8-bit weights: about half the memory, and "
+            "faster on x86 CPUs. CPU only.",
+            default=False,
+            advanced=True,
+        ),
+        Field(
+            "temperature",
+            "number",
+            "The sampling temperature: higher values vary the speech more.",
+            implied=0.3,
+            minimum=0.0,
+            advanced=True,
+        ),
+        Field(
+            "max_tokens",
+            "integer",
+            "The token cap per chunk of text. Raise it only for unusually "
+            "long unbroken text.",
+            implied=50,
+            exclusive_minimum=0,
+            advanced=True,
+        ),
+    )
 
-    def __init__(self, config: dict) -> None:
-        voice = config.get("voice")
-        if "voice" in config and (not isinstance(voice, str) or not voice):
-            raise ConfigError("Pocket module 'voice' must be a non-empty string")
+    @classmethod
+    def config_rules(cls, values: dict[str, Any], config: dict) -> None:
+        if values["language"] is not None and values["config"] is not None:
+            raise ConfigError("Pocket module accepts 'language' or 'config', not both")
+        if values["quantize"] and values["device"] in ("cuda", "mps"):
+            raise ConfigError("Pocket module 'quantize' is CPU-only")
+
+    @staticmethod
+    def _voice(values: dict[str, Any], config: dict) -> str | None:
+        """The configured voice as the library takes it: a local voice file
+        relative to the config file (base_dir), anything else untouched."""
+        voice: str | None = values["voice"]
         if (
             voice is not None
             and voice.endswith(_VOICE_FILE_SUFFIXES)
             and "://" not in voice
         ):
-            # A local voice file: relative to the config file (base_dir).
-            voice = str(resolve_path(config, voice))
+            return str(resolve_path(config, voice))
+        return voice
 
-        language = optional_str(config, "language", label=_LABEL)
-        model_config = optional_str(config, "config", label=_LABEL)
-        if language is not None and model_config is not None:
-            raise ConfigError("Pocket module accepts 'language' or 'config', not both")
-        if model_config is not None and not model_config.startswith(_URL_PREFIXES):
-            model_config = str(resolve_path(config, model_config))
+    @classmethod
+    def _sources(cls, config: dict) -> dict[str, list[str]] | None:
+        """What loading this config reads, by item key: for each, the sources
+        the library tries in order, the first available one being used. None
+        when that cannot be told without loading the model (a custom `config`,
+        an unknown `language`, a library laid out differently). Imports the
+        library, reads its packaged model config, fetches nothing."""
+        values = cls.validated(config)
+        from pocket_tts import default_parameters
+        from pocket_tts.utils import utils as pocket_utils
+        from pocket_tts.utils.config import CONFIGS_DIR, load_config
 
-        device = config.get("device", "auto")
-        if not isinstance(device, str) or device not in _VALID_DEVICES:
-            raise ConfigError(
-                f"Pocket module 'device' must be one of {sorted(_VALID_DEVICES)}"
-            )
-
-        quantize = config.get("quantize", False)
-        if not isinstance(quantize, bool):
-            raise ConfigError("Pocket module 'quantize' must be a boolean")
-        if quantize and device in ("cuda", "mps"):
-            raise ConfigError("Pocket module 'quantize' is CPU-only")
-
-        temperature = finite_number(config, "temperature", label=_LABEL, minimum=0.0)
-
-        max_tokens = config.get("max_tokens")
-        if max_tokens is not None and (
-            isinstance(max_tokens, bool)
-            or not isinstance(max_tokens, int)
-            or max_tokens <= 0
-        ):
-            raise ConfigError("Pocket module 'max_tokens' must be an integer > 0")
-
+        if values["config"] is not None:
+            return None
         try:
-            import torch
-            from pocket_tts import TTSModel
-            from pocket_tts.default_parameters import get_default_voice_for_language
+            language = values["language"] or default_parameters.DEFAULT_LANGUAGE
+            path = CONFIGS_DIR / f"{language}.yaml"
+            if not path.is_file():
+                return None
+            model = load_config(path)
+            weights = model.weights_path
+            public_weights = model.weights_path_without_voice_cloning
+            tokenizer = model.flow_lm.lookup_table.tokenizer_path
+            if (
+                not isinstance(weights, str)
+                or not isinstance(tokenizer, str)
+                or model.flow_lm.weights_path is not None
+                or model.mimi.weights_path is not None
+            ):
+                return None
+            voice = cls._voice(
+                values, config
+            ) or default_parameters.get_default_voice_for_language(
+                values["language"], None
+            )
+            cloned = False
+            if _is_voice_state(voice):
+                pass
+            elif voice in pocket_utils._ORIGINS_OF_PREDEFINED_VOICES:
+                # A preset is the voice state precomputed for this model.
+                voice = pocket_utils.get_predefined_voice(
+                    language=path.stem, name=voice
+                )
+            else:
+                cloned = True
+            # Cloning needs the gated weights; otherwise the library falls
+            # back on the public ones when it cannot get those.
+            models = [weights]
+            if isinstance(public_weights, str) and not cloned:
+                models.append(public_weights)
+            return {
+                "model": models,
+                "tokenizer": [tokenizer],
+                "voice": [voice],
+            }
+        except Exception:
+            log.debug("pocket-tts files could not be identified", exc_info=True)
+            return None
+
+    @classmethod
+    def check_files(cls, config: dict) -> list[dict[str, Any]]:
+        unknown = {
+            "id": "pocket:model",
+            "title": "Pocket model",
+            "status": "unknown",
+            "preparable": True,
+            # The model load fetches it.
+            "required": False,
+        }
+        try:
+            sources = cls._sources(config)
+        except ImportError:
+            return [unknown | {"detail": "The pocket extra is not installed."}]
+        if sources is None:
+            return [
+                unknown
+                | {
+                    "detail": "The model and its voice are fetched the first "
+                    "time the model loads."
+                }
+            ]
+        found = []
+        for key, candidates in sources.items():
+            looked_up = [_cached(source) for source in candidates]
+            cached = next((path for path, _ in looked_up if path is not None), None)
+            preparable = looked_up[0][1]
+            if cached is not None:
+                detail = cached
+            elif preparable:
+                detail = f"{candidates[0]} is not downloaded yet."
+            else:
+                detail = f"File not found: {candidates[0]}"
+            found.append(
+                {
+                    "id": f"pocket:{key}",
+                    "title": _ITEM_TITLES[key],
+                    "status": "ready" if cached is not None else "missing",
+                    "detail": detail,
+                    "preparable": preparable,
+                    # The model load fetches a missing file it can fetch; a
+                    # local file the config names, only the user can supply.
+                    "required": not preparable,
+                }
+            )
+        return found
+
+    @classmethod
+    def fetch(cls, config: dict, item: dict[str, Any], report: Report) -> None:
+        sources = cls._sources(config)
+        if sources is None:
+            # The files cannot be named ahead: load the model once, which
+            # fetches them, and release it.
+            report(None, "Loading the model to fetch its files")
+            cls(config).close()
+            return
+        from pocket_tts.utils.utils import download_if_necessary
+
+        candidates = sources[item["id"].split(":", 1)[1]]
+        for index, source in enumerate(candidates):
+            try:
+                if source.startswith("hf://"):
+                    # What the library's `download_if_necessary` calls for it,
+                    # its bytes measured.
+                    hub_download(*_hub_ref(source), report)
+                else:
+                    report(None, f"Downloading {source}")
+                    download_if_necessary(source)
+                return
+            except Exception as exc:
+                # The next candidate stands in (the public weights for the
+                # gated ones); the last one's failure is the item's.
+                if index == len(candidates) - 1:
+                    raise TTSError(f"pocket-tts download failed: {exc}") from exc
+
+    @classmethod
+    def imports(cls) -> None:
+        try:
+            import torch  # noqa: F401
+            from pocket_tts import TTSModel  # noqa: F401
+            from pocket_tts.default_parameters import (
+                get_default_voice_for_language,  # noqa: F401
+            )
         except ImportError as exc:
             raise ConfigError(
                 "The 'pocket' module requires the pocket extra: "
                 "pip install tts-engine[pocket]"
             ) from exc
+
+    def __init__(self, config: dict) -> None:
+        values = self.validated(config)
+        voice = self._voice(values, config)
+        language: str | None = values["language"]
+        model_config: str | None = values["config"]
+        if model_config is not None and not model_config.startswith(_URL_PREFIXES):
+            model_config = str(resolve_path(config, model_config))
+        device: str = values["device"]
+        quantize: bool = values["quantize"]
+        temperature: float | None = values["temperature"]
+        max_tokens: int | None = values["max_tokens"]
+
+        self.imports()
+        import torch
+        from pocket_tts import TTSModel
+        from pocket_tts.default_parameters import get_default_voice_for_language
 
         if device == "auto":
             if quantize:

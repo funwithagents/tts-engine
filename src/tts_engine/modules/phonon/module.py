@@ -10,23 +10,23 @@ import logging
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.base import (
+    Report,
     TTSError,
     TTSModule,
     TTSOptions,
     VoiceInfo,
     cleanup,
-    finite_number,
     float_to_int16_pcm,
-    optional_str,
-    positive_int,
     resolve_path,
     run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
 )
+from tts_engine.modules.fields import Field
 
 log = logging.getLogger(__name__)
 
@@ -35,51 +35,123 @@ log = logging.getLogger(__name__)
 # `_pool_sized` says whether a model was loaded yet, since None is also a count.
 _pool_sized = False
 _pool_threads: int | None = None
+# Serializes the loads `fetch` makes (see there).
+_prepare_lock = threading.Lock()
 
-_LANGUAGES = {"en", "fr", "de", "es", "pt", "none"}
+_LANGUAGES = ("en", "fr", "de", "es", "pt", "none")
 _DEFAULT_LANGUAGE = "en"
+# What ptts loads when no model is named (it pins a revision of this one).
+_DEFAULT_MODEL = "hf://gradium/phonon-31m-en"
 _LABEL = "Phonon module"
+_MISSING_EXTRA = (
+    "The 'phonon' module requires the phonon extra: pip install tts-engine[phonon]"
+)
 
 
 class PhononModule(TTSModule):
     kind = "local"
+    title = "Phonon"
+    extra = "phonon"
+    fields = (
+        Field(
+            "language",
+            "string",
+            "The language the text is normalized for before it is spoken, or "
+            "'none' to skip normalization. It does not select the model.",
+            default=_DEFAULT_LANGUAGE,
+            choices=_LANGUAGES,
+            message=f"Phonon module 'language' must be one of {sorted(_LANGUAGES)}",
+        ),
+        Field(
+            "model",
+            "string",
+            "The model: hf://owner/name[@revision] on the Hugging Face Hub, or "
+            "a local model directory.",
+            implied=_DEFAULT_MODEL,
+        ),
+        Field(
+            "voice",
+            "string",
+            "A Phonon catalog voice name such as 'Juniper', or a local "
+            ".safetensors voice file. Absent, the model's default voice speaks.",
+        ),
+        Field(
+            "device",
+            "string",
+            "Where the model runs: 'auto' picks the most capable device of the "
+            "installed build, or name one, such as 'cpu' or 'metal'.",
+            default="auto",
+            advanced=True,
+        ),
+        Field(
+            "quant",
+            "string",
+            "The weight format to load, such as 'q8_0' or 'q4k'. It works on "
+            "the CPU only; absent, the model's own weights are used.",
+            advanced=True,
+        ),
+        Field(
+            "temperature",
+            "number",
+            "The sampling temperature: higher values vary the delivery more.",
+            implied=0.3,
+            minimum=0.0,
+            advanced=True,
+        ),
+        Field(
+            "cfg_coef",
+            "number",
+            "The guidance coefficient: how closely the speech follows the "
+            "voice. Absent, the model's own value is used.",
+            advanced=True,
+        ),
+        Field(
+            "threads",
+            "integer",
+            "The number of CPU threads synthesis runs on. Absent, every core "
+            "is used. The first Phonon model loaded in a process decides it.",
+            minimum=1,
+            advanced=True,
+        ),
+    )
 
-    def __init__(self, config: dict) -> None:
-        language = config.get("language", _DEFAULT_LANGUAGE)
-        if not isinstance(language, str) or language not in _LANGUAGES:
-            raise ConfigError(
-                f"Phonon module 'language' must be one of {sorted(_LANGUAGES)}"
-            )
-
-        model = optional_str(config, "model", label=_LABEL)
+    @staticmethod
+    def _model(values: dict[str, Any], config: dict) -> str | None:
+        """The model as ptts takes it: None (its default), an `hf://`
+        reference, or a local directory or config.json relative to base_dir."""
+        model: str | None = values["model"]
         if model is not None and not model.startswith("hf://"):
-            # A local model directory or config.json: relative to base_dir.
             model = str(resolve_path(config, model))
+        return model
 
-        voice = optional_str(config, "voice", label=_LABEL)
-        # A local embedding file is registered under its stem after loading;
-        # anything else is a voice name ptts resolves itself.
-        voice_file: Path | None = None
+    @staticmethod
+    def _voice(values: dict[str, Any], config: dict) -> tuple[str | None, Path | None]:
+        """The voice's name and, for a local embedding file, its path: the
+        file is registered under its stem after loading; anything else is a
+        voice name ptts resolves itself."""
+        voice: str | None = values["voice"]
         if voice is not None and voice.endswith(".safetensors"):
             voice_file = resolve_path(config, voice)
-            voice = voice_file.stem
+            return voice_file.stem, voice_file
+        return voice, None
 
-        device = config.get("device", "auto")
-        if not isinstance(device, str) or not device:
-            raise ConfigError("Phonon module 'device' must be a non-empty string")
-
-        quant = optional_str(config, "quant", label=_LABEL)
-        temperature = finite_number(config, "temperature", label=_LABEL, minimum=0.0)
-        cfg_coef = finite_number(config, "cfg_coef", label=_LABEL)
-        threads = positive_int(config, "threads", label=_LABEL)
+    @classmethod
+    def _load(cls, values: dict[str, Any], config: dict) -> Any:
+        """Load the model this config selects (downloading what it lacks) and
+        return the `ptts.TTS`, its voice file registered."""
+        language: str = values["language"]
+        model = cls._model(values, config)
+        voice, voice_file = cls._voice(values, config)
+        device: str = values["device"]
+        quant: str | None = values["quant"]
+        temperature: float | None = values["temperature"]
+        cfg_coef: float | None = values["cfg_coef"]
+        threads: int | None = values["threads"]
 
         try:
             import ptts
         except ImportError as exc:
-            raise ConfigError(
-                "The 'phonon' module requires the phonon extra: "
-                "pip install tts-engine[phonon]"
-            ) from exc
+            raise ConfigError(_MISSING_EXTRA) from exc
 
         # Only the fields that were set: the library's own defaults apply to
         # the rest, and "auto" lets ptts pick its most capable device.
@@ -128,15 +200,97 @@ class PhononModule(TTSModule):
 
         if not _pool_sized:
             _pool_sized, _pool_threads = True, threads
+        return tts
+
+    @classmethod
+    def check_files(cls, config: dict) -> list[dict[str, Any]]:
+        """The model and, when one is named, the voice. ptts downloads inside
+        the model load and picks the files itself (by device, weight format
+        and what the repository holds), so what comes from the Hub is
+        `unknown` until loaded; a local path is `ready` or `missing`."""
+        values = cls.validated(config)
+        model = cls._model(values, config)
+        voice, voice_file = cls._voice(values, config)
+        try:
+            import ptts  # noqa: F401  (only whether the extra is there)
+
+            installed = True
+        except ImportError:
+            installed = False
+
+        def local(path: Path) -> dict[str, Any]:
+            present = path.exists()
+            return {
+                "status": "ready" if present else "missing",
+                "detail": str(path) if present else f"Not found: {path}",
+                "preparable": False,
+                "required": True,
+            }
+
+        def fetched(detail: str) -> dict[str, Any]:
+            return {
+                "status": "unknown",
+                "detail": detail if installed else "The phonon extra is not installed.",
+                "preparable": True,
+                # The model load downloads it when it is missing.
+                "required": False,
+            }
+
+        found: list[dict[str, Any]] = []
+        item: dict[str, Any] = {"id": "phonon:model", "title": "Phonon model"}
+        if model is not None and not model.startswith("hf://"):
+            item |= local(Path(model))
+        else:
+            item |= fetched(
+                f"{model or _DEFAULT_MODEL} is fetched from the Hugging Face "
+                "Hub the first time it loads."
+            )
+        found.append(item)
+        if voice is not None:
+            item = {"id": "phonon:voice", "title": "Phonon voice"}
+            if voice_file is not None:
+                item |= local(voice_file)
+            else:
+                item |= fetched(
+                    f"The voice {voice!r} is fetched from the Phonon voice "
+                    "catalog the first time the model loads with it."
+                )
+            found.append(item)
+        return found
+
+    @classmethod
+    def fetch(cls, config: dict, item: dict[str, Any], report: Report) -> None:
+        # ptts has no download of its own apart from the load, and reports no
+        # progress: load the model as the constructor does (with its voice, for
+        # the voice item), then release it. One load at a time: the model and
+        # the voice prepared together share the model's files, and each load
+        # holds a model in memory.
+        report(None, "Loading the model to fetch its files")
+        with _prepare_lock:
+            values = cls.validated(config)
+            if item["id"] != "phonon:voice":
+                values = values | {"voice": None}
+            cls._load(values, config)
+
+    @classmethod
+    def imports(cls) -> None:
+        try:
+            import ptts  # noqa: F401
+        except ImportError as exc:
+            raise ConfigError(_MISSING_EXTRA) from exc
+
+    def __init__(self, config: dict) -> None:
+        values = self.validated(config)
+        tts = self._load(values, config)
         self._tts = tts
-        self._voice: str | None = voice
+        self._voice_name: str | None = self._voice(values, config)[0]
         self._sample_rate = int(tts.sample_rate)
         log.info(
             "phonon model loaded: model=%s device=%s quant=%s threads=%s",
-            model or "default",
+            self._model(values, config) or "default",
             getattr(tts, "device", "?"),
             getattr(tts, "quant", "?"),
-            threads or "default",
+            values["threads"] or "default",
         )
 
     def close(self) -> None:
@@ -151,9 +305,7 @@ class PhononModule(TTSModule):
         try:
             import ptts
         except ImportError as exc:
-            raise ConfigError(
-                "The 'phonon' module requires the phonon extra: pip install tts-engine[phonon]"
-            ) from exc
+            raise ConfigError(_MISSING_EXTRA) from exc
         try:
             entries = ptts.catalog_voices()
         except Exception as exc:
@@ -179,7 +331,7 @@ class PhononModule(TTSModule):
     ) -> None:
         """Synthesize one text and feed its PCM, polling `stop`."""
         try:
-            audio = self._tts.stream(text, voice=self._voice)
+            audio = self._tts.stream(text, voice=self._voice_name)
         except Exception as exc:
             raise TTSError(f"phonon synthesis failed: {exc}") from exc
         # Leaving the block stops the decoder threads, on every path; a failing

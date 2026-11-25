@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tts_engine.config import ConfigError
+from tts_engine.config import ConfigError, MissingSecretError
 from tts_engine.modules import (
     REGISTRY,
     RENAMED,
@@ -24,11 +24,11 @@ from tts_engine.modules.base import (
     feed_with_lookahead,
     finite_number,
     float_to_int16_pcm,
+    key_env_field,
     normalize_gender,
     open_cancellable,
     optional_str,
     positive_int,
-    resolve_api_key,
     resolve_path,
     run_cancellable_worker,
     run_text_stream_worker,
@@ -748,43 +748,79 @@ def test_slice_text_short_text_is_one_slice_and_a_long_word_is_cut_at_the_bound(
 _LABEL = "X module"
 
 
-def test_resolve_api_key_prefers_the_literal_over_the_variable(monkeypatch):
-    monkeypatch.setenv("TTS_TEST_KEY", "from-env")
-    both = {"api_key": "literal", "api_key_env": "TTS_TEST_KEY"}
-    assert resolve_api_key(both, label=_LABEL) == "literal"
-    env_only = {"api_key": "", "api_key_env": "TTS_TEST_KEY"}
-    assert resolve_api_key(env_only, label=_LABEL) == "from-env"
+class _Keyed(TTSModule):
+    """A module reading its key from TTS_DEFAULT_KEY unless its config names another;
+    only its classmethods are used."""
+
+    title = "X"
+    fields = (key_env_field("X", "TTS_DEFAULT_KEY"),)
+
+
+def test_resolve_api_key_reads_the_named_variable_or_the_field_s_default(monkeypatch):
+    monkeypatch.setenv("TTS_TEST_KEY", "named")
+    monkeypatch.setenv("TTS_DEFAULT_KEY", "default")
+
+    assert _Keyed.resolve_api_key({"api_key_env": "TTS_TEST_KEY"}) == "named"
+    assert _Keyed.resolve_api_key({}) == "default"
+    assert _Keyed.resolve_api_key({"api_key_env": None}) == "default"
+
+
+def test_resolve_api_key_reads_the_secrets_given_in_code_before_the_environment(
+    monkeypatch,
+):
+    monkeypatch.setenv("TTS_DEFAULT_KEY", "from-env")
+
+    assert _Keyed.resolve_api_key({}, {"TTS_DEFAULT_KEY": "from-code"}) == "from-code"
+    assert _Keyed.resolve_api_key({}, {"OTHER": "x"}) == "from-env"
 
 
 @pytest.mark.parametrize("value", [None, ""])
-def test_resolve_api_key_names_an_unset_or_empty_variable(monkeypatch, value):
+def test_no_key_under_the_name_is_a_missing_secret_carrying_the_variable(
+    monkeypatch, value
+):
     if value is None:
         monkeypatch.delenv("TTS_TEST_KEY", raising=False)
     else:
         monkeypatch.setenv("TTS_TEST_KEY", value)
+
+    with pytest.raises(MissingSecretError) as error:
+        _Keyed.resolve_api_key({"api_key_env": "TTS_TEST_KEY"}, {"TTS_TEST_KEY": ""})
+
+    assert (error.value.variable, error.value.label) == ("TTS_TEST_KEY", "X module")
+    assert str(error.value) == (
+        "X module: no key under 'TTS_TEST_KEY': set the environment variable, "
+        "or pass it in `secrets`"
+    )
+    assert isinstance(error.value, ConfigError)
+
+
+def test_only_a_module_that_reads_a_key_is_given_the_secrets():
+    from tts_engine.modules import load_module
+    from tts_engine.modules.tone import ToneModule
+
+    # The tone fixture's constructor takes the config alone: it is never handed them.
+    module = load_module({"type": "tone"}, secrets={"TTS_DEFAULT_KEY": "unused"})
+
+    assert isinstance(module, ToneModule)
+    assert not ToneModule.takes_secrets() and _Keyed.takes_secrets()
+
+
+@pytest.mark.parametrize("name", ["", ["K"]])
+def test_resolve_api_key_refuses_a_variable_name_that_is_not_one(name):
     with pytest.raises(
-        ConfigError, match="X module: environment variable 'TTS_TEST_KEY'"
+        ConfigError, match="X module 'api_key_env' must be a non-empty string"
     ):
-        resolve_api_key({"api_key_env": "TTS_TEST_KEY"}, label=_LABEL)
+        _Keyed.resolve_api_key({"api_key_env": name})
 
 
-@pytest.mark.parametrize(
-    "config", [{}, {"api_key": ""}, {"api_key": None, "api_key_env": None}]
-)
-def test_resolve_api_key_requires_one_of_the_fields(config):
+@pytest.mark.parametrize("key", ["sk-123", "", None])
+def test_a_key_written_in_the_config_is_refused_whatever_its_value(key):
     with pytest.raises(
-        ConfigError, match="X module requires a non-empty 'api_key' or 'api_key_env'"
+        ConfigError,
+        match="X module does not take 'api_key': keep the key in an environment "
+        "variable and name it in 'api_key_env'",
     ):
-        resolve_api_key(config, label=_LABEL)
-
-
-@pytest.mark.parametrize(
-    "config, field",
-    [({"api_key": 5}, "api_key"), ({"api_key_env": ["K"]}, "api_key_env")],
-)
-def test_resolve_api_key_rejects_a_non_string(config, field):
-    with pytest.raises(ConfigError, match=f"X module '{field}' must be a string"):
-        resolve_api_key(config, label=_LABEL)
+        _Keyed.resolve_api_key({"api_key": key})
 
 
 def test_optional_str_absent_null_and_default_policy():

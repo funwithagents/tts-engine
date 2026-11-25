@@ -129,7 +129,7 @@ async def test_constructor_wires_module_and_player_from_config(mocker):
     )
     engine = TTSEngine(cfg)
 
-    load_module.assert_called_once_with({"type": "fake", "k": "v"})
+    load_module.assert_called_once_with({"type": "fake", "k": "v"}, secrets=None)
     # The player is opened at the module's declared sample rate, which the
     # engine also exposes.
     audio_player.assert_called_once_with(device=3, sample_rate=24000)

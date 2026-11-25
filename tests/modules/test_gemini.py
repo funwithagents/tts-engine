@@ -18,7 +18,7 @@ from tts_engine.config import ConfigError
 from tts_engine.modules.base import TTSError, TTSOptions, VoiceListingUnsupported
 from tts_engine.modules.gemini import GeminiModule
 
-_BASE = {"type": "gemini", "api_key": "k"}
+_BASE = {"type": "gemini"}
 # The client's default request timeout (30 s, in the SDK's milliseconds).
 _HTTP_OPTIONS = {"http_options": {"timeout": 30000}}
 _MIME = "audio/l16; rate=24000; channels=1"

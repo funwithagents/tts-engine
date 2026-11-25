@@ -21,8 +21,7 @@ pip install "tts-engine[openai]"
 
 | Field | Required | Default | Description |
 |---|---|---|---|
-| `api_key_env` | one of `api_key_env` or `api_key` | — | Name of the environment variable holding the API key. Recommended for file-based configuration. |
-| `api_key` | one of `api_key_env` or `api_key` | — | Literal API key. A non-empty literal key takes precedence over `api_key_env`. |
+| `api_key_env` | no | `OPENAI_API_KEY` | Name of the environment variable holding the API key. The key itself is never written in the config: a config with `api_key` is refused. |
 | `model` | no | `gpt-realtime-2.1-mini` | Realtime model ID, e.g. `gpt-realtime-2.1`. |
 | `voice` | no | `marin` | A built-in voice: `alloy`, `ash`, `ballad`, `coral`, `echo`, `sage`, `shimmer`, `verse`, `marin` or `cedar`. |
 | `instructions` | no | — | Voice direction such as tone, pace or accent, added to the module's instruction to read the text verbatim. |

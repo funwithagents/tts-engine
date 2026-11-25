@@ -11,6 +11,7 @@ working through ``RENAMED`` (old → new), with a deprecation warning.
 """
 
 import logging
+from collections.abc import Mapping
 
 from tts_engine.config import ConfigError
 from tts_engine.modules.audiofile import AudioFileModule
@@ -72,12 +73,24 @@ def resolve_type(module_type: object) -> str:
     return module_type
 
 
-def load_module(tts_config: dict) -> TTSModule:
+def load_module(
+    tts_config: dict, *, secrets: Mapping[str, str] | None = None
+) -> TTSModule:
+    """The module ``tts_config["type"]`` names, built from its block. *secrets*
+    (variable name → key) are given to a module that reads a key, which looks them
+    up before the environment (`TTSModule.resolve_api_key`)."""
     cls = REGISTRY[resolve_type(tts_config.get("type"))]
+    if cls.takes_secrets():
+        return cls(tts_config, secrets=secrets)  # type: ignore[call-arg]
     return cls(tts_config)
 
 
-def list_voices(module_config: dict) -> list[VoiceInfo]:
+def list_voices(
+    module_config: dict, *, secrets: Mapping[str, str] | None = None
+) -> list[VoiceInfo]:
     """The voices of the backend named by ``module_config["type"]`` (see
-    ``TTSModule.list_voices``)."""
-    return REGISTRY[resolve_type(module_config.get("type"))].list_voices(module_config)
+    ``TTSModule.list_voices``); *secrets* as for `load_module`."""
+    cls = REGISTRY[resolve_type(module_config.get("type"))]
+    if cls.takes_secrets():
+        return cls.list_voices(module_config, secrets=secrets)  # type: ignore[call-arg]
+    return cls.list_voices(module_config)

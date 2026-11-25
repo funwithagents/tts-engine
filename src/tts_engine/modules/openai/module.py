@@ -20,7 +20,7 @@ import logging
 import queue
 import threading
 import time
-from collections.abc import AsyncIterator, Callable, Iterable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterable, Iterator, Mapping
 from typing import TYPE_CHECKING
 
 from tts_engine.config import ConfigError
@@ -31,16 +31,15 @@ from tts_engine.modules.base import (
     TTSOptions,
     VoiceInfo,
     VoiceListingUnsupported,
-    finite_number,
+    key_env_field,
     open_cancellable,
-    optional_str,
-    resolve_api_key,
     run_cancellable_worker,
     run_text_stream_worker,
     segment_sentences,
     slice_bytes_for,
     slice_text,
 )
+from tts_engine.modules.fields import Field
 
 if TYPE_CHECKING:  # the SDK is an optional extra, imported lazily at runtime
     from openai.types.realtime import (
@@ -178,33 +177,72 @@ def _error_text(error) -> str:
 
 class OpenAIModule(TTSModule):
     kind = "hosted"
+    title = "OpenAI"
+    extra = "openai"
+    fields = (
+        Field(
+            "voice",
+            "string",
+            "The built-in voice to speak with: alloy, ash, ballad, coral, echo, "
+            "sage, shimmer, verse, marin or cedar.",
+            default=_DEFAULT_VOICE,
+        ),
+        Field(
+            "model",
+            "string",
+            "The OpenAI Realtime model.",
+            default=_DEFAULT_MODEL,
+        ),
+        key_env_field("OpenAI", "OPENAI_API_KEY"),
+        Field(
+            "instructions",
+            "string",
+            "A direction for the voice, such as its tone, pace or accent. The "
+            "text is still read word for word.",
+        ),
+        Field(
+            "speed",
+            "number",
+            "The speaking rate, as a multiplier from 0.25 to 1.5.",
+            implied=1.0,
+            minimum=_MIN_SPEED,
+            maximum=_MAX_SPEED,
+        ),
+        Field(
+            "timeout",
+            "number",
+            "Seconds to wait for the provider before a stalled request fails.",
+            default=_DEFAULT_TIMEOUT,
+            exclusive_minimum=0,
+            advanced=True,
+        ),
+    )
 
-    def __init__(self, config: dict) -> None:
+    @classmethod
+    def imports(cls) -> None:
         try:
             import websockets.sync.client  # noqa: F401  (the SDK's Realtime transport)
-            from openai import OpenAI
+            from openai import OpenAI  # noqa: F401
         except ImportError as exc:
             raise ConfigError(
                 "The 'openai' module requires the openai extra: "
                 "pip install tts-engine[openai]"
             ) from exc
 
-        api_key = resolve_api_key(config, label=_LABEL)
-        self._model = optional_str(
-            config, "model", label=_LABEL, default=_DEFAULT_MODEL
-        )
-        voice = optional_str(config, "voice", label=_LABEL, default=_DEFAULT_VOICE)
-        instructions = optional_str(config, "instructions", label=_LABEL)
-        speed = finite_number(
-            config, "speed", label=_LABEL, minimum=_MIN_SPEED, maximum=_MAX_SPEED
-        )
-        self._timeout = finite_number(
-            config,
-            "timeout",
-            label=_LABEL,
-            default=_DEFAULT_TIMEOUT,
-            exclusive_minimum=0,
-        )
+    def __init__(
+        self, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> None:
+        values = self.validated(config)
+        self.imports()
+        import websockets.sync.client  # noqa: F401  (the SDK's Realtime transport)
+        from openai import OpenAI
+
+        api_key = self.resolve_api_key(config, secrets)
+        self._model: str = values["model"]
+        voice: str = values["voice"]
+        instructions: str | None = values["instructions"]
+        speed: float | None = values["speed"]
+        self._timeout: float = values["timeout"]
         self._slice_bytes = slice_bytes_for(_SAMPLE_RATE)
 
         # The verbatim rule always leads; a voice direction is added to it,
@@ -246,7 +284,9 @@ class OpenAIModule(TTSModule):
         self._client.close()
 
     @classmethod
-    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+    def list_voices(
+        cls, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> list[VoiceInfo]:
         """The Realtime API has no voice-listing endpoint."""
         raise VoiceListingUnsupported(
             "OpenAI module: the Realtime API has no voice-listing endpoint; its "

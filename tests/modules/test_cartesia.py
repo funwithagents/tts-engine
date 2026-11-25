@@ -26,7 +26,7 @@ from tts_engine.modules.base import TTSError, TTSOptions, slice_text
 from tts_engine.modules.cartesia import CartesiaModule
 from tts_engine.modules.cartesia import module as cartesia_module
 
-_BASE = {"type": "cartesia", "api_key": "k", "voice_id": "voice-1"}
+_BASE = {"type": "cartesia", "voice_id": "voice-1"}
 _AUDIO = b"\x01\x00\x02\x00"
 
 
@@ -1071,9 +1071,7 @@ def test_list_voices_maps_every_voice_and_closes_the_client(monkeypatch):
         country="US",
     )
     calls = _fake_voice_sdk(monkeypatch, voices=[voice])
-    (eden,) = CartesiaModule.list_voices(
-        {"type": "cartesia", "api_key": "k", "timeout": 5}
-    )
+    (eden,) = CartesiaModule.list_voices({"type": "cartesia", "timeout": 5})
 
     assert calls["client"] == {"api_key": "k", "timeout": 5.0}
     assert calls["list"] == {"limit": 100}
@@ -1086,5 +1084,5 @@ def test_list_voices_maps_every_voice_and_closes_the_client(monkeypatch):
 def test_list_voices_failure_is_a_tts_error_and_closes_the_client(monkeypatch):
     calls = _fake_voice_sdk(monkeypatch, error=RuntimeError("boom"))
     with pytest.raises(TTSError, match="voice listing failed: boom"):
-        CartesiaModule.list_voices({"type": "cartesia", "api_key": "k"})
+        CartesiaModule.list_voices({"type": "cartesia"})
     assert calls["closed"]

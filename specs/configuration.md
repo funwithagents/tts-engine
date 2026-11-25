@@ -64,7 +64,7 @@ Everything needed to build a `TTSEngine`: the TTS module config, the audio playe
 
 ```json
 "engine": {
-  "module": { "type": "elevenlabs", "api_key": "...", "voice_id": "...", ... },
+  "module": { "type": "elevenlabs", "api_key_env": "ELEVENLABS_API_KEY", "voice_id": "...", ... },
   "player": { "device": null },
   "gain_db": -3.5
 }
@@ -88,7 +88,7 @@ The sanctioned in-memory constructor: it takes the raw `engine` block (the objec
 engine_cfg = TTSEngineConfig.from_dict({"module": {"type": "elevenlabs", ...}, "player": {"device": null}})
 ```
 
-The `module` block is carried through as a raw dict, with exactly one loader-side adjustment: the reserved `base_dir` key is absolutized / filled in as described under "`engine.module` block". **No environment variables are read** at this stage (the module resolves its own `api_key`/`api_key_env` later, at engine construction), so a config naming only an unset `api_key_env` still constructs. Use this to build an engine config from an in-memory dict — e.g. a host app composing several engine configs — without writing a temp file or duplicating validation; pass `base_dir=` when that dict names relative files.
+The `module` block is carried through as a raw dict, with exactly one loader-side adjustment: the reserved `base_dir` key is absolutized / filled in as described under "`engine.module` block". **No environment variables are read** at this stage (the module reads the variable its `api_key_env` names later, at engine construction), so a config naming only an unset `api_key_env` still constructs. Use this to build an engine config from an in-memory dict — e.g. a host app composing several engine configs — without writing a temp file or duplicating validation; pass `base_dir=` when that dict names relative files.
 
 ### `engine.module` block
 
@@ -99,6 +99,8 @@ Selects and configures the active TTS module.
 | `type` | string | yes | Module identifier (e.g. `"elevenlabs"`, `"pocket"`, `"tone"`, `"audiofile"`). Must match a key in the module registry. |
 | `base_dir` | string | no | **Reserved key**, meaningful to every module: the directory that relative file paths in this block (a WAV file, a voice `.wav`) resolve against. Normally you omit it and the loader fills it in (below). |
 | *(other fields)* | any | depends | Module-specific configuration, parsed by the module itself. |
+
+**No key in a config.** A hosted module reads its API key from an environment variable, the one its `api_key_env` field names or the provider's usual one by default; the config never holds the key itself ([elevenlabs-module.md](modules/elevenlabs.md), "API key resolution"). A module block with an `api_key` field, which earlier versions accepted, is refused at construction (and by `check_config`): `<Title> module does not take 'api_key': keep the key in an environment variable and name it in 'api_key_env'`.
 
 `type` and `base_dir` are the only keys the config layer knows about; every other field is passed to the module constructor as-is and validated there. `TTSEngineConfig.module` carries the block through as a raw `dict`, matching the `TTSModule.__init__(config: dict)` contract in [tts-module-interface.md](tts-module-interface.md).
 

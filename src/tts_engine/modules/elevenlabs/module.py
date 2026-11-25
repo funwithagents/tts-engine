@@ -23,7 +23,7 @@ import math
 import threading
 import time
 import urllib.parse
-from collections.abc import AsyncIterator, Callable, Iterable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 
 from tts_engine.config import ConfigError
@@ -34,13 +34,13 @@ from tts_engine.modules.base import (
     VoiceInfo,
     cleanup,
     finite_number,
+    key_env_field,
     normalize_gender,
-    optional_str,
-    resolve_api_key,
     run_cancellable_worker,
     run_text_stream_worker,
     split_at_last_space,
 )
+from tts_engine.modules.fields import Field
 
 _OUTPUT_FORMAT = "mp3_44100_128"
 _DEFAULT_TIMEOUT = 30.0
@@ -118,51 +118,87 @@ def _api_error(exc: Exception) -> str:
 
 class ElevenLabsModule(TTSModule):
     kind = "hosted"
+    title = "ElevenLabs"
+    extra = "elevenlabs"
+    fields = (
+        Field(
+            "voice_id",
+            "string",
+            "The id of the voice to speak with.",
+            required=True,
+            message="ElevenLabs module requires a non-empty 'voice_id'",
+        ),
+        Field(
+            "model",
+            "string",
+            "The ElevenLabs model. A v3 or v4 model is spoken through the "
+            "text-to-dialogue API.",
+            default="eleven_flash_v2_5",
+        ),
+        key_env_field("ElevenLabs", "ELEVENLABS_API_KEY"),
+        Field(
+            "stability",
+            "number",
+            "How steady the voice stays from one sentence to the next, from 0 "
+            "(more expressive) to 1 (more consistent).",
+            default=0.5,
+            minimum=0.0,
+            maximum=1.0,
+        ),
+        Field(
+            "similarity_boost",
+            "number",
+            "How closely the output follows the original voice, from 0 to 1.",
+            default=0.75,
+            minimum=0.0,
+            maximum=1.0,
+        ),
+        Field(
+            "timeout",
+            "number",
+            "Seconds a request may take before it is given up.",
+            default=_DEFAULT_TIMEOUT,
+            exclusive_minimum=0,
+            advanced=True,
+        ),
+    )
 
-    def __init__(self, config: dict) -> None:
+    @classmethod
+    def imports(cls) -> None:
         try:
-            import miniaudio
-            from elevenlabs import ElevenLabs
-            from elevenlabs.types import VoiceSettings
-            from websockets.exceptions import ConnectionClosedOK
-            from websockets.sync.client import connect
+            import miniaudio  # noqa: F401
+            from elevenlabs import ElevenLabs  # noqa: F401
+            from elevenlabs.types import VoiceSettings  # noqa: F401
+            from websockets.exceptions import ConnectionClosedOK  # noqa: F401
+            from websockets.sync.client import connect  # noqa: F401
         except ImportError as exc:
             raise ConfigError(
                 "The 'elevenlabs' module requires the elevenlabs extra: "
                 "pip install tts-engine[elevenlabs]"
             ) from exc
 
-        api_key = resolve_api_key(config, label=_LABEL)
+    def __init__(
+        self, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> None:
+        values = self.validated(config)
+        self.imports()
+        import miniaudio
+        from elevenlabs import ElevenLabs
+        from elevenlabs.types import VoiceSettings
+        from websockets.exceptions import ConnectionClosedOK
+        from websockets.sync.client import connect
 
-        voice_id = config.get("voice_id")
-        if not isinstance(voice_id, str) or not voice_id:
-            raise ConfigError("ElevenLabs module requires a non-empty 'voice_id'")
+        api_key = self.resolve_api_key(config, secrets)
 
-        model = optional_str(config, "model", label=_LABEL, default="eleven_flash_v2_5")
-
-        timeout = finite_number(
-            config,
-            "timeout",
-            label=_LABEL,
-            default=_DEFAULT_TIMEOUT,
-            exclusive_minimum=0,
-        )
+        voice_id: str = values["voice_id"]
+        model: str = values["model"]
 
         self._api_key: str = api_key
         self._voice_id: str = voice_id
         self._model: str = model
-        self._timeout: float = float(timeout)
-        self._stability: float = finite_number(
-            config, "stability", label=_LABEL, default=0.5, minimum=0.0, maximum=1.0
-        )
-        self._similarity_boost: float = finite_number(
-            config,
-            "similarity_boost",
-            label=_LABEL,
-            default=0.75,
-            minimum=0.0,
-            maximum=1.0,
-        )
+        self._timeout: float = values["timeout"]
+        self._stability: float = values["stability"]
+        self._similarity_boost: float = values["similarity_boost"]
         self._miniaudio = miniaudio
         self._voice_settings_cls = VoiceSettings
         self._chunk_source_cls = _make_chunk_source_class(miniaudio)
@@ -227,7 +263,9 @@ class ElevenLabsModule(TTSModule):
         )
 
     @classmethod
-    def list_voices(cls, config: dict) -> list[VoiceInfo]:
+    def list_voices(
+        cls, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> list[VoiceInfo]:
         """The premade voices and the account's own, from `voices.get_all()`
         (the key needs the `voices_read` permission). The voice's `labels`
         carry its gender and age; the other labels become tags."""
@@ -238,7 +276,7 @@ class ElevenLabsModule(TTSModule):
                 "The 'elevenlabs' module requires the elevenlabs extra: "
                 "pip install tts-engine[elevenlabs]"
             ) from exc
-        api_key = resolve_api_key(config, label=_LABEL)
+        api_key = cls.resolve_api_key(config, secrets)
         timeout = finite_number(
             config,
             "timeout",

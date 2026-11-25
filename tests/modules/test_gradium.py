@@ -15,14 +15,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tts_engine.config import ConfigError
+from tts_engine.config import ConfigError, MissingSecretError
 from tts_engine.modules.base import TTSError, TTSOptions
 from tts_engine.modules.gradium import GradiumModule
 from tts_engine.modules.gradium import module as gradium_module
 
 VALID_CONFIG = {
     "type": "gradium",
-    "api_key": "test-api-key",
     "voice_id": "test-voice-id",
 }
 
@@ -159,6 +158,30 @@ def test_api_key_from_env(fake_gradium, monkeypatch):
     monkeypatch.setenv("MY_TTS_KEY", "env-secret")
     GradiumModule({"type": "gradium", "api_key_env": "MY_TTS_KEY", "voice_id": "v"})
     assert fake_gradium.client_kwargs == {"api_key": "env-secret"}
+
+
+def test_a_secret_given_in_code_wins_over_the_environment_and_stays_with_its_engine(
+    fake_gradium, monkeypatch
+):
+    from tts_engine import TTSEngine
+    from tts_engine.config import TTSEngineConfig
+    from tts_engine.modules import load_module
+
+    config = {"type": "gradium", "voice_id": "v"}  # GRADIUM_API_KEY by default
+    TTSEngine(
+        TTSEngineConfig.from_dict({"module": config, "player": {"discard": True}}),
+        secrets={"GRADIUM_API_KEY": "from-code"},
+    )
+    assert fake_gradium.client_kwargs == {"api_key": "from-code"}
+
+    # A name the given secrets lack is read from the environment.
+    load_module(config, secrets={"OTHER_KEY": "unused"})
+    assert fake_gradium.client_kwargs == {"api_key": "k"}
+
+    # The secrets given to one engine are not seen by the next one.
+    monkeypatch.delenv("GRADIUM_API_KEY")
+    with pytest.raises(MissingSecretError, match="'GRADIUM_API_KEY'"):
+        load_module(config)
 
 
 def test_base_url_reaches_the_client_only_when_set(fake_gradium):
@@ -648,7 +671,7 @@ _GRADIUM_ENTRIES = [
 def test_list_voices_includes_the_catalog_and_maps_each_voice(monkeypatch):
     calls = _fake_voice_sdk(monkeypatch, _GRADIUM_ENTRIES)
     micah, custom = GradiumModule.list_voices(
-        {"type": "gradium", "api_key": "k", "base_url": "https://eu.example/api/"}
+        {"type": "gradium", "base_url": "https://eu.example/api/"}
     )
 
     assert calls == {
@@ -675,7 +698,7 @@ def test_list_voices_works_from_a_thread_running_an_event_loop(monkeypatch):
     _fake_voice_sdk(monkeypatch, _GRADIUM_ENTRIES)
 
     async def inside_a_loop():
-        return GradiumModule.list_voices({"type": "gradium", "api_key": "k"})
+        return GradiumModule.list_voices({"type": "gradium"})
 
     assert len(asyncio.run(inside_a_loop())) == 2
 
@@ -683,4 +706,4 @@ def test_list_voices_works_from_a_thread_running_an_event_loop(monkeypatch):
 def test_list_voices_unexpected_response_is_a_tts_error(monkeypatch):
     _fake_voice_sdk(monkeypatch, {"error": "nope"})
     with pytest.raises(TTSError, match="unexpected response"):
-        GradiumModule.list_voices({"type": "gradium", "api_key": "k"})
+        GradiumModule.list_voices({"type": "gradium"})
